@@ -152,16 +152,36 @@ Nothing sill adds shadows a core nvim key.
 - Merge view: `]x` / `[x` next and previous conflict; `<localleader>o` ours, `<localleader>t` theirs,
   `<localleader>b` both. (Board 5 shows `co`/`ct`/`cb`, which shadow change-till and change-back-word.)
 - Diff view: nvim's own `]c`, `[c`, `do`, `dp`.
+- Terminal panes: as nvim's own `:terminal`. The pane's window is in normal mode until `i` (or `a`, `I`, `A`,
+  `<Insert>`) hands the keyboard to the terminal; `<C-\><C-n>` in the terminal hands it back, and `<C-\>`
+  followed by anything else reaches the terminal as typed. A click on a pane makes it current and gives it the
+  keyboard.
 - `<leader>a`: jump to the next agent that needs you. (Board 2 shows `ga`, which shadows "print character
   code".)
 
 ## 12. First week
 
-- Day 1: repo skeleton on heed's build setup, lift Veil's RPC layer, `nvim --embed` hello.
-- Day 2: multigrid, and a placeholder window covered by a libghostty surface; `<C-w>` across it.
+- Day 1 (done): repo skeleton on heed's build setup, lift Veil's RPC layer, `nvim --embed` hello.
+- Day 2 (done): multigrid, and a placeholder window covered by a libghostty surface; `<C-w>` across it.
 - Day 3: instanced Metal grid drawing a static linegrid.
 - Day 4: live nvim input to grid, cursor, colours.
 - Day 5: .NET sidecar handshake on the user's dotnet, signed build smoke test.
+
+Days 1 and 2 left these behind, for later days to pick up or keep:
+
+- The grid is drawn with CoreText on the main thread, only when a screen arrives, as a stand-in for day 3's Metal
+  grid. Keys reach nvim from day 2, because `<C-w>` across a pane needs them; IME, the input half of day 4, is not
+  done.
+- Placeholder windows come from sill's runtime (`runtime/plugin/sill.lua`, `:SillTerminal`), which reports which
+  windows are panes over `rpcnotify`. A pane lives as long as its buffer: closing its last window closes the
+  terminal.
+- sill runs as `NVIM_APPNAME=sill` with only its runtime added; sourcing the user's `init.lua` (§2, Config) is not
+  done.
+- Two fixes to the lifted RPC layer: window handles are decoded from their msgpack ext payload (Veil's decoding
+  gave wrong numbers for every handle above 127), and keys go to nvim from one ordered queue instead of a task per
+  key.
+- No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
+  Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
 ## 13. Caveats
 

@@ -1,0 +1,9 @@
+.build/
+build/
+.swiftpm/
+*.xcodeproj
+.DS_Store
+.cache/
+Vendor/
+mise.local.toml
+dist/
