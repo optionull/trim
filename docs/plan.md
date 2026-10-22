@@ -204,6 +204,11 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
 - Not in day 4: cursor blinking, a hollow cursor when the window is not focused, Option as Meta (Option goes to the
   input method, so the layout's characters and dead keys work; `<M-x>` mappings need a setting), `guifont` and font
   size, and accessibility.
+- Day 5, the sidecar half: `sidecar/Sill.Sidecar` (C#, net10.0, `RollForward=LatestMajor`, no apphost) speaks
+  Passenger's protocol, adapted: JSON lines, requests by id, partial results, cancellation, a ready line with the
+  protocol version. `SillSidecar` finds the user's dotnet (`SILL_DOTNET`, `DOTNET_ROOT`, the login shell's PATH, the
+  usual places), starts it, and fails every waiting request with the exit status and stderr if it dies. The app
+  starts it at launch; `scripts/bundle.sh` publishes it into Resources and refuses any native code in it.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

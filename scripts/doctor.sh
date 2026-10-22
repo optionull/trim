@@ -9,4 +9,5 @@ check "Swift 6.4+" "swift --version 2>&1 | grep -qE 'Swift version (6\.[4-9]|[7-
 check "Metal toolchain" "xcrun --find metal" "xcodebuild -downloadComponent MetalToolchain"
 check "zig 0.16" "zig version | grep -q '^0.16'" "mise install"
 check "nvim 0.12+" "nvim --version | head -1 | grep -qE 'NVIM v0\.(1[2-9]|[2-9][0-9])'" "mise use -g neovim@latest"
+check ".NET 10+ runtime and SDK" "dotnet --list-runtimes | grep -qE '^Microsoft.NETCore.App (1[0-9]|[2-9][0-9])\.'" "install the .NET SDK (https://dot.net)"
 [ "$ok" = 1 ]

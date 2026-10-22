@@ -2,6 +2,7 @@ import AppKit
 import SillCore
 import SillNvim
 import SillRender
+import SillSidecar
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -10,6 +11,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var editor: EditorView!
     private var panes: TerminalPanes!
     private var check: SelfCheck?
+    /// The .NET sidecar, started at launch; nil until it is ready, and after it failed to start.
+    private(set) var sidecar: Sidecar?
+    private(set) var sidecarReady: (ready: SidecarReady, seconds: Double)?
+    private(set) var sidecarProblem: String?
 
     func applicationDidFinishLaunching(_: Notification) {
         if ProcessInfo.processInfo.environment["SILL_BENCH"] == "1" {
@@ -39,8 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editor.onFocus = { [weak self] in self?.panes.focusEditor() }
 
         if ProcessInfo.processInfo.environment["SILL_CHECK"] == "1" {
-            check = SelfCheck(window: window, editor: editor, panes: panes, session: session)
+            check = SelfCheck(window: window, editor: editor, panes: panes, session: session, app: self)
         }
+        startSidecar()
         let updates = session.updates
         Task { [weak self] in
             for await update in updates {
@@ -71,11 +77,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    /// Starts the sidecar on the user's dotnet. sill works without it; what went wrong is kept for the status line.
+    private func startSidecar() {
+        let sidecar = Sidecar()
+        Task { [weak self] in
+            let started = CACurrentMediaTime()
+            do {
+                let ready = try await sidecar.start(dll: SidecarFiles.dll)
+                self?.sidecar = sidecar
+                self?.sidecarReady = (ready, CACurrentMediaTime() - started)
+            } catch {
+                self?.sidecarProblem = "\(error)"
+                NSLog("sill: the .NET sidecar did not start: \(error)")
+            }
+        }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
 
     func applicationWillTerminate(_: Notification) {
-        let session = session
-        Task { await session.stop() }
+        let session = session, sidecar = sidecar
+        Task {
+            await session.stop()
+            await sidecar?.stop()
+        }
     }
 
     private func fail(_ error: Error) {
@@ -102,6 +127,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editItem.submenu = editMenu
         NSApp.mainMenu = menu
+    }
+}
+
+/// Where the sidecar is: in the app bundle's Resources (published by scripts/bundle.sh), or, for a `swift run` build,
+/// as `dotnet build -c Release` leaves it in the source tree.
+enum SidecarFiles {
+    static var dll: URL {
+        if let override = ProcessInfo.processInfo.environment["SILL_SIDECAR"] {
+            return URL(fileURLWithPath: override)
+        }
+        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("sidecar/Sill.Sidecar.dll"),
+           FileManager.default.fileExists(atPath: bundled.path)
+        {
+            return bundled
+        }
+        return URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("sidecar/Sill.Sidecar/bin/Release/net10.0/Sill.Sidecar.dll")
     }
 }
 

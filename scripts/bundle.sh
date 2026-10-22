@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Assemble build/Sill.app from the SwiftPM product: the app binary, sill's nvim runtime (Contents/Resources/runtime),
-# Info.plist, then an ad-hoc signature. Follows heed's scripts/bundle.sh; Sparkle joins at M9.
+# the .NET sidecar (Contents/Resources/sidecar, framework-dependent: it runs on the user's dotnet), Info.plist, then an
+# ad-hoc signature. Follows heed's scripts/bundle.sh; Sparkle joins at M9.
 #
 #   scripts/bundle.sh debug|release
 set -euo pipefail
@@ -18,11 +19,21 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$products/SillApp" "$app/Contents/MacOS/Sill"
 rm -rf "$app/Contents/Resources/runtime"
 cp -R "$root/runtime" "$app/Contents/Resources/runtime"
+# The sidecar: managed code only, no apphost, so nothing in it is native code to sign.
+rm -rf "$app/Contents/Resources/sidecar"
+dotnet publish "$root/sidecar/Sill.Sidecar" -c Release -o "$app/Contents/Resources/sidecar" -nologo -v q >/dev/null
+native="$(find "$app/Contents/Resources/sidecar" -type f -exec file {} + | grep -i 'Mach-O' || true)"
+if [ -n "$native" ]; then
+  echo "bundle: the sidecar carries native code, which would need signing: $native" >&2
+  exit 1
+fi
 sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
   "$root/Resources/Info.plist" >"$app/Contents/Info.plist"
 codesign --force --sign - "$app"
-if [ ! -f "$app/Contents/Resources/runtime/plugin/sill.lua" ]; then
-  echo "bundle: sill's runtime is missing from the app" >&2
-  exit 1
-fi
+for wanted in runtime/plugin/sill.lua sidecar/Sill.Sidecar.dll; do
+  if [ ! -f "$app/Contents/Resources/$wanted" ]; then
+    echo "bundle: $wanted is missing from the app" >&2
+    exit 1
+  fi
+done
 echo "bundle: $app ($version, build $build, $commit)"

@@ -18,6 +18,9 @@ var targets: [Target] = [
     // AppKit input in nvim's terms: key notation, mouse and IME.
     .target(name: "SillInput"),
     .testTarget(name: "SillInputTests", dependencies: ["SillInput"]),
+    // The .NET sidecar: started on the user's own dotnet, JSON lines over its standard input and output.
+    .target(name: "SillSidecar", dependencies: ["SillNvim"]),
+    .testTarget(name: "SillSidecarTests", dependencies: ["SillSidecar"]),
     // The Metal grid: glyph atlas, instanced passes, and the render thread that draws screens.
     .target(
         name: "SillRender", dependencies: ["SillCore"],
@@ -25,7 +28,14 @@ var targets: [Target] = [
     ),
     .testTarget(name: "SillRenderTests", dependencies: ["SillRender", "SillCore", "SillNvim", messagePack]),
 ]
-var appDependencies: [Target.Dependency] = ["SillCore", "SillNvim", "SillRender", "SillInput", messagePack]
+var appDependencies: [Target.Dependency] = [
+    "SillCore",
+    "SillNvim",
+    "SillRender",
+    "SillInput",
+    "SillSidecar",
+    messagePack,
+]
 if hasGhostty {
     targets += [
         .binaryTarget(name: "GhosttyKit", path: "Vendor/GhosttyKit.xcframework"),

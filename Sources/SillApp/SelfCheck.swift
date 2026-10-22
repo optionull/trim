@@ -3,6 +3,7 @@ import Metal
 import os
 import SillCore
 import SillRender
+import SillSidecar
 #if SILL_GHOSTTY
     import SillTerminal
 #endif
@@ -17,16 +18,18 @@ final class SelfCheck {
     private let editor: EditorView
     private let panes: TerminalPanes
     private let session: EditorSession
+    private weak var app: AppDelegate?
     private var latest: Screen?
     /// The tag of the frame the editor submitted for the latest screen.
     private var latestTag: UInt64 = 0
     private let presented = OSAllocatedUnfairLock(initialState: [FrameTiming]())
 
-    init(window: NSWindow, editor: EditorView, panes: TerminalPanes, session: EditorSession) {
+    init(window: NSWindow, editor: EditorView, panes: TerminalPanes, session: EditorSession, app: AppDelegate) {
         self.window = window
         self.editor = editor
         self.panes = panes
         self.session = session
+        self.app = app
     }
 
     func observe(_ update: ScreenUpdate) {
@@ -59,6 +62,7 @@ final class SelfCheck {
 
         try await day3()
         try await day4()
+        try await day5()
 
         let size = editor.gridSize
         try await wait("nvim's screen to fill the view, \(size.cols)x\(size.rows)") {
@@ -255,6 +259,26 @@ final class SelfCheck {
         step("the window takes nvim's title")
         type(":enew!")
         press("\r", keyCode: 36)
+    }
+
+    /// Day 5: the .NET sidecar started on the user's dotnet, said which protocol it speaks, and answers.
+    private func day5() async throws {
+        let ready = try await waitFor("the sidecar", timeout: .seconds(20)) { () -> (SidecarReady, Double)? in
+            if let problem = self.app?.sidecarProblem { return (
+                SidecarReady(protocol: -1, runtime: problem, processId: 0),
+                0
+            ) }
+            return self.app?.sidecarReady
+        }
+        try expect(ready.0.protocol == Sidecar.protocolVersion, "the sidecar did not start: \(ready.0.runtime)")
+        let sidecar = try require(app?.sidecar, "the sidecar")
+        struct Text: Codable { var text: String }
+        let started = CACurrentMediaTime()
+        let pong = try await sidecar.request("ping", Text(text: "from sill"), as: Text.self)
+        let roundTrip = (CACurrentMediaTime() - started) * 1000
+        try expect(pong.text == "from sill", "the sidecar answered \(pong.text)")
+        step("the .NET sidecar runs on \(ready.0.runtime), ready in \(Bench.format(ready.1 * 1000)) ms, " +
+            "a ping round trip in \(Bench.format(roundTrip)) ms")
     }
 
     private func click(row: Int, col: Int) {

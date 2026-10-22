@@ -7,3 +7,5 @@ build/
 Vendor/
 mise.local.toml
 dist/
+sidecar/**/bin/
+sidecar/**/obj/

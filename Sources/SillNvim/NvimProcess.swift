@@ -86,7 +86,8 @@ public final nonisolated class NvimProcess: @unchecked Sendable {
     private nonisolated(unsafe) static var _cachedEnv: [String: String]?
     private static let envLock = NSLock()
 
-    static var cachedEnv: [String: String] {
+    /// The login shell's environment, captured once: an app started from the Dock has launchd's bare PATH.
+    public static var cachedEnv: [String: String] {
         envLock.lock()
         if let env = _cachedEnv {
             envLock.unlock()
@@ -231,7 +232,7 @@ public final nonisolated class NvimProcess: @unchecked Sendable {
         UserDefaults.standard.set(path, forKey: nvimPathDefaultsKey)
     }
 
-    private static func findInPath(_ binary: String, in pathString: String?) -> String? {
+    public static func findInPath(_ binary: String, in pathString: String?) -> String? {
         guard let pathString else { return nil }
         for dir in pathString.split(separator: ":") {
             let candidate = "\(dir)/\(binary)"
