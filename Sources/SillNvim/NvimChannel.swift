@@ -1,9 +1,20 @@
 // Lifted from Veil (https://github.com/0x1b2c/Veil, MIT, a29c3d0); see THIRD_PARTY_NOTICES.md.
 // Changed for sill: notifications other than `redraw` are delivered as events in order with the redraw batches,
-// `ui_attach` takes its options from the caller, input goes through one ordered queue, and Veil's own commands and
-// clipboard handlers are gone.
+// `ui_attach` takes its options from the caller, keys, mouse events and pastes go through one ordered queue, and Veil's
+// own commands and clipboard handlers are gone.
 import Foundation
 import MessagePack
+
+/// Input for nvim, sent in the order it was queued.
+public enum NvimInput: Sendable, Equatable {
+    /// Keys in nvim's notation, for `nvim_input`.
+    case keys(String)
+    /// `nvim_input_mouse`: button (left, right, middle, wheel), action (press, drag, release; up, down, left,
+    /// right for the wheel), modifiers (`C`, `S`, `A`, `D` run together), and a cell in a grid.
+    case mouse(button: String, action: String, modifiers: String, grid: Int, row: Int, col: Int)
+    /// `nvim_paste`, in one piece.
+    case paste(String)
+}
 
 public actor NvimChannel {
     private var process: NvimProcess?
@@ -11,20 +22,20 @@ public actor NvimChannel {
     private var transport: RpcTransport?
     private var eventContinuation: AsyncStream<[NvimEvent]>.Continuation?
     private var rpcTask: Task<Void, Never>?
-    private let inputContinuation: AsyncStream<String>.Continuation
+    private let inputContinuation: AsyncStream<NvimInput>.Continuation
     private var inputTask: Task<Void, Never>?
 
     /// Events are delivered in batches (one array per redraw notification) to reduce actor isolation boundary
     /// crossings. A single redraw with 50 grid_line events becomes one yield instead of 50.
     public nonisolated let events: AsyncStream<[NvimEvent]>
 
-    private let inputs: AsyncStream<String>
+    private let inputs: AsyncStream<NvimInput>
 
     public init() {
         let (stream, continuation) = AsyncStream<[NvimEvent]>.makeStream()
         events = stream
         eventContinuation = continuation
-        (inputs, inputContinuation) = AsyncStream<String>.makeStream()
+        (inputs, inputContinuation) = AsyncStream<NvimInput>.makeStream()
     }
 
     public func start(
@@ -81,12 +92,23 @@ public actor NvimChannel {
         }
     }
 
-    /// Keys are sent by one task in the order they were queued. A task per key, as Veil had, may run out of order.
+    /// Input is sent by one task in the order it was queued. A task per key, as Veil had, may run out of order.
     private func startInputLoop() {
         let inputs = inputs
         inputTask = Task {
-            for await keys in inputs {
-                _ = await self.request("nvim_input", params: [.string(keys)])
+            for await input in inputs {
+                switch input {
+                case let .keys(keys):
+                    _ = await self.request("nvim_input", params: [.string(keys)])
+                case let .mouse(button, action, modifiers, grid, row, col):
+                    _ = await self.request("nvim_input_mouse", params: [
+                        .string(button), .string(action), .string(modifiers),
+                        .int(Int64(grid)), .int(Int64(row)), .int(Int64(col)),
+                    ])
+                case let .paste(text):
+                    // crlf: true lets nvim turn \r\n into lines; phase -1: the paste is in one piece.
+                    _ = await self.request("nvim_paste", params: [.string(text), .bool(true), .int(-1)])
+                }
             }
         }
     }
@@ -112,7 +134,12 @@ public actor NvimChannel {
 
     /// Queues keys in nvim's notation (`<C-w>h`). Never waits: safe to call from the main thread.
     public nonisolated func send(keys: String) {
-        inputContinuation.yield(keys)
+        inputContinuation.yield(.keys(keys))
+    }
+
+    /// Queues input of any kind, in order with keys. Never waits.
+    public nonisolated func send(_ input: NvimInput) {
+        inputContinuation.yield(input)
     }
 
     public func command(_ cmd: String) async throws {
@@ -143,16 +170,6 @@ public actor NvimChannel {
 
     public func uiTryResize(width: Int, height: Int) async {
         _ = await request("nvim_ui_try_resize", params: [.int(Int64(width)), .int(Int64(height))])
-    }
-
-    public func inputMouse(button: String, action: String, modifier: String, grid: Int, row: Int, col: Int) async {
-        _ = await request(
-            "nvim_input_mouse",
-            params: [
-                .string(button), .string(action), .string(modifier),
-                .int(Int64(grid)), .int(Int64(row)), .int(Int64(col)),
-            ]
-        )
     }
 
     public func stop() {

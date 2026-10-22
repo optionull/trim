@@ -4,7 +4,7 @@ A native macOS code editor where nvim owns buffers, modes and keymaps and the ap
 and integrations: a Metal-rendered grid, Ghostty terminals as ordinary splits, a profiler, packages,
 diff and three-way merge, and a bridge that hands build errors and profiles to a coding agent.
 
-[docs/plan.md](docs/plan.md) is the plan; [docs/designs/](docs/designs/) holds the nine boards. Days 1 to 3 of the
+[docs/plan.md](docs/plan.md) is the plan; [docs/designs/](docs/designs/) holds the nine boards. Days 1 to 4 of the
 plan's first week are done: sill embeds nvim as a multigrid UI drawn by an instanced Metal grid, and a terminal pane
 is a placeholder nvim window with a Ghostty surface drawn over it.
 
@@ -38,6 +38,7 @@ hands it back; a click on the pane or on the editor does the same.
 |---|---|
 | `Sources/SillNvim` | nvim over msgpack-RPC, lifted from Veil |
 | `Sources/SillCore` | the screen model built from redraw events, and the session that runs nvim |
+| `Sources/SillInput` | AppKit input in nvim's terms: key notation, mouse modifiers, wheel steps |
 | `Sources/SillRender` | the Metal grid: glyph atlas, instanced passes, render thread; the flame graph's level of detail |
 | `Sources/SillTerminal` | the Ghostty surface, from heed |
 | `Sources/SillApp` | the AppKit app |

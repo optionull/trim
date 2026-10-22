@@ -31,6 +31,15 @@ public struct ModeInfo: Equatable, Sendable {
     public var name: String
     public var cursorShape: CursorShape
     public var cellPercentage: Int
+    /// The highlight the cursor is drawn in; 0 for the default (reversed colours).
+    public var attrId = 0
+
+    public init(name: String, cursorShape: CursorShape, cellPercentage: Int, attrId: Int = 0) {
+        self.name = name
+        self.cursorShape = cursorShape
+        self.cellPercentage = cellPercentage
+        self.attrId = attrId
+    }
 }
 
 // MARK: - NvimEvent
@@ -299,6 +308,7 @@ public enum NvimEvent: Sendable {
         var name = ""
         var shape = ModeInfo.CursorShape.block
         var cellPercentage = 0
+        var attrId = 0
         for (k, v) in dict {
             switch k.stringValue {
             case "name":
@@ -307,11 +317,13 @@ public enum NvimEvent: Sendable {
                 shape = ModeInfo.CursorShape(rawValue: v.stringValue ?? "") ?? .block
             case "cell_percentage":
                 cellPercentage = v.intValue
+            case "attr_id":
+                attrId = v.intValue
             default:
                 break
             }
         }
-        return ModeInfo(name: name, cursorShape: shape, cellPercentage: cellPercentage)
+        return ModeInfo(name: name, cursorShape: shape, cellPercentage: cellPercentage, attrId: attrId)
     }
 
     private nonisolated static func parseTabpageInfo(_ value: MessagePackValue) -> TabpageInfo? {

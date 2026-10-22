@@ -53,6 +53,21 @@ struct EmbedTests {
         #expect(screen.windows.first?.placement.width == 100)
     }
 
+    @Test("the cursor style follows the mode, from nvim's mode info")
+    func cursorStyle() async throws {
+        let nvim = try await Harness.start()
+        defer { Task { await nvim.stop() } }
+
+        var screen = try await nvim.screen("normal mode") { $0.mode == "normal" && !$0.modeInfo.isEmpty }
+        #expect(screen.cursorStyle?.cursorShape == .block)
+        await nvim.keys("i")
+        screen = try await nvim.screen("insert mode") { $0.mode == "insert" }
+        #expect(screen.cursorStyle?.cursorShape == .vertical && screen.cursorStyle?.cellPercentage == 25)
+        await nvim.keys("<Esc>R")
+        screen = try await nvim.screen("replace mode") { $0.mode == "replace" }
+        #expect(screen.cursorStyle?.cursorShape == .horizontal && screen.cursorStyle?.cellPercentage == 20)
+    }
+
     @Test("keys are delivered in the order they are sent")
     func keyOrder() async throws {
         let nvim = try await Harness.start()

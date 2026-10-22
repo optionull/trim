@@ -256,4 +256,103 @@ struct RendererTests {
         #expect(band.count(where: { $0 == background }) * 2 > band.count)
         #expect(canvas.pixel(x: 3 * canvas.cellWidth, y: 2 * canvas.cellHeight + 2) == background)
     }
+
+    // MARK: Day 4: cursor and colours
+
+    /// A window with "abc" at the top left and the cursor on the "b".
+    private func cursorScreen() -> ScreenBuilder {
+        var builder = ScreenBuilder(cols: 20, rows: 6)
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
+        builder.text("abc", grid: 2, row: 0)
+        builder.screen.apply(.gridCursorGoto(grid: 2, row: 0, col: 1))
+        return builder
+    }
+
+    @Test("a block cursor shows its cell reversed, character included")
+    func blockCursor() throws {
+        let canvas = try Canvas()
+        try canvas.render(Frame(screen: cursorScreen().screen, cursor: .init(shape: .block)))
+        let cell = canvas.cell(row: 0, col: 1)
+        #expect(cell.count(where: { $0 == foreground }) * 2 > cell.count, "mostly foreground: the cursor fill")
+        #expect(cell.contains(background), "the b, drawn in the background colour")
+        #expect(canvas.cell(row: 0, col: 0).count(where: { $0 == foreground }) * 2 < canvas.cell(row: 0, col: 0).count)
+    }
+
+    @Test("a vertical cursor is a bar the given share of the cell wide")
+    func verticalCursor() throws {
+        let canvas = try Canvas()
+        try canvas.render(Frame(screen: cursorScreen().screen, cursor: .init(shape: .vertical, percentage: 25)))
+        // Near the top of the cell, above the b: only the bar is there.
+        let y = 1, left = canvas.cellWidth
+        let bar = (left ..< left + canvas.cellWidth).count(where: { canvas.pixel(x: $0, y: y) == foreground })
+        #expect(bar == Int((Float(canvas.cellWidth) * 0.25).rounded()))
+        #expect(canvas.pixel(x: left + canvas.cellWidth - 1, y: 0) == background)
+    }
+
+    @Test("a cursor highlight sets its colours")
+    func cursorHighlight() throws {
+        let canvas = try Canvas()
+        var builder = cursorScreen()
+        builder.highlight(30, ["background": .int(0x40C080), "foreground": .int(0x000000)])
+        try canvas.render(Frame(screen: builder.screen, cursor: .init(shape: .block, highlight: 30)))
+        let cell = canvas.cell(row: 0, col: 1)
+        #expect(cell.count(where: { $0 == 0x40C080 }) * 2 > cell.count)
+        #expect(cell.contains(0x000000))
+    }
+
+    @Test("a float with the default background still covers the window under it")
+    func floatDefaultBackground() throws {
+        let canvas = try Canvas()
+        var builder = ScreenBuilder(cols: 20, rows: 6)
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
+        for row in 0 ..< 5 {
+            builder.text(String(repeating: "x", count: 20), grid: 2, row: row)
+        }
+        builder.float(grid: 3, row: 1, col: 4, cols: 6, rows: 2)
+        builder.text("      ", grid: 3, row: 0)
+        try canvas.render(Frame(screen: builder.screen))
+        #expect(Set(canvas.cell(row: 1, col: 6)) == [background])
+    }
+
+    @Test("blend lets what is under a float show through")
+    func blend() throws {
+        let canvas = try Canvas()
+        var builder = ScreenBuilder(cols: 20, rows: 6)
+        builder.highlight(5, ["background": .int(0xFF0000)])
+        builder.highlight(6, ["background": .int(0x0000FF), "blend": .int(50)])
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
+        builder.text(String(repeating: " ", count: 20), grid: 2, row: 1, hl: 5)
+        builder.float(grid: 3, row: 1, col: 4, cols: 6, rows: 1)
+        builder.text("      ", grid: 3, row: 0, hl: 6)
+        try canvas.render(Frame(screen: builder.screen))
+        let mixed = canvas.centre(row: 1, col: 6)
+        let (red, blue) = ((mixed >> 16) & 0xFF, mixed & 0xFF)
+        #expect(red > 0x40 && blue > 0x40, "\(String(mixed, radix: 16))")
+    }
+
+    @Test("underline styles", arguments: ["underdouble", "underdotted", "underdashed"])
+    func underlineStyles(style: String) throws {
+        let canvas = try Canvas()
+        var builder = ScreenBuilder(cols: 20, rows: 6)
+        builder.highlight(4, [style: .bool(true), "special": .int(0xFF3030)])
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
+        builder.text("    ", grid: 2, row: 2, col: 2, hl: 4)
+        try canvas.render(Frame(screen: builder.screen))
+        let xs = 2 * canvas.cellWidth ..< 6 * canvas.cellWidth
+        let lines = (2 * canvas.cellHeight ..< 3 * canvas.cellHeight).filter { y in xs.contains { canvas.pixel(
+            x: $0,
+            y: y
+        ) == 0xFF3030 } }
+        #expect(!lines.isEmpty)
+        let lit = xs.count(where: { canvas.pixel(x: $0, y: lines[0]) == 0xFF3030 })
+        switch style {
+        case "underdouble":
+            // Two lines with a gap between.
+            #expect(zip(lines, lines.dropFirst()).contains { $1 - $0 > 1 }, "\(lines)")
+            #expect(lit == xs.count)
+        default:
+            // Broken: lit and unlit along the line.
+            #expect(lit > xs.count / 5 && lit < xs.count * 4 / 5, "\(lit) of \(xs.count)")
+        }
+    }
 }

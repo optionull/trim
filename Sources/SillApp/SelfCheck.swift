@@ -58,6 +58,7 @@ final class SelfCheck {
         step("typed keys reach nvim and come back as a grid")
 
         try await day3()
+        try await day4()
 
         let size = editor.gridSize
         try await wait("nvim's screen to fill the view, \(size.cols)x\(size.rows)") {
@@ -174,6 +175,114 @@ final class SelfCheck {
         step("key to screen: median \(Bench.format(median)) ms, p95 \(Bench.format(worst)) ms over 40 keys; \(source)")
         let busy = loop.framesDrawn - before
         step("frames drawn while typing: \(busy) for 40 keys")
+    }
+
+    /// Day 4: the cursor follows nvim's mode info, input methods compose at the cursor, the mouse clicks and scrolls,
+    /// ⌘V pastes, and the window takes nvim's title.
+    private func day4() async throws {
+        type(":enew!")
+        press("\r", keyCode: 36)
+        try await wait("an empty buffer") { $0.cursorRow == 0 && $0.mode == "normal" }
+        let normal = try require(latest?.cursorStyle, "a cursor in normal mode")
+        try expect(normal.cursorShape == .block, "block cursor in normal mode, not \(normal.cursorShape)")
+        try expect(editor.currentFrame.cursor?.shape == .block, "the frame draws a block")
+        type("i")
+        let insert = try await wait("insert mode") { $0.mode.hasPrefix("insert") }
+        let style = try require(insert.cursorStyle, "a cursor in insert mode")
+        try expect(style.cursorShape == .vertical && style.cellPercentage == 25, "ver25 in insert mode")
+        try expect(editor.currentFrame.cursor?.shape == .vertical, "the frame draws a bar")
+        step("the cursor is nvim's: a block in normal mode, ver25 in insert mode")
+
+        // An input method composing, then committing. The candidate window goes under the cursor, and asking where
+        // that is does not wait on nvim.
+        editor.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange())
+        try expect(editor.hasMarkedText() && editor.subviews.contains { $0 is MarkedTextView }, "marked text shown")
+        let started = CACurrentMediaTime()
+        let candidates = editor.firstRect(forCharacterRange: NSRange(location: 0, length: 1), actualRange: nil)
+        let asked = (CACurrentMediaTime() - started) * 1000
+        let expected = window.convertToScreen(editor.convert(editor.cursorRect, to: nil))
+        try expect(candidates == expected, "candidates at \(candidates), cursor at \(expected)")
+        editor.insertText("日本語", replacementRange: NSRange(location: NSNotFound, length: 0))
+        try expect(!editor.hasMarkedText() && !editor.subviews.contains { $0 is MarkedTextView }, "marked text gone")
+        editor.setMarkedText("´", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange())
+        editor.insertText("é", replacementRange: NSRange(location: NSNotFound, length: 0))
+        try await wait("the committed text") { screen in
+            screen.placements.contains { screen.grids[$0.key]?.line(0).hasPrefix("日本語é") == true }
+        }
+        step(
+            "input methods: marked text at the cursor, committed text reaches nvim, firstRect in \(Bench.format(asked)) ms"
+        )
+        press("\u{1B}", keyCode: 53)
+
+        // A click on a cell moves nvim's cursor there.
+        type(":call setline(1, map(range(300), 'printf(\"line %d\", v:val)'))")
+        press("\r", keyCode: 36)
+        let filled = try await wait("300 lines") { screen in
+            screen.placements.contains { screen.grids[$0.key]?.line(5).hasPrefix("line 5") == true }
+        }
+        let windowGrid = try require(filled.placements.first { $0.value.kind == .window }, "the window grid")
+        click(row: windowGrid.value.row + 4, col: windowGrid.value.col + 3)
+        try await wait("the cursor at the click") {
+            $0.cursorGrid == windowGrid.key && $0.cursorRow == 4 && $0.cursorCol == 3
+        }
+        step("a click moves the cursor to the cell clicked")
+
+        // The wheel: three notches down scroll three lines a notch (nvim's default 'mousescroll').
+        wheel(lines: -3, row: windowGrid.value.row + 2, col: windowGrid.value.col + 2)
+        try await wait("scrolled") { screen in
+            screen.grids[windowGrid.key]?.line(0).hasPrefix("line 9") == true
+        }
+        step("the wheel scrolls the window under the pointer")
+
+        // ⌘V pastes the pasteboard through nvim_paste. The clipboard is put back afterwards.
+        let saved = NSPasteboard.general.string(forType: .string)
+        defer {
+            NSPasteboard.general.clearContents()
+            if let saved { NSPasteboard.general.setString(saved, forType: .string) }
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("pasted from the pasteboard", forType: .string)
+        type("gg0")
+        editor.paste(nil)
+        try await wait("the paste") { screen in
+            screen.placements.contains { screen.grids[$0.key]?.line(0).contains("pasted from the pasteboard") == true }
+        }
+        step("⌘V pastes through nvim_paste")
+
+        type(":set title titlestring=sill\\ title\\ check")
+        press("\r", keyCode: 36)
+        try await waitFor("the window title") { self.window.title == "sill title check" ? true : nil }
+        step("the window takes nvim's title")
+        type(":enew!")
+        press("\r", keyCode: 36)
+    }
+
+    private func click(row: Int, col: Int) {
+        let point = editor.convert(
+            NSPoint(x: (CGFloat(col) + 0.5) * editor.metrics.width, y: (CGFloat(row) + 0.5) * editor.metrics.height),
+            to: nil
+        )
+        // Straight to the editor: through the window, a click on an inactive window only activates it, and the
+        // check may run while another app is frontmost.
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            guard let event = NSEvent.mouseEvent(
+                with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+            ) else { continue }
+            if type == .leftMouseDown { editor.mouseDown(with: event) } else { editor.mouseUp(with: event) }
+        }
+    }
+
+    private func wheel(lines: Int32, row: Int, col: Int) {
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: lines, wheel2: 0, wheel3: 0
+        ) else { return }
+        let point = editor.convert(
+            NSPoint(x: (CGFloat(col) + 0.5) * editor.metrics.width, y: (CGFloat(row) + 0.5) * editor.metrics.height),
+            to: nil
+        )
+        cgEvent.location = window.convertPoint(toScreen: point).flipped(in: window.screen)
+        if let event = NSEvent(cgEvent: cgEvent) { editor.scrollWheel(with: event) }
     }
 
     // MARK: Keys, sent through the window as typed keys are
@@ -321,4 +430,11 @@ final class SelfCheck {
 
 struct CheckFailure: Error, CustomStringConvertible {
     var description: String
+}
+
+extension NSPoint {
+    /// A point in AppKit's screen coordinates (origin bottom left) in Quartz's (origin top left).
+    func flipped(in screen: NSScreen?) -> CGPoint {
+        CGPoint(x: x, y: (NSScreen.screens.first?.frame.height ?? screen?.frame.height ?? 0) - y)
+    }
 }

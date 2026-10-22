@@ -164,12 +164,11 @@ Nothing sill adds shadows a core nvim key.
 - Day 1 (done): repo skeleton on heed's build setup, lift Veil's RPC layer, `nvim --embed` hello.
 - Day 2 (done): multigrid, and a placeholder window covered by a libghostty surface; `<C-w>` across it.
 - Day 3 (done): instanced Metal grid drawing a static linegrid.
-- Day 4: live nvim input to grid, cursor, colours.
+- Day 4 (done): live nvim input to grid, cursor, colours.
 - Day 5: .NET sidecar handshake on the user's dotnet, signed build smoke test.
 
 Days 1 and 2 left these behind, for later days to pick up or keep:
 
-- Keys reach nvim from day 2, because `<C-w>` across a pane needs them; IME, the input half of day 4, is not done.
 - Placeholder windows come from sill's runtime (`runtime/plugin/sill.lua`, `:SillTerminal`), which reports which
   windows are panes over `rpcnotify`. A pane lives as long as its buffer: closing its last window closes the
   terminal.
@@ -195,6 +194,16 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   process only; bundling JetBrains Mono (OFL) is still to decide.
 - The atlas grows to 8192 pixels high and then starts over; a window moving to a display with another backing scale
   rebuilds the renderer.
+- Day 4: key notation, mouse modifiers and wheel steps live in `SillInput` and are unit-tested. Keys, mouse events
+  and pastes reach nvim through one ordered queue. Input methods go through `NSTextInputClient`, answered from the
+  cached screen (`firstRect` in 0.01 ms), with the marked text shown at the cursor. The mouse sends every button,
+  drags and releases to the grid they were pressed in, and the wheel adds trackpad pixels up into lines. ⌘V pastes
+  with `nvim_paste`, ⌘C and ⌘X yank and delete to `+` in Visual mode, and `set_title` titles the window. The cursor is
+  nvim's (`mode_info_set`: shape, size and highlight; a block shows the character under it reversed). Highlights
+  draw undercurl, double, dotted and dashed underlines and `blend`, and floats cover what is under them.
+- Not in day 4: cursor blinking, a hollow cursor when the window is not focused, Option as Meta (Option goes to the
+  input method, so the layout's characters and dead keys work; `<M-x>` mappings need a setting), `guifont` and font
+  size, and accessibility.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

@@ -45,6 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Task { [weak self] in
             for await update in updates {
                 self?.editor.show(update.screen)
+                if let window = self?.window, !update.screen.title.isEmpty, window.title != update.screen.title {
+                    window.title = update.screen.title
+                }
                 self?.panes.update(update)
                 self?.check?.observe(update)
             }
@@ -89,6 +92,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "Quit sill", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
+        // Copy, cut and paste go to the first responder: the editor (Visual mode and nvim_paste) or a terminal
+        // pane, which handles them itself before the menu sees them.
+        let editItem = NSMenuItem()
+        menu.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editItem.submenu = editMenu
         NSApp.mainMenu = menu
     }
 }

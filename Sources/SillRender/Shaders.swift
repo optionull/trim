@@ -16,6 +16,8 @@ enum Shaders {
     constant uint kindFill = 0;
     constant uint kindUnderline = 1;
     constant uint kindUndercurl = 2;
+    constant uint kindDotted = 3;
+    constant uint kindDashed = 4;
 
     struct RectInstance {
         float2 origin;
@@ -74,6 +76,13 @@ enum Shaders {
             float centre = half_band + amplitude * sin(in.local.x / period * 2.0 * M_PI_F);
             float distance = abs(in.local.y - centre);
             alpha *= clamp(in.thickness * 0.5 - distance + 0.5, 0.0, 1.0);
+        } else if (in.kind == kindDotted) {
+            // Dots as wide as the line is thick, a dot's width apart.
+            alpha *= step(fmod(in.local.x, in.thickness * 2.0), in.thickness);
+        } else if (in.kind == kindDashed) {
+            // Dashes three thicknesses long, two apart.
+            float dash = max(in.thickness * 3.0, 3.0);
+            alpha *= step(fmod(in.local.x, dash + max(in.thickness * 2.0, 2.0)), dash);
         }
         return float4(in.color.rgb * alpha, alpha);
     }

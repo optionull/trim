@@ -10,11 +10,20 @@ public struct Frame: Sendable {
     public var covered: Set<Int>
     public var cursor: Cursor?
 
+    /// The cursor as nvim's `mode_info_set` describes it for the current mode.
     public struct Cursor: Sendable, Equatable {
-        public enum Shape: Sendable, Equatable { case block, bar, underline }
+        public enum Shape: Sendable, Equatable { case block, vertical, horizontal }
         public var shape: Shape
+        /// How much of the cell a vertical or horizontal cursor takes, in percent.
+        public var percentage: Int
+        /// The cursor's highlight; 0 shows the cell under it in reverse.
+        public var highlight: Int
 
-        public init(shape: Shape) { self.shape = shape }
+        public init(shape: Shape, percentage: Int = 100, highlight: Int = 0) {
+            self.shape = shape
+            self.percentage = percentage
+            self.highlight = highlight
+        }
     }
 
     public init(screen: Screen, covered: Set<Int> = [], cursor: Cursor? = nil) {
@@ -47,6 +56,8 @@ struct RectInstance {
     static let fill: UInt32 = 0
     static let underline: UInt32 = 1
     static let undercurl: UInt32 = 2
+    static let dotted: UInt32 = 3
+    static let dashed: UInt32 = 4
 }
 
 struct GlyphInstance {
@@ -88,6 +99,8 @@ public final class GridRenderer {
 
     private struct Row {
         var version: UInt64
+        /// Built with the default background drawn (for a float or the message grid).
+        var covers: Bool
         var backgrounds: [RectInstance]
         var glyphs: [GlyphInstance]
         var decorations: [RectInstance]
@@ -161,6 +174,20 @@ public final class GridRenderer {
             }
             if !layer.decorations.isEmpty, let rectBuffer {
                 draw(encoder, rectPipeline, rectBuffer, layer.decorations, MemoryLayout<RectInstance>.stride, &uniforms)
+            }
+            // The cursor goes over its grid, and the character under a block cursor over the cursor.
+            if !layer.cursor.isEmpty, let rectBuffer {
+                draw(encoder, rectPipeline, rectBuffer, layer.cursor, MemoryLayout<RectInstance>.stride, &uniforms)
+            }
+            if !layer.cursorGlyph.isEmpty, let glyphBuffer {
+                draw(
+                    encoder,
+                    glyphPipeline,
+                    glyphBuffer,
+                    layer.cursorGlyph,
+                    MemoryLayout<GlyphInstance>.stride,
+                    &uniforms
+                )
             }
         }
     }
@@ -245,6 +272,8 @@ public final class GridRenderer {
         var backgrounds: Range<Int>
         var glyphs: Range<Int>
         var decorations: Range<Int>
+        var cursor: Range<Int> = 0 ..< 0
+        var cursorGlyph: Range<Int> = 0 ..< 0
     }
 
     private struct Layers {
@@ -277,15 +306,17 @@ public final class GridRenderer {
             let visible = min(buffer.rows, max(screenRows - placement.row, 0))
             let backgroundStart = layers.rects.count, glyphStart = layers.glyphs.count
             decorations.removeAll(keepingCapacity: true)
+            // Floats and the message grid cover what is under them, so their rows draw the default background too.
+            let covers = placement.kind != .window
             for row in 0 ..< visible {
                 let key = RowKey(grid: grid, row: row)
                 live.insert(key)
                 let built: Row
-                if let cached = rows[key], cached.version == buffer.rowVersions[row] {
+                if let cached = rows[key], cached.version == buffer.rowVersions[row], cached.covers == covers {
                     built = cached
                     stats.rowsReused += 1
                 } else {
-                    built = buildRow(buffer, row: row, style: style)
+                    built = buildRow(buffer, row: row, style: style, covers: covers)
                     rows[key] = built
                     stats.rowsBuilt += 1
                 }
@@ -303,15 +334,22 @@ public final class GridRenderer {
                     decorations.append(rect)
                 }
             }
-            if grid == screen.cursorGrid, let cursor = frame.cursor {
-                decorations.append(cursorRect(cursor, screen: screen, placement: placement))
-            }
             let decorationStart = layers.rects.count
             layers.rects.append(contentsOf: decorations)
-            layers.order.append(Layer(
+            var layer = Layer(
                 backgrounds: backgroundStart ..< decorationStart, glyphs: glyphStart ..< layers.glyphs.count,
                 decorations: decorationStart ..< layers.rects.count
-            ))
+            )
+            if grid == screen.cursorGrid, let cursor = frame.cursor {
+                let (rect, glyph) = cursorInstances(cursor, buffer: buffer, screen: screen, placement: placement)
+                layer.cursor = layers.rects.count ..< layers.rects.count + 1
+                layers.rects.append(rect)
+                if let glyph {
+                    layer.cursorGlyph = layers.glyphs.count ..< layers.glyphs.count + 1
+                    layers.glyphs.append(glyph)
+                }
+            }
+            layers.order.append(layer)
         }
         // Rows of grids that are gone, or rows past a grid's new end.
         if rows.count > live.count {
@@ -322,25 +360,54 @@ public final class GridRenderer {
         return layers
     }
 
-    private func cursorRect(_ cursor: Frame.Cursor, screen: Screen, placement: Placement) -> RectInstance {
-        let x = Float(placement.col + screen.cursorCol) * cellWidth
-        let y = Float(placement.row + screen.cursorRow) * cellHeight
-        var color = Self.color(screen.defaultForeground)
-        color.w = 0.75
+    /// The cursor's rect, and for a block cursor the character under it drawn in the cursor's text colour.
+    private func cursorInstances(
+        _ cursor: Frame.Cursor, buffer: GridBuffer, screen: Screen, placement: Placement
+    ) -> (RectInstance, GlyphInstance?) {
+        let (row, col) = (screen.cursorRow, screen.cursorCol)
+        let x = Float(placement.col + col) * cellWidth, y = Float(placement.row + row) * cellHeight
+        let inside = row < buffer.rows && col < buffer.cols
+        let cell = inside ? buffer[row, col] : Cell.blank
+        // The cell's own colours, which the default cursor (highlight 0) shows reversed.
+        let cellHighlight = screen.highlights[cell.hl] ?? Highlight()
+        var cellForeground = cellHighlight.foreground ?? screen.defaultForeground
+        var cellBackground = cellHighlight.background ?? screen.defaultBackground
+        if cellHighlight.reverse { swap(&cellForeground, &cellBackground) }
+        var fill = cellForeground, text = cellBackground
+        if cursor.highlight != 0, let style = screen.highlights[cursor.highlight] {
+            fill = style.background ?? fill
+            text = style.foreground ?? text
+            if style.reverse { swap(&fill, &text) }
+        }
+        let fraction = Float(min(max(cursor.percentage, 1), 100)) / 100
         switch cursor.shape {
-        case .block:
-            return RectInstance(origin: [x, y], size: [cellWidth, cellHeight], color: color)
-        case .bar:
-            return RectInstance(origin: [x, y], size: [max(2, Float(scale) * 1.5), cellHeight], color: color)
-        case .underline:
-            let height = max(2, Float(scale) * 1.5)
-            return RectInstance(origin: [x, y + cellHeight - height], size: [cellWidth, height], color: color)
+        case .vertical where fraction < 1:
+            let width = max(Float(scale), (cellWidth * fraction).rounded())
+            return (RectInstance(origin: [x, y], size: [width, cellHeight], color: Self.color(fill)), nil)
+        case .horizontal where fraction < 1:
+            let height = max(Float(scale), (cellHeight * fraction).rounded())
+            return (RectInstance(
+                origin: [x, y + cellHeight - height], size: [cellWidth, height], color: Self.color(fill)
+            ), nil)
+        default:
+            let wide = inside && col + 1 < buffer.cols && buffer[row, col + 1].text.isEmpty
+            let rect = RectInstance(
+                origin: [x, y], size: [cellWidth * (wide ? 2 : 1), cellHeight], color: Self.color(fill)
+            )
+            guard inside, !cell.text.isEmpty, cell.text != " " else { return (rect, nil) }
+            let region = atlas.region(
+                text: cell.text, bold: cellHighlight.bold, italic: cellHighlight.italic, cellCount: wide ? 2 : 1
+            )
+            return (rect, GlyphInstance(
+                origin: [x, y], size: [region.width, region.height], atlasOrigin: [region.x, region.y],
+                atlasSize: [region.width, region.height], color: Self.color(text), colored: region.colored ? 1 : 0
+            ))
         }
     }
 
     /// Instances for one row, positioned from the row's top-left corner.
-    private func buildRow(_ buffer: GridBuffer, row: Int, style: Style) -> Row {
-        var built = Row(version: buffer.rowVersions[row], backgrounds: [], glyphs: [], decorations: [])
+    private func buildRow(_ buffer: GridBuffer, row: Int, style: Style, covers: Bool) -> Row {
+        var built = Row(version: buffer.rowVersions[row], covers: covers, backgrounds: [], glyphs: [], decorations: [])
         let cols = buffer.cols
         var col = 0
         while col < cols {
@@ -354,10 +421,10 @@ public final class GridRenderer {
             var background = highlight.background ?? style.background
             if highlight.reverse { swap(&foreground, &background) }
             let x = Float(col) * cellWidth, width = Float(end - col) * cellWidth
-            if background != style.background {
-                built.backgrounds.append(RectInstance(
-                    origin: [x, 0], size: [width, cellHeight], color: Self.color(background)
-                ))
+            if covers || background != style.background {
+                var color = Self.color(background)
+                color.w = 1 - Float(highlight.blend) / 100
+                built.backgrounds.append(RectInstance(origin: [x, 0], size: [width, cellHeight], color: color))
             }
             appendGlyphs(buffer, row: row, cols: col ..< end, highlight: highlight, color: foreground, to: &built)
             appendDecorations(highlight, x: x, width: width, foreground: foreground, to: &built)
@@ -433,6 +500,18 @@ public final class GridRenderer {
             built.decorations.append(RectInstance(
                 origin: [x, cellHeight - band], size: [width, band], color: color, kind: RectInstance.undercurl,
                 thickness: thickness
+            ))
+        } else if highlight.underdouble {
+            for offset in [thickness * 3, thickness] {
+                built.decorations.append(RectInstance(
+                    origin: [x, cellHeight - offset], size: [width, thickness], color: color,
+                    kind: RectInstance.underline, thickness: thickness
+                ))
+            }
+        } else if highlight.underdotted || highlight.underdashed {
+            built.decorations.append(RectInstance(
+                origin: [x, cellHeight - thickness * 2], size: [width, thickness], color: color,
+                kind: highlight.underdotted ? RectInstance.dotted : RectInstance.dashed, thickness: thickness
             ))
         } else if highlight.underline {
             built.decorations.append(RectInstance(

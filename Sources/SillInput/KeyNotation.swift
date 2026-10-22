@@ -2,9 +2,9 @@
 import AppKit
 
 /// AppKit key events in nvim's key notation (`<C-w>`, `<lt>`, `<S-Tab>`).
-enum KeyNotation {
+public enum KeyNotation {
     /// The event as nvim keys, or nil when it has none (a lone modifier).
-    static func keys(for event: NSEvent) -> String? {
+    public static func keys(for event: NSEvent) -> String? {
         let modifiers = event.modifierFlags.intersection([.control, .option, .command])
         let characters = modifiers.isEmpty ? event.characters : event.charactersIgnoringModifiers
         guard let characters, !characters.isEmpty else { return nil }
@@ -16,7 +16,7 @@ enum KeyNotation {
         return keys.isEmpty ? nil : keys
     }
 
-    static func nvimKey(characters: String, modifiers: NSEvent.ModifierFlags) -> String {
+    public static func nvimKey(characters: String, modifiers: NSEvent.ModifierFlags) -> String {
         // Cocoa's `charactersIgnoringModifiers` applies Shift to punctuation, so Shift+] arrives as `}`. With Shift in
         // the set, go back to the unshifted form so the key matches how mappings are written (`<S-D-]>`).
         let resolved: String = {

@@ -72,3 +72,25 @@ struct ScreenTests {
         #expect(screen.placements[6]?.row == 3 && screen.placements[6]?.width == 10)
     }
 }
+
+@Suite("hit testing")
+struct HitTests {
+    @Test("a click goes to the grid on top, in its own cells")
+    func hit() {
+        var screen = Screen()
+        screen.apply(.gridResize(grid: 1, width: 80, height: 24))
+        for grid in [2, 3, 4] {
+            screen.apply(.gridResize(grid: grid, width: 10, height: 3))
+        }
+        screen.apply(.winPos(grid: 2, win: 1000, row: 0, col: 0, width: 40, height: 22))
+        screen.apply(.winPos(grid: 3, win: 1001, row: 0, col: 41, width: 39, height: 22))
+        screen.apply(.winFloatPos(
+            grid: 4, win: 1002, anchor: "NW", anchorGrid: 1, anchorRow: 5, anchorCol: 38, zindex: 50,
+            compindex: 1, screenRow: 5, screenCol: 38
+        ))
+        #expect(screen.hit(row: 2, col: 3) == (2, 2, 3))
+        #expect(screen.hit(row: 2, col: 45) == (3, 2, 4))
+        #expect(screen.hit(row: 6, col: 40) == (4, 1, 2), "the float is on top")
+        #expect(screen.hit(row: 23, col: 5) == (1, 23, 5), "the command line is grid 1")
+    }
+}

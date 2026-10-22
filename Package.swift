@@ -15,6 +15,9 @@ var targets: [Target] = [
     // What the UI draws, built from redraw events: grids, their placement, and which windows are terminal panes.
     .target(name: "SillCore", dependencies: ["SillNvim", messagePack]),
     .testTarget(name: "SillCoreTests", dependencies: ["SillCore", "SillNvim", messagePack]),
+    // AppKit input in nvim's terms: key notation, mouse and IME.
+    .target(name: "SillInput"),
+    .testTarget(name: "SillInputTests", dependencies: ["SillInput"]),
     // The Metal grid: glyph atlas, instanced passes, and the render thread that draws screens.
     .target(
         name: "SillRender", dependencies: ["SillCore"],
@@ -22,7 +25,7 @@ var targets: [Target] = [
     ),
     .testTarget(name: "SillRenderTests", dependencies: ["SillRender", "SillCore", "SillNvim", messagePack]),
 ]
-var appDependencies: [Target.Dependency] = ["SillCore", "SillNvim", "SillRender", messagePack]
+var appDependencies: [Target.Dependency] = ["SillCore", "SillNvim", "SillRender", "SillInput", messagePack]
 if hasGhostty {
     targets += [
         .binaryTarget(name: "GhosttyKit", path: "Vendor/GhosttyKit.xcframework"),

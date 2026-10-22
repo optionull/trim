@@ -50,7 +50,12 @@ public struct Highlight: Sendable, Equatable {
     public var italic = false
     public var underline = false
     public var undercurl = false
+    public var underdouble = false
+    public var underdotted = false
+    public var underdashed = false
     public var strikethrough = false
+    /// How far a float's background lets what is under it show through, 0 (opaque) to 100.
+    public var blend = 0
 
     public init() {}
 }
@@ -67,6 +72,12 @@ public struct Screen: Sendable {
     public private(set) var cursorRow = 0
     public private(set) var cursorCol = 0
     public private(set) var mode = "normal"
+    /// The cursor for each mode, from `mode_info_set`, and the index of the current one.
+    public private(set) var modeInfo: [ModeInfo] = []
+    public private(set) var modeIndex = 0
+    /// nvim is busy (`busy_start`): the cursor is hidden.
+    public private(set) var busy = false
+    public private(set) var title = ""
     /// Terminal panes by the handle of the placeholder window backing them, as sill's runtime last reported.
     public private(set) var panes: [Int: Int] = [:]
 
@@ -115,8 +126,17 @@ public struct Screen: Sendable {
         case let .defaultColorsSet(rgbFg, rgbBg, _, _, _):
             if rgbFg >= 0 { defaultForeground = rgbFg }
             if rgbBg >= 0 { defaultBackground = rgbBg }
-        case let .modeChange(mode, _):
+        case let .modeChange(mode, index):
             self.mode = mode
+            modeIndex = index
+        case let .modeInfoSet(_, list):
+            modeInfo = list
+        case .busyStart:
+            busy = true
+        case .busyStop:
+            busy = false
+        case let .setTitle(title):
+            self.title = title
         case let .notification(method, args) where method == "sill_panes":
             panes = Self.panes(args)
         default:
@@ -130,6 +150,13 @@ public struct Screen: Sendable {
     public var cursorWindow: Int? {
         guard let placement = placements[cursorGrid], placement.kind == .window else { return nil }
         return placement.win
+    }
+
+    /// How the cursor looks in the current mode; nil when nvim hides it (busy).
+    public var cursorStyle: ModeInfo? {
+        guard !busy else { return nil }
+        if modeInfo.indices.contains(modeIndex) { return modeInfo[modeIndex] }
+        return ModeInfo(name: mode, cursorShape: .block, cellPercentage: 100)
     }
 
     /// The terminal pane whose placeholder window is the current window, if any.
@@ -147,6 +174,16 @@ public struct Screen: Sendable {
             )
         }
         .sorted { $0.pane < $1.pane }
+    }
+
+    /// The grid on top at a cell of grid 1, and the cell in that grid's own coordinates: where a click goes.
+    public func hit(row: Int, col: Int) -> (grid: Int, row: Int, col: Int) {
+        let hit = drawOrder.last { _, placement in
+            row >= placement.row && row < placement.row + placement.height &&
+                col >= placement.col && col < placement.col + placement.width
+        }
+        guard let (grid, placement) = hit else { return (1, row, col) }
+        return (grid, row - placement.row, col - placement.col)
     }
 
     /// Grids in drawing order: grid 1, the windows, then floats and the message grid by their compindex.
@@ -187,6 +224,10 @@ public struct Screen: Sendable {
             case "underline": highlight.underline = value.boolValue ?? false
             case "undercurl": highlight.undercurl = value.boolValue ?? false
             case "strikethrough": highlight.strikethrough = value.boolValue ?? false
+            case "underdouble": highlight.underdouble = value.boolValue ?? false
+            case "underdotted": highlight.underdotted = value.boolValue ?? false
+            case "underdashed": highlight.underdashed = value.boolValue ?? false
+            case "blend": highlight.blend = min(max(value.intValue, 0), 100)
             default: break
             }
         }
