@@ -32,12 +32,20 @@ AppKit shell (Swift 6, not sandboxed)
                        profiler (EventPipe, ClrMD), debugger (DAP)
 ```
 
-- Layout decision: one app-level split tree; a Ghostty pane splits like any editor window.
+- Layout decision: nvim owns the split tree. A Ghostty pane is backed by a placeholder nvim window (a
+  `nofile` buffer) and the app draws the surface over that window's grid, so `:split`, `<C-w>hjkl`, resizing
+  and `:only` keep working and a Ghostty pane splits like any editor window. Tool views are placed the same
+  way.
 - nvim UI protocol: `ext_linegrid`, `ext_multigrid`, `ext_popupmenu`, `ext_cmdline`, `ext_messages`,
   `ext_tabline`; `win_viewport` for smooth scroll. Inlay hints and diagnostics render inside the nvim grid;
-  completion, cmdline and messages are native.
+  completion, cmdline and messages are native. The native popup takes built-in `vim.lsp.completion` through
+  `ext_popupmenu`, and an adapter plugin routes nvim-cmp and blink menus to it as well.
+- Config: sill runs as `NVIM_APPNAME=sill`. Its curated base config loads first, then sources the user's
+  `~/.config/nvim/init.lua` with runtimepath and data paths pointed at the user's own nvim directories, so
+  plugins and lockfile are shared with plain nvim. sill's native UI settings are applied last and win.
 - Threading rule: nothing on the main thread waits on nvim; the render thread only reads immutable grid
-  snapshots.
+  snapshots. IME queries (`NSTextInputClient` `firstRect`, `markedRange`) arrive synchronously on the main
+  thread and are answered from the cached grid and cursor, never a round trip to nvim.
 
 ## 3. Metal renderer
 
@@ -47,10 +55,17 @@ AppKit shell (Swift 6, not sandboxed)
   underlines in the shader, procedural box-drawing and powerline sprites (ported from Ghostty).
 - Damage tracking, 120 Hz via CAMetalDisplayLink, pixel scrolling, IME and accessibility. CoreText still
   shapes and rasterises; Metal draws.
+- Go/no-go for the grid spike: 120 fps pixel scroll on a full-screen 4K grid with ligatures (under 8.3 ms a
+  frame); keypress-to-glyph latency no worse than plain nvim in Ghostty; the display link pauses when nothing
+  changes; the 11.8M-sample flame graph pans and zooms at 120 fps.
 - Profiler output on the GPU too: level-of-detail aggregation so huge data stays smooth (for example 11.8M
   samples as 6,420 blocks, 3.1M objects as 4,812 tiles).
 
 ## 4. Reuse map (all MIT)
+
+All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](https://github.com/0x1b2c/Veil),
+[VimR](https://github.com/qvacua/vimr), [Passenger](https://github.com/Zaneris/passenger),
+[Ghostty](https://github.com/ghostty-org/ghostty). Recheck what is actually vendored before first release.
 
 | Source | Take | Leave / replace |
 |---|---|---|
@@ -63,7 +78,7 @@ AppKit shell (Swift 6, not sandboxed)
 
 | Language | Server | Notes |
 |---|---|---|
-| C# / Razor | .NET sidecar LSP broker (Roslyn LS + Razor HTML bridge via `__virtual.html`, `razor/updateHtml`) | Roslyn LS NuGet package contains non-OSS Visual Studio assemblies: download on the user's machine, never bundle in the DMG. |
+| C# / Razor (first, M3) | .NET sidecar LSP broker (Roslyn LS + Razor HTML bridge via `__virtual.html`, `razor/updateHtml`) | Roslyn LS NuGet package contains non-OSS Visual Studio assemblies: download on the user's machine, never bundle in the DMG. |
 | Rust | rust-analyzer via `vim.lsp` | Profiling with samply |
 | Swift | sourcekit-lsp via `vim.lsp` | Profiling with xctrace |
 | Markdown | marksman | |
@@ -85,20 +100,23 @@ AppKit shell (Swift 6, not sandboxed)
 - MCP server on a unix socket, modeled on Passenger's `--mcp-attach`, with a permission broker.
 - BuildCapture normalises dotnet, cargo JSON, swift and tsc output into one `Diagnostic` shape; problems
   panel sends them to the agent.
-- heed gap: heed has no URL scheme and no inbound request API (one-way hook socket only). Needs heed
-  start/send/sessions/watch plus a control socket on the heed side.
+- heed gap: heed has no URL scheme and no inbound request API (one-way hook socket only). It needs
+  start/send/sessions/watch over a control socket; that is heed work, scheduled on heed's roadmap to land
+  before M5.
+- heed owns agent sessions. sill shows a thin view over the control socket (who needs you, status, open in
+  heed) and does not rebuild heed's session UI.
 - Day-1 fallback: the editor's own Ghostty pane runs the agent.
 
 ## 8. Milestones
 
 | | Scope | Exit criteria |
 |---|---|---|
-| M0 | Spikes: Veil RPC lift, instanced Metal grid, libghostty embed, sidecar handshake | Each spike has a go/no-go note |
+| M0 | Spikes, in order: placeholder Ghostty pane under multigrid with `<C-w>` across it; Veil RPC lift; instanced Metal grid; sidecar handshake | Each spike has a go/no-go note |
 | M1 | Metal grid on a single nvim window | Daily-drivable text editing, 120 fps scroll |
 | M2 | Full UI protocol, multigrid, Ghostty pane, signed and notarized build | Notarized DMG opens on a clean Mac |
 | M3 | LSP, C# sidecar, build capture, problems | Open a .NET solution, build, jump to errors |
 | M4 | MCP server, editor-only agent loop | Agent fixes a build error end to end |
-| M5 | heed bridge | Send to heed and see the session in the editor |
+| M5 | heed bridge (needs heed's control socket) | Send to heed and see the session in the editor |
 | M6 | .NET profiler in sidecar, Razor | CPU and heap diff on a sample app |
 | M7 | Rust and Swift profiling, remaining language servers | samply and xctrace sessions viewable |
 | M8 | Debugger (DAP) | Breakpoints and stepping in C# |
@@ -106,33 +124,46 @@ AppKit shell (Swift 6, not sandboxed)
 
 ## 9. Packaging
 
-- Developer ID, hardened runtime, notarization. JIT entitlements for the .NET sidecar. Homebrew cask and
-  Sparkle updates.
+- Build, signing and release match heed exactly: same Developer ID, hardened runtime and notarization
+  pipeline, same libghostty xcframework step, Homebrew cask in `mpdreamz/tap`, Sparkle updates.
+- The .NET sidecar runs on the user's installed `dotnet` SDK, not a bundled runtime, so the app needs no JIT
+  entitlements.
 - Bundled pinned nvim with a "use PATH nvim" override.
-- Licence audit before first release: Roslyn LS fetched at runtime, heed licence not yet located.
+- Licence audit before first release: Roslyn LS fetched at runtime.
 
 ## 10. Top risks and spikes
 
 | Risk | Spike / mitigation |
 |---|---|
+| A Ghostty pane inside nvim's layout | Placeholder nvim window per pane; first M0 spike |
 | Grid renderer perf with multigrid and huge profile views | Instanced renderer with LOD; M0 benchmark on 11.8M-sample trace |
 | libghostty API stability and build (zig 0.16) | Pin to heed's commit; embed spike in M0 |
 | Razor/Roslyn LS outside Visual Studio | Follow Passenger's Razor bridge; sidecar broker; early C# spike |
 | Roslyn LS licensing | Download at first run, never bundle |
-| heed has no inbound API | Ship editor-local agent pane first; propose heed control socket |
-| JIT and notarization for sidecar | Entitlements tested in M2 build |
+| heed has no inbound API | Ship editor-local agent pane first; heed control socket lands before M5 |
+| Notarization with a sidecar | Sidecar runs on the user's dotnet; signed build tested in M2 |
 | IME and accessibility with a custom grid | Use VimR notes and NSTextInputClient early |
 | Merge tool correctness | Test against git's own conflict corpus; run as real mergetool in CI |
 
-## 11. First week
+## 11. Keys
 
-- Day 1: repo skeleton, lift Veil's RPC layer, `nvim --embed` hello.
-- Day 2: instanced Metal grid drawing a static linegrid.
-- Day 3: live nvim input to grid, cursor, colours.
-- Day 4: libghostty surface in a split.
-- Day 5: .NET sidecar handshake, signed build smoke test.
+Nothing sill adds shadows a core nvim key.
 
-## 12. Caveats
+- Merge view: `]x` / `[x` next and previous conflict; `<localleader>o` ours, `<localleader>t` theirs,
+  `<localleader>b` both. (Board 5 shows `co`/`ct`/`cb`, which shadow change-till and change-back-word.)
+- Diff view: nvim's own `]c`, `[c`, `do`, `dp`.
+- `<leader>a`: jump to the next agent that needs you. (Board 2 shows `ga`, which shadows "print character
+  code".)
+
+## 12. First week
+
+- Day 1: repo skeleton on heed's build setup, lift Veil's RPC layer, `nvim --embed` hello.
+- Day 2: multigrid, and a placeholder window covered by a libghostty surface; `<C-w>` across it.
+- Day 3: instanced Metal grid drawing a static linegrid.
+- Day 4: live nvim input to grid, cursor, colours.
+- Day 5: .NET sidecar handshake on the user's dotnet, signed build smoke test.
+
+## 13. Caveats
 
 - Plan derived from a read of Veil, VimR, Passenger, Ghostty and heed. Neovide, Zed and neonim source were
   not read; the Veil app was not built.
@@ -154,30 +185,12 @@ AppKit shell (Swift 6, not sandboxed)
 | [8. Memory profiler](designs/8-memory-profiler.png) | Heap treemap by growth, retainer path, payload sent to the agent |
 | [9. Agent handoff](designs/9-agent-handoff.png) | Build error to agent to verified diff |
 
-## Open questions
+## Next design pass
 
-Raised in review on 2026-10-22, not yet decided. Each is resolved by changing the sections above.
+The boards predate the decisions above. Fix in the next pass:
 
-1. **The shared split tree and nvim's own layout.** Under `ext_multigrid` nvim still owns window layout
-   (`:split`, `<C-w>hjkl`, resize, `:only`). A Ghostty pane nvim does not know about breaks those.
-   Proposal: back each Ghostty pane with a placeholder nvim window (a `nofile` buffer) and draw the
-   surface over it, so nvim stays authoritative for layout. Add as an M0 spike and a §10 risk.
-2. **IME on the main thread.** `NSTextInputClient` (`firstRect`, `markedRange`) is queried synchronously on
-   the main thread; answers must come from the cached grid and cursor, never a round trip to nvim.
-3. **Native completion needs the popupmenu path.** `ext_popupmenu` only sees completion that uses the
-   pum (built-in `vim.lsp.completion`); nvim-cmp and blink draw floating windows instead.
-4. **The sidecar may not need JIT entitlements.** Run it on the user's own `dotnet` SDK rather than a
-   bundled runtime and the app's hardened runtime never covers JIT.
-5. **heed is ours.** The control socket (§7) is heed work to schedule there, and the licence item in §9
-   goes away. Board 2 largely rebuilds heed's sessions view inside the editor, which pulls against "a
-   separate app, not a pane inside heed": decide who owns the sessions list before M5.
-6. **Key conflicts.** Merge keys `ct` and `cb` (board 5) shadow core change-till and change-back-word, and
-   `co` overlaps common conflict plugins; candidates are `<localleader>o/t/b` or `:diffget 2/3`. `ga`
-   (board 2) shadows core "print character code"; candidates are `]a`/`[a`, or binding it only in the
-   sessions view.
-7. **Board consistency.** Board 4 has `List<Line> Lines` where boards 2 and 9 have
-   `IReadOnlyList<Line> Lines`. Board 1's Ghostty pane says "Build succeeded" next to a problems panel
-   with two errors. Board 9 has a stray `)` after "CreateOrder.cs". The mergetool command in board 5 is still
-   `app`; it becomes `sill`.
-8. **Licences unchecked.** "All MIT" in §4 and what Passenger contains have not been verified against
-   each repo's LICENSE.
+- Board 2: a thin view over heed's sessions, not a full rebuild; `ga` becomes `<leader>a`.
+- Board 5: merge keys become `<localleader>o/t/b`; the mergetool command `app` becomes `sill`.
+- Board 4 has `List<Line> Lines` where boards 2 and 9 have `IReadOnlyList<Line> Lines`.
+- Board 1's Ghostty pane says "Build succeeded" next to a problems panel with two errors.
+- Board 9 has a stray `)` after "CreateOrder.cs".
