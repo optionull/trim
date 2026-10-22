@@ -58,7 +58,6 @@ final class TerminalPanes {
             }
         }
         editor.coveredGrids = Set(placed.values.map(\.grid))
-        editor.needsDisplay = true
 
         if let pane = update.focusPane {
             focus(pane)

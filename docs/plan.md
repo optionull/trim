@@ -163,15 +163,13 @@ Nothing sill adds shadows a core nvim key.
 
 - Day 1 (done): repo skeleton on heed's build setup, lift Veil's RPC layer, `nvim --embed` hello.
 - Day 2 (done): multigrid, and a placeholder window covered by a libghostty surface; `<C-w>` across it.
-- Day 3: instanced Metal grid drawing a static linegrid.
+- Day 3 (done): instanced Metal grid drawing a static linegrid.
 - Day 4: live nvim input to grid, cursor, colours.
 - Day 5: .NET sidecar handshake on the user's dotnet, signed build smoke test.
 
 Days 1 and 2 left these behind, for later days to pick up or keep:
 
-- The grid is drawn with CoreText on the main thread, only when a screen arrives, as a stand-in for day 3's Metal
-  grid. Keys reach nvim from day 2, because `<C-w>` across a pane needs them; IME, the input half of day 4, is not
-  done.
+- Keys reach nvim from day 2, because `<C-w>` across a pane needs them; IME, the input half of day 4, is not done.
 - Placeholder windows come from sill's runtime (`runtime/plugin/sill.lua`, `:SillTerminal`), which reports which
   windows are panes over `rpcnotify`. A pane lives as long as its buffer: closing its last window closes the
   terminal.
@@ -180,6 +178,23 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
 - Two fixes to the lifted RPC layer: window handles are decoded from their msgpack ext payload (Veil's decoding
   gave wrong numbers for every handle above 127), and keys go to nvim from one ordered queue instead of a task per
   key.
+- Day 3 drew the live grid, not a static one: `SillRender` builds instances per row (cached by row version), draws
+  them in two instanced passes per grid in multigrid order, on a render thread. The grid spike's go/no-go (§3),
+  measured with `mise run bench` (offscreen, 3840x2160) and `SILL_CHECK=1` on the owner's machine and LG 4K display:
+  - Scroll: a full 4K grid (240x49 cells, JetBrains Mono, 291 ligatures a frame) scrolled a line a frame, every row
+    rebuilt: p99 2.1 ms a frame, CPU and GPU together. Go.
+  - Flame graph: a synthetic 11.8M-sample profile (323,290 frames) zoomed 2000x and panned: p99 0.5 ms a frame. Go,
+    with a caveat: it draws at most 1,335 blocks a frame, against the 6,420 board 7 shows, and no labels yet.
+  - Idle: no frames drawn, and the display link paused, within 0.5 s of the last frame. Go.
+  - Key to screen: a median 28 ms (p95 35 ms) from the key event to the frame's presented time, of which 25 ms is
+    the wait for the display. Whether that is no worse than nvim in Ghostty is not measured: Ghostty does not expose
+    when its frames are presented.
+- Not `CAMetalDisplayLink` (§2, §3): with it key to screen was 65 ms, each frame drawn for a refresh about four
+  ahead. The render loop uses the view's display link and `nextDrawable()`, and draws a due frame at once.
+- The font is JetBrains Mono when installed, else the system monospace. `SILL_FONTS=<dir>` registers fonts for the
+  process only; bundling JetBrains Mono (OFL) is still to decide.
+- The atlas grows to 8192 pixels high and then starts over; a window moving to a display with another backing scale
+  rebuilds the renderer.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

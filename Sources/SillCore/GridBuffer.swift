@@ -1,4 +1,12 @@
 import SillNvim
+import Synchronization
+
+/// Row versions come from one counter for the whole process, so a version is never reused, across grids or screens.
+private let versionCounter = Atomic<UInt64>(0)
+
+private func nextVersion() -> UInt64 {
+    versionCounter.add(1, ordering: .relaxed).newValue
+}
 
 /// One cell of a grid. A double-width character fills its cell and leaves `text` empty in the one to its right.
 public struct Cell: Sendable, Equatable {
@@ -13,6 +21,8 @@ public struct GridBuffer: Sendable, Equatable {
     public private(set) var rows = 0
     public private(set) var cols = 0
     public private(set) var cells: [Cell] = []
+    /// Changes whenever a row's cells do: a renderer that keeps what it built for a row reuses it while this matches.
+    public private(set) var rowVersions: [UInt64] = []
 
     public init() {}
 
@@ -37,14 +47,17 @@ public struct GridBuffer: Sendable, Equatable {
         rows = newRows
         cols = newCols
         cells = resized
+        rowVersions = (0 ..< newRows).map { _ in nextVersion() }
     }
 
     mutating func clear() {
         cells = [Cell](repeating: .blank, count: rows * cols)
+        rowVersions = (0 ..< rows).map { _ in nextVersion() }
     }
 
     mutating func put(row: Int, colStart: Int, cells line: [GridCellData]) {
         guard row >= 0, row < rows else { return }
+        rowVersions[row] = nextVersion()
         var col = colStart
         for data in line {
             let cell = Cell(text: data.text, hl: data.hlId)
@@ -61,6 +74,7 @@ public struct GridBuffer: Sendable, Equatable {
         guard count != 0 else { return }
         let rowsInOrder = count > 0 ? Array(top ..< bottom - count) : Array((top - count ..< bottom).reversed())
         for row in rowsInOrder {
+            rowVersions[row] = nextVersion()
             let source = row + count
             for col in left ..< min(right, cols) {
                 cells[row * cols + col] = cells[source * cols + col]

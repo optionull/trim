@@ -5,8 +5,10 @@ project states it.
 
 ## Veil
 
-https://github.com/0x1b2c/Veil at a29c3d0. sill's msgpack-RPC layer (`Sources/SillNvim`) and its key notation
-(`Sources/SillApp/KeyNotation.swift`) are lifted from Veil and changed; each file says what changed.
+https://github.com/0x1b2c/Veil at a29c3d0. sill's msgpack-RPC layer (`Sources/SillNvim`), its key notation
+(`Sources/SillApp/KeyNotation.swift`), and the grid's run shaping, glyph atlas, box drawing and font fallback
+(`Sources/SillRender`) are lifted from Veil and changed; each file says what changed. Veil ported its box drawing
+from Ghostty, below.
 
 ```
 MIT License

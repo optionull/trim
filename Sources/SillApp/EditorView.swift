@@ -1,11 +1,12 @@
 import AppKit
 import SillCore
 import SillNvim
+import SillRender
 
-/// Draws nvim's grids where multigrid places them and sends it keys and mouse clicks.
+/// Shows nvim's grids where multigrid places them, and sends nvim keys and mouse clicks.
 ///
-/// A stand-in until the Metal grid (day 3 of the plan): it draws with CoreText on the main thread, run by run, only
-/// when a new screen arrives. It never waits on nvim: screens are handed to it, and input is queued.
+/// The view is backed by a `CAMetalLayer` that a render thread draws into (`RenderLoop`); the main thread only hands
+/// it frames. Nothing here waits on nvim: screens are handed in, and input is queued.
 @MainActor
 final class EditorView: NSView {
     private(set) var screen = Screen()
@@ -16,13 +17,26 @@ final class EditorView: NSView {
     /// Called when the editor takes the keyboard back (a click on it).
     var onFocus: (() -> Void)?
     /// Grids not to draw: those under a terminal pane.
-    var coveredGrids: Set<Int> = []
+    var coveredGrids: Set<Int> = [] {
+        didSet { if coveredGrids != oldValue { submit() } }
+    }
+
+    private let metalLayer = CAMetalLayer()
+    private(set) var loop: RenderLoop?
+    /// Tags the frames handed to the render loop, so a measurement can tell which screen reached the display.
+    private(set) var frameTag: UInt64 = 0
 
     init(channel: NvimChannel, metrics: CellMetrics) {
         self.channel = channel
         self.metrics = metrics
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 700))
+        wantsLayer = true
+        layerContentsRedrawPolicy = .never
+        metalLayer.isOpaque = true
+        startRenderer(scale: NSScreen.main?.backingScaleFactor ?? 2)
     }
+
+    override func makeBackingLayer() -> CALayer { metalLayer }
 
     @available(*, unavailable)
     required init?(coder _: NSCoder) { fatalError("not used") }
@@ -36,7 +50,7 @@ final class EditorView: NSView {
 
     func show(_ screen: Screen) {
         self.screen = screen
-        needsDisplay = true
+        submit()
     }
 
     /// The rectangle of a run of cells on grid 1, in points.
@@ -50,82 +64,71 @@ final class EditorView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         let before = gridSize
         super.setFrameSize(newSize)
+        updateDrawableSize()
         let after = gridSize
         if before != after { onResize?(after.cols, after.rows) }
     }
 
     // MARK: Drawing
 
-    override func draw(_: NSRect) {
-        let background = NSColor(rgb: screen.defaultBackground)
-        background.setFill()
-        bounds.fill()
-        let screenRows = screen.grids[1]?.rows ?? 0
-        for (grid, placement) in screen.drawOrder where !coveredGrids.contains(grid) {
-            guard let buffer = screen.grids[grid] else { continue }
-            // The message grid is as tall as the screen and starts part-way down: only what fits is shown.
-            let rows = min(buffer.rows, max(screenRows - placement.row, 0))
-            draw(buffer, rows: rows, atRow: placement.row, col: placement.col)
+    /// The glyph atlas is rasterised for one backing scale; a window moving to a display with another starts over.
+    private func startRenderer(scale: CGFloat) {
+        loop?.stop()
+        guard let device = MTLCreateSystemDefaultDevice(),
+              let renderer = try? GridRenderer(
+                  device: device, font: metrics.regular, cellSize: metrics.cellSize, scale: scale,
+                  pixelFormat: .bgra8Unorm
+              )
+        else {
+            NSLog("sill: no Metal renderer")
+            return
         }
-        drawCursor()
+        metalLayer.contentsScale = scale
+        loop = RenderLoop(layer: metalLayer, renderer: renderer) { target, selector in
+            self.displayLink(target: target, selector: selector)
+        }
+        rendererScale = scale
+        updateDrawableSize()
+        submit()
     }
 
-    private func draw(_ buffer: GridBuffer, rows: Int, atRow top: Int, col left: Int) {
-        for row in 0 ..< rows {
-            var col = 0
-            while col < buffer.cols {
-                // A run: cells with one highlight and plain single-width text, drawn as one string.
-                let hl = buffer[row, col].hl
-                var end = col
-                var text = ""
-                while end < buffer.cols, buffer[row, end].hl == hl {
-                    let cell = buffer[row, end]
-                    let wide = end + 1 < buffer.cols && buffer[row, end + 1].text.isEmpty
-                    if wide || !cell.text.allSatisfy(\.isASCII) {
-                        if end == col { text = cell.text; end += wide ? 2 : 1 }
-                        break
-                    }
-                    text += cell.text
-                    end += 1
-                }
-                drawRun(text, hl: hl, row: top + row, col: left + col, width: end - col)
-                col = end
-            }
+    private var rendererScale: CGFloat = 0
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        guard let scale = window?.backingScaleFactor else { return }
+        if scale != rendererScale {
+            startRenderer(scale: scale)
+        } else {
+            updateDrawableSize()
         }
     }
 
-    private func drawRun(_ text: String, hl: Int, row: Int, col: Int, width: Int) {
-        let style = screen.highlights[hl] ?? Highlight()
-        var foreground = style.foreground ?? screen.defaultForeground
-        var background = style.background ?? screen.defaultBackground
-        if style.reverse { swap(&foreground, &background) }
-        let cells = rect(row: row, col: col, width: width, height: 1)
-        if background != screen.defaultBackground || style.reverse {
-            NSColor(rgb: background).setFill()
-            cells.fill()
-        }
-        guard text.contains(where: { $0 != " " }) else { return }
-        var attributes: [NSAttributedString.Key: Any] = [
-            .font: metrics.font(bold: style.bold, italic: style.italic),
-            .foregroundColor: NSColor(rgb: foreground),
-        ]
-        if style.underline || style.undercurl {
-            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
-            if let special = style.special { attributes[.underlineColor] = NSColor(rgb: special) }
-        }
-        if style.strikethrough { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-        NSAttributedString(string: text, attributes: attributes)
-            .draw(at: NSPoint(x: cells.minX, y: cells.minY + metrics.textOffset))
+    private func updateDrawableSize() {
+        let size = CGSize(
+            width: bounds.width * metalLayer.contentsScale,
+            height: bounds.height * metalLayer.contentsScale
+        )
+        guard size.width > 0, size.height > 0, metalLayer.drawableSize != size else { return }
+        metalLayer.drawableSize = size
+        loop?.redraw()
     }
 
-    private func drawCursor() {
-        guard window?.firstResponder === self, !coveredGrids.contains(screen.cursorGrid) else { return }
-        let origin: (row: Int, col: Int) = screen.cursorGrid == 1 ? (0, 0) :
-            screen.placements[screen.cursorGrid].map { ($0.row, $0.col) } ?? (0, 0)
-        var cursor = rect(row: origin.row + screen.cursorRow, col: origin.col + screen.cursorCol, width: 1, height: 1)
-        if screen.mode.hasPrefix("insert") || screen.mode.hasPrefix("cmdline") { cursor.size.width = 2 }
-        NSColor(rgb: screen.defaultForeground).withAlphaComponent(0.8).setFill()
-        cursor.fill()
+    /// What the render thread is drawing now.
+    var currentFrame: Frame { Frame(screen: screen, covered: coveredGrids, cursor: cursor) }
+
+    /// Hands the current screen to the render thread.
+    private func submit() {
+        frameTag += 1
+        loop?.submit(currentFrame, tag: frameTag)
+    }
+
+    /// The cursor, while the editor has the keyboard; its shape follows the mode.
+    private var cursor: Frame.Cursor? {
+        guard window?.firstResponder === self else { return nil }
+        if screen.mode.hasPrefix("insert") || screen.mode.hasPrefix("cmdline") { return .init(shape: .bar) }
+        if screen.mode.hasPrefix("replace") { return .init(shape: .underline) }
+        return .init(shape: .block)
     }
 
     // MARK: Input
@@ -153,13 +156,15 @@ final class EditorView: NSView {
     override func mouseUp(with event: NSEvent) { mouse(event, action: "release") }
 
     override func becomeFirstResponder() -> Bool {
-        needsDisplay = true
-        return super.becomeFirstResponder()
+        let accepted = super.becomeFirstResponder()
+        submit()
+        return accepted
     }
 
     override func resignFirstResponder() -> Bool {
-        needsDisplay = true
-        return super.resignFirstResponder()
+        let resigned = super.resignFirstResponder()
+        DispatchQueue.main.async { [weak self] in self?.submit() }
+        return resigned
     }
 
     /// A click goes to the grid on top at that cell, in that grid's own coordinates.
@@ -178,39 +183,5 @@ final class EditorView: NSView {
                 col: col - placement.col
             )
         }
-    }
-}
-
-/// The cell size and fonts of the grid.
-struct CellMetrics {
-    let regular: NSFont
-    let width: CGFloat
-    let height: CGFloat
-    /// From the top of a cell to where text is drawn, centring the line in the cell.
-    let textOffset: CGFloat
-
-    init(size: CGFloat = 13) {
-        regular = NSFont(name: "JetBrains Mono", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
-        width = ceil(("M" as NSString).size(withAttributes: [.font: regular]).width)
-        let line = ceil(regular.ascender - regular.descender + regular.leading)
-        height = ceil(line * 1.2)
-        textOffset = floor((height - line) / 2)
-    }
-
-    func font(bold: Bool, italic: Bool) -> NSFont {
-        var traits: NSFontTraitMask = []
-        if bold { traits.insert(.boldFontMask) }
-        if italic { traits.insert(.italicFontMask) }
-        guard !traits.isEmpty else { return regular }
-        return NSFontManager.shared.convert(regular, toHaveTrait: traits)
-    }
-}
-
-extension NSColor {
-    convenience init(rgb: Int) {
-        self.init(
-            srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255,
-            blue: CGFloat(rgb & 0xFF) / 255, alpha: 1
-        )
     }
 }

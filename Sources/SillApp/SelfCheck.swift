@@ -1,5 +1,8 @@
 import AppKit
+import Metal
+import os
 import SillCore
+import SillRender
 #if SILL_GHOSTTY
     import SillTerminal
 #endif
@@ -15,6 +18,9 @@ final class SelfCheck {
     private let panes: TerminalPanes
     private let session: EditorSession
     private var latest: Screen?
+    /// The tag of the frame the editor submitted for the latest screen.
+    private var latestTag: UInt64 = 0
+    private let presented = OSAllocatedUnfairLock(initialState: [FrameTiming]())
 
     init(window: NSWindow, editor: EditorView, panes: TerminalPanes, session: EditorSession) {
         self.window = window
@@ -25,15 +31,18 @@ final class SelfCheck {
 
     func observe(_ update: ScreenUpdate) {
         latest = update.screen
+        latestTag = editor.frameTag
     }
 
     func run() async {
         do {
             try await steps()
             print("sill check: passed")
+            fflush(stdout)
             exit(0)
         } catch {
             print("sill check: FAILED: \(error)")
+            fflush(stdout)
             exit(1)
         }
     }
@@ -47,6 +56,8 @@ final class SelfCheck {
             screen.placements.contains { screen.grids[$0.key]?.line(0).hasPrefix("hello, sill") == true }
         }
         step("typed keys reach nvim and come back as a grid")
+
+        try await day3()
 
         let size = editor.gridSize
         try await wait("nvim's screen to fill the view, \(size.cols)x\(size.rows)") {
@@ -107,6 +118,62 @@ final class SelfCheck {
         try await wait("no panes") { $0.paneRects.isEmpty && $0.panes.isEmpty }
         _ = try await waitFor("the surface gone") { view.superview == nil ? true : nil }
         step(":only closes the pane and its terminal")
+    }
+
+    /// Day 3 on screen: the Metal grid draws nothing while idle, and how long a key takes to reach the display.
+    private func day3() async throws {
+        let loop = try require(editor.loop, "the render loop")
+        let presented = presented
+        loop.onPresented = { timing in presented.withLock { $0.append(timing) } }
+
+        try await Task.sleep(for: .milliseconds(300))
+        let before = loop.framesDrawn
+        try await Task.sleep(for: .seconds(1.5))
+        let idle = loop.framesDrawn - before
+        try expect(idle == 0, "\(idle) frames drawn while idle")
+        try expect(loop.isPaused, "the display link still running while idle")
+        step("idle: no frames drawn in 1.5 s, and the display link paused")
+
+        // Insert mode on a new line, then one key at a time: from the key event to the frame showing it on screen.
+        type("o")
+        try await wait("insert mode") { $0.mode.hasPrefix("insert") }
+        var latencies: [Double] = []
+        var measured = 0
+        var stages: [[Double]] = [[], [], []]
+        for count in 1 ... 40 {
+            let sent = CACurrentMediaTime()
+            type("x")
+            let typed = String(repeating: "x", count: count)
+            try await wait("x number \(count)") { screen in
+                screen.placements.contains { screen.grids[$0.key]?.line(1).hasPrefix(typed) == true }
+            }
+            let tag = latestTag
+            let timing = try await waitFor("the frame with x number \(count) on screen") {
+                presented.withLock { $0.first { $0.tag >= tag } }
+            }
+            // When the system gives no presented time, the frame's commit stands in, which leaves out the wait for
+            // the display.
+            if timing.presented > 0 { measured += 1 }
+            stages[0].append((timing.submitted - sent) * 1000)
+            stages[1].append((timing.committed - timing.submitted) * 1000)
+            stages[2].append(timing.presented > 0 ? (timing.presented - timing.committed) * 1000 : -1)
+            latencies.append(((timing.presented > 0 ? timing.presented : timing.committed) - sent) * 1000)
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        press("\u{1B}", keyCode: 53)
+        loop.onPresented = nil
+        let median = Bench.percentile(latencies, 0.5), worst = Bench.percentile(latencies, 0.95)
+        print("latency stages (median ms): key to submit \(Bench.format(Bench.percentile(stages[0], 0.5))), " +
+            "submit to commit \(Bench.format(Bench.percentile(stages[1], 0.5))), " +
+            "commit to presented \(Bench.format(Bench.percentile(stages[2], 0.5))), presented \(measured)/40")
+        fflush(stdout)
+        try expect(median < 50, "median key-to-screen latency \(Bench.format(median)) ms")
+        let source = measured == latencies.count ? "to the frame's presented time" :
+            "\(latencies.count - measured) of \(latencies.count) frames gave no presented time and were measured " +
+            "to their commit, which leaves out the wait for the display"
+        step("key to screen: median \(Bench.format(median)) ms, p95 \(Bench.format(worst)) ms over 40 keys; \(source)")
+        let busy = loop.framesDrawn - before
+        step("frames drawn while typing: \(busy) for 40 keys")
     }
 
     // MARK: Keys, sent through the window as typed keys are
@@ -194,12 +261,38 @@ final class SelfCheck {
 
     private func step(_ text: String) {
         print("ok    \(text)")
+        fflush(stdout)
     }
 
+    /// Renders the editor's current frame offscreen with a renderer of its own (the render thread's is not shared),
+    /// then draws each terminal's text where its surface is.
     private func shot(to path: String) throws {
-        editor.displayIfNeeded()
-        let rep = try require(editor.bitmapImageRepForCachingDisplay(in: editor.bounds), "bitmap for the shot")
-        editor.cacheDisplay(in: editor.bounds, to: rep)
+        let scale = window.backingScaleFactor
+        let device = try require(MTLCreateSystemDefaultDevice(), "a Metal device")
+        let renderer = try GridRenderer(
+            device: device, font: editor.metrics.regular, cellSize: editor.metrics.cellSize, scale: scale,
+            pixelFormat: .bgra8Unorm
+        )
+        let (width, height) = (Int(editor.bounds.width * scale), Int(editor.bounds.height * scale))
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false
+        )
+        descriptor.usage = [.renderTarget, .shaderRead]
+        descriptor.storageMode = .shared
+        let texture = try require(device.makeTexture(descriptor: descriptor), "a texture for the shot")
+        let commands = try require(renderer.render(editor.currentFrame, to: texture), "a command buffer")
+        commands.waitUntilCompleted()
+        let rep = try require(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: width * 4, bitsPerPixel: 32
+        ), "a bitmap for the shot")
+        let pixels = try require(rep.bitmapData, "the shot's pixels")
+        texture.getBytes(pixels, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
+        // The texture is BGRA; the bitmap is RGBA.
+        for index in stride(from: 0, to: width * height * 4, by: 4) {
+            (pixels[index], pixels[index + 2]) = (pixels[index + 2], pixels[index])
+        }
+        rep.size = editor.bounds.size
         #if SILL_GHOSTTY
             // Over each surface, its text as read back from Ghostty. The bitmap's context is not flipped.
             let context = try require(NSGraphicsContext(bitmapImageRep: rep), "a context on the shot")
@@ -210,12 +303,12 @@ final class SelfCheck {
                     x: surface.frame.minX, y: editor.bounds.height - surface.frame.maxY,
                     width: surface.frame.width, height: surface.frame.height
                 )
-                NSColor(rgb: 0x15171A).setFill()
+                NSColor(srgbRed: 0.08, green: 0.09, blue: 0.10, alpha: 1).setFill()
                 frame.fill()
                 let text = (surface.visibleText() ?? "") as NSString
                 text.draw(
                     in: frame.insetBy(dx: 14, dy: 10),
-                    withAttributes: [.font: editor.metrics.regular, .foregroundColor: NSColor(rgb: 0xCFD3D8)]
+                    withAttributes: [.font: editor.metrics.regular, .foregroundColor: NSColor.lightGray]
                 )
             }
             context.flushGraphics()

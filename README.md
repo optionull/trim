@@ -4,9 +4,9 @@ A native macOS code editor where nvim owns buffers, modes and keymaps and the ap
 and integrations: a Metal-rendered grid, Ghostty terminals as ordinary splits, a profiler, packages,
 diff and three-way merge, and a bridge that hands build errors and profiles to a coding agent.
 
-[docs/plan.md](docs/plan.md) is the plan; [docs/designs/](docs/designs/) holds the nine boards. Days 1 and 2 of the
-plan's first week are done: sill embeds nvim as a multigrid UI, and a terminal pane is a placeholder nvim window
-with a Ghostty surface drawn over it. The grid is still drawn with CoreText; the Metal grid is day 3.
+[docs/plan.md](docs/plan.md) is the plan; [docs/designs/](docs/designs/) holds the nine boards. Days 1 to 3 of the
+plan's first week are done: sill embeds nvim as a multigrid UI drawn by an instanced Metal grid, and a terminal pane
+is a placeholder nvim window with a Ghostty surface drawn over it.
 
 ## Building
 
@@ -20,9 +20,10 @@ mise run test      # the Swift Testing suite; the nvim tests start a real `nvim 
 mise run lint
 ```
 
-`SILL_CHECK=1 build/Sill.app/Contents/MacOS/Sill` plays days 1 and 2 in the real app, with key events sent through
-the window, and exits non-zero on the first failing step. `SILL_CHECK_SHOT=<file.png>` also saves the window with a
-pane open.
+`SILL_CHECK=1 build/Sill.app/Contents/MacOS/Sill` plays the first week in the real app, with key events sent through
+the window, and exits non-zero on the first failing step; it also measures idle frames and key-to-screen latency.
+`SILL_CHECK_SHOT=<file.png>` saves the window with a pane open. `mise run bench` measures the Metal grid at 4K on a
+release build. `SILL_FONTS=<dir>` uses the fonts in a directory without installing them (JetBrains Mono, say).
 
 ## Terminal panes
 
@@ -37,6 +38,7 @@ hands it back; a click on the pane or on the editor does the same.
 |---|---|
 | `Sources/SillNvim` | nvim over msgpack-RPC, lifted from Veil |
 | `Sources/SillCore` | the screen model built from redraw events, and the session that runs nvim |
+| `Sources/SillRender` | the Metal grid: glyph atlas, instanced passes, render thread; the flame graph's level of detail |
 | `Sources/SillTerminal` | the Ghostty surface, from heed |
 | `Sources/SillApp` | the AppKit app |
 | `runtime/` | sill's nvim runtime (`:SillTerminal`, the placeholder buffers) |

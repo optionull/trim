@@ -1,6 +1,7 @@
 import AppKit
 import SillCore
 import SillNvim
+import SillRender
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -11,6 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var check: SelfCheck?
 
     func applicationDidFinishLaunching(_: Notification) {
+        if ProcessInfo.processInfo.environment["SILL_BENCH"] == "1" {
+            Bench.run()
+            return
+        }
         buildMenu()
         let directory = ProcessInfo.processInfo.environment["SILL_CWD"] ?? FileManager.default.currentDirectoryPath
         let workingDirectory = directory == "/" ? NSHomeDirectory() : directory
