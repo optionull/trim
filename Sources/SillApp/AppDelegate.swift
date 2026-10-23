@@ -88,17 +88,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // Arguments after the binary are nvim's (files to open); `open` adds -psn and -NS ones of its own.
                 var arguments = CommandLine.arguments.dropFirst()
                     .filter { !$0.hasPrefix("-psn") && !$0.hasPrefix("-NS") }
-                // The self-check and the showcase leave no swap files behind, even when stopped half-way.
-                if ProcessInfo.processInfo.environment["SILL_CHECK"] != nil ||
-                    ProcessInfo.processInfo.environment["SILL_SHOWCASE"] != nil
-                {
-                    arguments.insert("-n", at: 0)
-                }
+                // The self-check and the showcase run sill alone (no user config) and leave no swap files behind, even
+                // when stopped half-way. SILL_NVIM_CONFIG=0 asks for sill alone too.
+                let environment = NvimProcess.cachedEnv.merging(ProcessInfo.processInfo.environment) { _, own in own }
+                let showcaseAlone = environment["SILL_SHOWCASE"] != nil && environment["SILL_SHOWCASE_USER"] != "1"
+                let alone = environment["SILL_CHECK"] != nil || showcaseAlone || environment["SILL_NVIM_CONFIG"] == "0"
+                if alone { arguments.insert("-n", at: 0) }
+                let startup = EditorSession.startup(environment: environment, own: alone)
+                // Days 1 to 5's check runs nvim as they had it: no base settings either.
+                let base = environment["SILL_CHECK"] == "1" ? [] : startup.arguments
                 try await session.start(
-                    runtime: Runtime.directory, cols: cols, rows: rows, cwd: workingDirectory,
-                    extraArgs: Array(arguments)
+                    runtime: Runtime.directory, cols: cols, rows: rows, cwd: workingDirectory, appName: startup.appName,
+                    extraArgs: base + Array(arguments)
                 )
-                if chrome { try await session.channel.command("SillChrome") }
+                if chrome {
+                    do {
+                        try await session.channel.command("SillChrome")
+                    } catch {
+                        // The editor works without its chrome; say why it is missing.
+                        NSLog("sill: :SillChrome failed: \(error)")
+                        Nvim.lua(session.channel, "vim.notify(...)", [.string("sill's chrome did not open: \(error)")])
+                    }
+                }
                 await self?.check?.run()
             } catch {
                 self?.fail(error)
@@ -224,6 +235,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func fail(_ error: Error) {
+        // The self-check and the showcase run unattended: an alert would wait for no one.
+        if check != nil {
+            print("sill: could not start nvim: \(error)")
+            fflush(stdout)
+            exit(1)
+        }
         let alert = NSAlert(error: error)
         alert.messageText = "sill could not start nvim"
         alert.runModal()

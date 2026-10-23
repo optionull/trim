@@ -374,13 +374,27 @@ end
 function M.chrome()
   vim.g.sill_chrome = true
   vim.o.laststatus = 0
+  -- sill's status bar replaces nvim's status lines; a plugin turning them back on (lualine sets laststatus) is put
+  -- back, whenever it does it.
+  vim.api.nvim_create_autocmd('OptionSet', {
+    group = vim.api.nvim_create_augroup('sill_chrome', {}),
+    pattern = 'laststatus',
+    callback = function()
+      if vim.o.laststatus ~= 0 then
+        vim.schedule(function() vim.o.laststatus = 0 end)
+      end
+    end,
+  })
   vim.o.statusline = "%{v:lua.require'sill'.rule()}"
   vim.o.ruler = false
   vim.o.showmode = false
   vim.opt.fillchars = { eob = ' ', vert = '│', horiz = '─', horizup = '┴', horizdown = '┬', vertleft = '┤',
     vertright = '├', verthoriz = '┼' }
-  for group, spec in pairs(colours) do
-    vim.api.nvim_set_hl(0, group, spec)
+  -- The board's colours, unless the user's config chose a colour scheme: theirs wins.
+  if vim.g.colors_name == nil or vim.g.colors_name == 'default' then
+    for group, spec in pairs(colours) do
+      vim.api.nvim_set_hl(0, group, spec)
+    end
   end
   local editor = vim.api.nvim_get_current_win()
   vim.g.sill_editor_win = editor

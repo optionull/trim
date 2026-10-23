@@ -9,6 +9,9 @@ final class SplitTabs {
     private let editor: EditorView
     private let channel: NvimChannel
     private(set) var strips: [Int: SplitTabStrip] = [:]
+    /// Rules over the status lines nvim keeps between stacked windows: whatever draws in them (lualine, say), sill's
+    /// status bar says it, and the rows read as a separator.
+    private(set) var rules: [Int: RuleView] = [:]
 
     init(editor: EditorView, channel: NvimChannel) {
         self.editor = editor
@@ -34,6 +37,26 @@ final class SplitTabs {
         for (win, strip) in strips where !shown.contains(win) {
             strip.removeFromSuperview()
             strips[win] = nil
+        }
+        // A window's status line is the grid 1 row under it, where there is one.
+        var ruled = Set<Int>()
+        let screenRows = screen.grids[1]?.rows ?? 0
+        for placement in screen.placements.values where placement.kind == .window && !placement.hidden {
+            let row = placement.row + placement.height
+            guard row < screenRows, row >= 0 else { continue }
+            let rule = rules[placement.win] ?? {
+                let rule = RuleView()
+                editor.addSubview(rule)
+                rules[placement.win] = rule
+                return rule
+            }()
+            rule.frame = editor.rect(row: row, col: placement.col, width: placement.width, height: 1)
+            rule.background = NSColor(hex: screen.defaultBackground)
+            ruled.insert(placement.win)
+        }
+        for (win, rule) in rules where !ruled.contains(win) {
+            rule.removeFromSuperview()
+            rules[win] = nil
         }
     }
 }
@@ -143,5 +166,22 @@ final class SplitTabStrip: NSView {
     override func mouseExited(with _: NSEvent) {
         hovered = nil
         needsDisplay = true
+    }
+}
+
+/// A status line's row drawn as a separator: the editor's colour with a hairline through it.
+final class RuleView: NSView {
+    /// The editor's background as nvim has it (the user's colour scheme, or the board's).
+    var background = Design.editor {
+        didSet { if background != oldValue { needsDisplay = true } }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_: NSRect) {
+        background.setFill()
+        bounds.fill()
+        Design.border.setFill()
+        NSRect(x: 0, y: (bounds.height / 2).rounded(), width: bounds.width, height: 1).fill()
     }
 }

@@ -1,3 +1,4 @@
+import Foundation
 import MessagePack
 @testable import SillCore
 import SillNvim
@@ -179,5 +180,44 @@ struct MessageTests {
             id: ""
         ))
         #expect(screen.messages[0].serial > first)
+    }
+}
+
+@Suite("how nvim starts")
+struct StartupTests {
+    private func folder(with files: [String]) throws -> String {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("sill-config-\(UUID().uuidString)")
+        let nvim = root.appendingPathComponent("nvim")
+        try FileManager.default.createDirectory(at: nvim, withIntermediateDirectories: true)
+        for file in files {
+            try "".write(to: nvim.appendingPathComponent(file), atomically: true, encoding: .utf8)
+        }
+        return root.path
+    }
+
+    @Test("with the user's init.lua, nvim runs under its own name, sill's base first")
+    func userConfig() throws {
+        let startup = try EditorSession.startup(
+            environment: ["XDG_CONFIG_HOME": folder(with: ["init.lua"])],
+            own: false
+        )
+        #expect(startup == .init(appName: "nvim", arguments: ["--cmd", "lua require('sill.base')"], userConfig: true))
+    }
+
+    @Test("an init.vim counts too; NVIM_APPNAME picks the folder")
+    func vimscriptAndAppName() throws {
+        let root = try folder(with: ["init.vim"])
+        try FileManager.default.moveItem(atPath: "\(root)/nvim", toPath: "\(root)/mine")
+        let startup = EditorSession.startup(environment: ["XDG_CONFIG_HOME": root, "NVIM_APPNAME": "mine"], own: false)
+        #expect(startup.appName == "mine" && startup.userConfig)
+    }
+
+    @Test("without a config, or asked for sill alone, nvim runs as sill")
+    func alone() throws {
+        let empty = try folder(with: [])
+        #expect(EditorSession.startup(environment: ["XDG_CONFIG_HOME": empty], own: false).appName == "sill")
+        let configured = try folder(with: ["init.lua"])
+        let own = EditorSession.startup(environment: ["XDG_CONFIG_HOME": configured], own: true)
+        #expect(own.appName == "sill" && !own.userConfig)
     }
 }

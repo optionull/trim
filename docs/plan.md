@@ -252,6 +252,16 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   (2026-10-23). The bundle id is settled as `com.mpdreamz.sill`. `scripts/sign.sh` is written (Developer ID, hardened
   runtime, timestamp, no entitlements) and has not been run; the smoke test is to run it, then `SILL_CHECK=1` on the
   signed app.
+- The user's config (§2), as built: when `~/.config/nvim` (or `$NVIM_APPNAME`'s folder) has an init.lua or
+  init.vim, nvim runs under its own name, so the config, plugins and lockfile are the ones nvim in a terminal uses;
+  sill's base settings go first (`--cmd`) and the config wins them. Simpler than the plan's `NVIM_APPNAME=sill` with
+  paths pointed back, and the same result. Without a config, in the self-check, or with `SILL_NVIM_CONFIG=0`, nvim
+  runs as `sill` with the base settings. Tried on the owner's LazyVim: lazy.nvim resets the runtimepath, so sill
+  loads its runtime again once startup is done; lualine's status lines are held off (`laststatus=0`) and the rows
+  nvim keeps between stacked windows are drawn over as rules; the board's colours apply only without a colour scheme.
+- The startup hang seen once in the chrome check: when a start-up step failed, sill opened an alert with
+  `runModal`, which waits forever in an unattended run. The check and the showcase print and exit now, and a
+  failing `:SillChrome` is a notification, not a failed start.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
