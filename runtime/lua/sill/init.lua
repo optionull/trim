@@ -198,8 +198,30 @@ local function bare(win)
   end
 end
 
---- Opens a pane of `kind` in a new window placed by `mods` (as :new takes them), and returns the window.
+--- The hidden buffer of a sidebar or panel pane, to show again rather than make another.
+local function hidden_pane_buffer(kind)
+  if kind == 'terminal' then
+    return nil
+  end
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.b[buf].sill_kind == kind and vim.fn.bufwinid(buf) == -1 then
+      return buf
+    end
+  end
+end
+
+--- Opens a pane of `kind` in a new window placed by `mods` (as :new takes them), and returns the window. A sidebar or
+--- panel that was hidden comes back as the same pane.
 function M.open_pane(kind, mods)
+  local buf = hidden_pane_buffer(kind)
+  if buf then
+    vim.cmd(mods .. ' split')
+    vim.api.nvim_win_set_buf(0, buf)
+    local win = vim.api.nvim_get_current_win()
+    bare(win)
+    report()
+    return win
+  end
   vim.cmd(mods .. ' new')
   local win = vim.api.nvim_get_current_win()
   placeholder(vim.api.nvim_get_current_buf(), kind)

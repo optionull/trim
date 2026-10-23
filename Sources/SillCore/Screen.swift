@@ -246,8 +246,12 @@ public struct Screen: Sendable {
         case let .defaultColorsSet(rgbFg, rgbBg, _, _, _):
             if rgbFg >= 0 { defaultForeground = rgbFg }
             if rgbBg >= 0 { defaultBackground = rgbBg }
-        case let .winViewport(grid, _, _, _, curline, curcol, _):
+        case let .winViewport(grid, _, _, _, curline, curcol, _, scrollDelta):
             viewportCursors[grid] = (curline, curcol)
+            if scrollDelta != 0 {
+                scrollSerial += 1
+                scrolls[grid] = Scroll(lines: scrollDelta, serial: scrollSerial)
+            }
         case let .modeChange(mode, index):
             self.mode = mode
             modeIndex = index
@@ -473,6 +477,16 @@ public struct Screen: Sendable {
     public var currentPaneKind: String? {
         currentPane.flatMap { paneKinds[$0] }
     }
+
+    /// A window's last scroll: how many lines its top moved (down positive), and a serial that grows with every
+    /// scroll, so a view can tell a new one from one it has already animated.
+    public struct Scroll: Sendable, Equatable {
+        public var lines: Int
+        public var serial: Int
+    }
+
+    public private(set) var scrolls: [Int: Scroll] = [:]
+    private var scrollSerial = 0
 
     /// Each window grid's cursor, from `win_viewport`: line and column, zero-based.
     public private(set) var viewportCursors: [Int: (line: Int, column: Int)] = [:]

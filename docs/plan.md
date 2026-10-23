@@ -137,7 +137,11 @@ this over nvim drawing it); signing and notarizing wait until the owner wants th
 5. Tabs per split (board 1's tab strips): what they list is to be settled when it is built.
 6. Design tokens from the boards (dark first, mint accent, Inter and JetBrains Mono) used by everything above.
 
-Where M2 stands (2026-10-23): steps 1, 3, 4, 5 and 6 are done; step 2, smooth scrolling, is not.
+Where M2 stands (2026-10-23): all six steps are done.
+
+- Smooth scrolling (step 2): a window that scrolls less than its height slides there over 120 ms (ease out), its
+  new rows offset by what is left of the move and the rows not yet covered drawn from before it, clipped to the
+  window; nvim has already moved, sill only shows the move. Off with `SILL_SMOOTH_SCROLL=0`.
 
 - The command line, messages, completion and tabs are sill's views (step 1).
 - The frame (step 3): a title bar (project and branch, Run), the activity bar, and a status bar (mode, branch,

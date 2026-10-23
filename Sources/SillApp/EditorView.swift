@@ -54,8 +54,66 @@ final class EditorView: NSView {
     }
 
     func show(_ screen: Screen) {
+        startScrolls(from: self.screen, to: screen)
         self.screen = screen
         submit()
+    }
+
+    // MARK: Smooth scrolling
+
+    /// How long a slide takes. nvim has already moved; this only shows the move.
+    static let scrollDuration: CFTimeInterval = 0.12
+    private struct Slide {
+        var previous: GridBuffer
+        var lines: Int
+        var start: CFTimeInterval
+    }
+
+    private var slides: [Int: Slide] = [:]
+    private var seenScrolls: [Int: Int] = [:]
+    private var slideLink: CADisplayLink?
+    /// Off with SILL_SMOOTH_SCROLL=0.
+    private let smoothScrolling = ProcessInfo.processInfo.environment["SILL_SMOOTH_SCROLL"] != "0"
+
+    /// A window that scrolled less than its height slides there from where it was.
+    private func startScrolls(from old: Screen, to new: Screen) {
+        let now = CACurrentMediaTime()
+        for (grid, scroll) in new.scrolls where scroll.serial > (seenScrolls[grid] ?? 0) {
+            seenScrolls[grid] = scroll.serial
+            guard smoothScrolling, let previous = old.grids[grid], let placement = new.placements[grid],
+                  placement.kind == .window, abs(scroll.lines) < placement.height, previous.rows == placement.height
+            else { continue }
+            slides[grid] = Slide(previous: previous, lines: scroll.lines, start: now)
+        }
+        if !slides.isEmpty, slideLink == nil {
+            let link = displayLink(target: self, selector: #selector(slideTick))
+            link.add(to: .main, forMode: .common)
+            slideLink = link
+        }
+    }
+
+    @objc private func slideTick() {
+        submit()
+    }
+
+    /// Where each slide is now; finished ones end, and the link stops with the last.
+    private func currentScrolls() -> [Int: Frame.ScrollAnimation] {
+        let now = CACurrentMediaTime()
+        var result: [Int: Frame.ScrollAnimation] = [:]
+        for (grid, slide) in slides {
+            let t = min(Float((now - slide.start) / Self.scrollDuration), 1)
+            if t >= 1 || screen.placements[grid] == nil {
+                slides[grid] = nil
+                continue
+            }
+            let eased = 1 - pow(1 - t, 3) // Ease out: fast, then settling.
+            result[grid] = Frame.ScrollAnimation(previous: slide.previous, lines: slide.lines, progress: eased)
+        }
+        if slides.isEmpty {
+            slideLink?.invalidate()
+            slideLink = nil
+        }
+        return result
     }
 
     /// The rectangle of a run of cells on grid 1, in points.
@@ -120,7 +178,14 @@ final class EditorView: NSView {
     }
 
     /// What the render thread is drawing now.
-    var currentFrame: Frame { Frame(screen: screen, covered: coveredGrids, cursor: cursor) }
+    var currentFrame: Frame {
+        var frame = Frame(screen: screen, covered: coveredGrids, cursor: cursor)
+        frame.scrolls = currentScrolls()
+        return frame
+    }
+
+    /// Whether a window is sliding now.
+    var isSliding: Bool { !slides.isEmpty }
 
     /// Hands the current screen to the render thread.
     private func submit() {

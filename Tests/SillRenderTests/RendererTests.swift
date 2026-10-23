@@ -355,4 +355,42 @@ struct RendererTests {
             #expect(lit > xs.count / 5 && lit < xs.count * 4 / 5, "\(lit) of \(xs.count)")
         }
     }
+
+    // MARK: Smooth scrolling
+
+    @Test("a scroll slides: at the start it looks as before, at the end as after, and stays in its window")
+    func smoothScroll() throws {
+        let canvas = try Canvas(cols: 20, rows: 8)
+        var builder = ScreenBuilder(cols: 20, rows: 8)
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 6)
+        for row in 0 ..< 6 {
+            builder.text("line \(row)", grid: 2, row: row)
+        }
+        builder.text("below the window", grid: 1, row: 7)
+        let before = builder.screen
+        let previous = try #require(before.grids[2])
+        // nvim scrolls two lines down: the grid moves up and the new lines are drawn at the bottom.
+        builder.screen.apply(.gridScroll(grid: 2, top: 0, bottom: 6, left: 0, right: 20, rows: 2, cols: 0))
+        builder.text("line 6", grid: 2, row: 4)
+        builder.text("line 7", grid: 2, row: 5)
+        let after = builder.screen
+
+        func pixels(_ frame: Frame) throws -> [UInt8] {
+            try canvas.render(frame)
+            return canvas.pixels
+        }
+        func scrolled(_ progress: Float) -> Frame {
+            var frame = Frame(screen: after)
+            frame.scrolls[2] = .init(previous: previous, lines: 2, progress: progress)
+            return frame
+        }
+        let old = try pixels(Frame(screen: before)), new = try pixels(Frame(screen: after))
+        #expect(try pixels(scrolled(0)) == old, "at the start, as before the scroll")
+        #expect(try pixels(scrolled(1)) == new, "at the end, as after it")
+        let middle = try pixels(scrolled(0.5))
+        #expect(middle != old && middle != new)
+        // Outside the window nothing moves: the row below it is the same in all three.
+        let rowBytes = canvas.width * 4, below = 6 * canvas.cellHeight * rowBytes
+        #expect(Array(middle[below...]) == Array(new[below...]))
+    }
 }

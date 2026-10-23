@@ -111,7 +111,9 @@ public enum NvimEvent: Sendable {
     case winClose(grid: Int)
     case gridDestroy(grid: Int)
     case msgSetPos(grid: Int, row: Int, scrolled: Bool, zindex: Int, compindex: Int)
-    case winViewport(grid: Int, win: Int, topline: Int, botline: Int, curline: Int, curcol: Int, lineCount: Int)
+    case winViewport(
+        grid: Int, win: Int, topline: Int, botline: Int, curline: Int, curcol: Int, lineCount: Int, scrollDelta: Int
+    )
     // The command line (`ext_cmdline`). `pos` is a byte offset into the content's text.
     case cmdlineShow(content: [StyledChunk], pos: Int, firstc: String, prompt: String, indent: Int, level: Int)
     case cmdlinePos(pos: Int, level: Int)
@@ -342,7 +344,8 @@ public enum NvimEvent: Sendable {
                     guard let a = args.arrayValue, a.count >= 7 else { continue }
                     events.append(.winViewport(
                         grid: a[0].intValue, win: a[1].intValue, topline: a[2].intValue, botline: a[3].intValue,
-                        curline: a[4].intValue, curcol: a[5].intValue, lineCount: a[6].intValue
+                        curline: a[4].intValue, curcol: a[5].intValue, lineCount: a[6].intValue,
+                        scrollDelta: a.count > 7 ? a[7].intValue : 0
                     ))
                 }
             case "hl_attr_define":

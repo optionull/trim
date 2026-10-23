@@ -281,6 +281,22 @@ final class SelfCheck {
         try await wait("the problem's line") { $0.currentPane == nil && $0.cursorPosition?.line == 10 }
         step("the panel lists nvim's diagnostics, and Return goes to one")
 
+        // Smooth scrolling: <C-d> slides the window half a page, and the slide ends.
+        _ = try await session.channel
+            .lua("vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.tbl_map(tostring, vim.fn.range(400)))")
+        _ = try await session.channel.lua("vim.cmd('normal! gg')")
+        try await Task.sleep(for: .milliseconds(300))
+        let loop = try require(editor.loop, "the render loop")
+        let framesBefore = loop.framesDrawn
+        chord("d", keyCode: 2)
+        _ = try await waitFor("a slide", timeout: .seconds(2)) { self.editor.isSliding ? true : nil }
+        let started = CACurrentMediaTime()
+        _ = try await waitFor("the slide to end", timeout: .seconds(2)) { self.editor.isSliding ? nil : true }
+        let lasted = (CACurrentMediaTime() - started) * 1000
+        let frames = loop.framesDrawn - framesBefore
+        try expect(frames >= 4, "\(frames) frames drawn for a slide")
+        step("<C-d> slides the window: \(frames) frames over \(Bench.format(lasted)) ms")
+
         tools.panel.onSendToAgent?(tools.panel.problems)
         try await wait("the heed notice") { $0.messages.contains { $0.text.contains("heed bridge") } }
         step("Send all to agent says it comes with the heed bridge")

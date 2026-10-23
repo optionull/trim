@@ -26,6 +26,23 @@ public struct Frame: Sendable {
         }
     }
 
+    /// Windows sliding to where nvim scrolled them, by grid.
+    public var scrolls: [Int: ScrollAnimation] = [:]
+
+    /// A window part-way through a smooth scroll: the rows it showed before, how many lines it moved (down positive),
+    /// and how far along the slide is, 0 to 1.
+    public struct ScrollAnimation: Sendable {
+        public var previous: GridBuffer
+        public var lines: Int
+        public var progress: Float
+
+        public init(previous: GridBuffer, lines: Int, progress: Float) {
+            self.previous = previous
+            self.lines = lines
+            self.progress = progress
+        }
+    }
+
     public init(screen: Screen, covered: Set<Int> = [], cursor: Cursor? = nil) {
         self.screen = screen
         self.covered = covered
@@ -165,7 +182,9 @@ public final class GridRenderer {
         let glyphBuffer = buffer(layers.glyphs)
         encoder.setFragmentTexture(atlas.coverage, index: 0)
         encoder.setFragmentTexture(atlas.color, index: 1)
+        let full = MTLScissorRect(x: 0, y: 0, width: Int(viewport.width), height: Int(viewport.height))
         for layer in layers.order {
+            encoder.setScissorRect(layer.clip ?? full)
             if !layer.backgrounds.isEmpty, let rectBuffer {
                 draw(encoder, rectPipeline, rectBuffer, layer.backgrounds, MemoryLayout<RectInstance>.stride, &uniforms)
             }
@@ -274,6 +293,8 @@ public final class GridRenderer {
         var decorations: Range<Int>
         var cursor: Range<Int> = 0 ..< 0
         var cursorGlyph: Range<Int> = 0 ..< 0
+        /// Pixels to clip the layer to: a window part-way through a smooth scroll.
+        var clip: MTLScissorRect?
     }
 
     private struct Layers {
@@ -308,19 +329,19 @@ public final class GridRenderer {
             decorations.removeAll(keepingCapacity: true)
             // Floats and the message grid cover what is under them, so their rows draw the default background too.
             let covers = placement.kind != .window
-            for row in 0 ..< visible {
-                let key = RowKey(grid: grid, row: row)
+            /// Adds a row of `source` (cached under `key`) at `y` pixels from the grid's top.
+            func add(_ source: GridBuffer, row: Int, key: RowKey, y: Float) {
                 live.insert(key)
                 let built: Row
-                if let cached = rows[key], cached.version == buffer.rowVersions[row], cached.covers == covers {
+                if let cached = rows[key], cached.version == source.rowVersions[row], cached.covers == covers {
                     built = cached
                     stats.rowsReused += 1
                 } else {
-                    built = buildRow(buffer, row: row, style: style, covers: covers)
+                    built = buildRow(source, row: row, style: style, covers: covers)
                     rows[key] = built
                     stats.rowsBuilt += 1
                 }
-                let offset = SIMD2<Float>(Float(placement.col) * cellWidth, Float(placement.row + row) * cellHeight)
+                let offset = SIMD2<Float>(Float(placement.col) * cellWidth, Float(placement.row) * cellHeight + y)
                 for var rect in built.backgrounds {
                     rect.origin += offset
                     layers.rects.append(rect)
@@ -334,13 +355,40 @@ public final class GridRenderer {
                     decorations.append(rect)
                 }
             }
+            // A smooth scroll: the rows slide by what is left of the move, and the rows they have not yet covered
+            // come from before it. Old row i goes where new row i - lines is, so the content moves as one piece.
+            var slide: Float = 0
+            let scroll = placement.kind == .window ? frame.scrolls[grid] : nil
+            if let scroll, scroll.progress < 1 {
+                slide = Float(scroll.lines) * cellHeight * (1 - scroll.progress)
+                let previous = scroll.previous
+                for row in 0 ..< min(previous.rows, visible)
+                    where row - scroll.lines < 0 || row - scroll.lines >= visible
+                {
+                    add(
+                        previous,
+                        row: row,
+                        key: RowKey(grid: -grid, row: row),
+                        y: Float(row - scroll.lines) * cellHeight + slide
+                    )
+                }
+            }
+            for row in 0 ..< visible {
+                add(buffer, row: row, key: RowKey(grid: grid, row: row), y: Float(row) * cellHeight + slide)
+            }
             let decorationStart = layers.rects.count
             layers.rects.append(contentsOf: decorations)
             var layer = Layer(
                 backgrounds: backgroundStart ..< decorationStart, glyphs: glyphStart ..< layers.glyphs.count,
                 decorations: decorationStart ..< layers.rects.count
             )
-            if grid == screen.cursorGrid, let cursor = frame.cursor {
+            if slide != 0 {
+                layer.clip = MTLScissorRect(
+                    x: Int(Float(placement.col) * cellWidth), y: Int(Float(placement.row) * cellHeight),
+                    width: Int(Float(placement.width) * cellWidth), height: Int(Float(visible) * cellHeight)
+                )
+            }
+            if grid == screen.cursorGrid, let cursor = frame.cursor, slide == 0 {
                 let (rect, glyph) = cursorInstances(cursor, buffer: buffer, screen: screen, placement: placement)
                 layer.cursor = layers.rects.count ..< layers.rects.count + 1
                 layers.rects.append(rect)

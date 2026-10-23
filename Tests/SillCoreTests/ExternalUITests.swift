@@ -142,6 +142,30 @@ struct StatusFactsTests {
         #expect(problem.code == "E1")
     }
 
+    @Test("a pane's placeholder has no problems to list; hiding the sidebar keeps its pane")
+    func placeholders() async throws {
+        let nvim = try await Harness.start(cols: 120, rows: 40)
+        defer { Task { await nvim.stop() } }
+        try await nvim.command("SillChrome")
+        let opened = try await nvim.screen("the sidebar") { $0.paneRects.contains { $0.kind == "sidebar" } }
+        let sidebar = try #require(opened.paneRects.first { $0.kind == "sidebar" })
+        _ = try await nvim.session.channel.lua("""
+        local win = require'sill'.pane_window('sidebar')
+        local buf = vim.api.nvim_win_get_buf(win)
+        vim.diagnostic.set(vim.api.nvim_create_namespace('p'), buf, { { lnum = 0, col = 0, message = 'not a file' } })
+        vim.diagnostic.set(vim.api.nvim_create_namespace('q'), vim.api.nvim_win_get_buf(require'sill'.editor_window()),
+          { { lnum = 0, col = 0, message = 'in the file' } })
+        """)
+        let screen = try await nvim.screen("one problem") { !$0.diagnostics.isEmpty }
+        #expect(screen.diagnostics.map(\.message) == ["in the file"])
+
+        try await nvim.command("lua require'sill'.toggle('sidebar')")
+        try await nvim.screen("hidden") { !$0.paneRects.contains { $0.kind == "sidebar" } }
+        try await nvim.command("lua require'sill'.toggle('sidebar')")
+        let back = try await nvim.screen("back") { $0.paneRects.contains { $0.kind == "sidebar" } }
+        #expect(back.paneRects.first { $0.kind == "sidebar" }?.pane == sidebar.pane, "the same pane, not another")
+    }
+
     @Test(":SillChrome opens the sidebar on the left and the panel under the editor")
     func chrome() async throws {
         let nvim = try await Harness.start(cols: 120, rows: 40)
