@@ -43,7 +43,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editor.onResize = { cols, rows in Task { await session.resize(cols: cols, rows: rows) } }
         editor.onFocus = { [weak self] in self?.panes.focusEditor() }
 
-        if ProcessInfo.processInfo.environment["SILL_CHECK"] == "1" {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["SILL_CHECK"] == "1" || environment["SILL_SHOWCASE"] != nil {
             check = SelfCheck(window: window, editor: editor, panes: panes, session: session, app: self)
         }
         startSidecar()

@@ -20,7 +20,10 @@ mise run test      # the Swift Testing suite; the nvim tests start a real `nvim 
 mise run lint
 ```
 
-`SILL_CHECK=1 build/Sill.app/Contents/MacOS/Sill` plays the first week in the real app, with key events sent through
+![sill on 2026-10-23: a Lua file beside a terminal pane](docs/showcase-2026-10-23.png)
+
+`SILL_SHOWCASE=<file.png>` renders a picture like that one (nvim at 150x46, a file beside a terminal pane running
+`git log`; `SILL_SHOWCASE_FILE` picks the file). `SILL_CHECK=1 build/Sill.app/Contents/MacOS/Sill` plays the first week in the real app, with key events sent through
 the window, and exits non-zero on the first failing step; it also measures idle frames and key-to-screen latency.
 `SILL_CHECK_SHOT=<file.png>` saves the window with a pane open. `mise run bench` measures the Metal grid at 4K on a
 release build. `SILL_FONTS=<dir>` uses the fonts in a directory without installing them (JetBrains Mono, say).

@@ -39,6 +39,10 @@ final class SelfCheck {
 
     func run() async {
         do {
+            if let path = ProcessInfo.processInfo.environment["SILL_SHOWCASE"] {
+                try await showcase(to: path)
+                exit(0)
+            }
             try await steps()
             print("sill check: passed")
             fflush(stdout)
@@ -123,6 +127,38 @@ final class SelfCheck {
         try await wait("no panes") { $0.paneRects.isEmpty && $0.panes.isEmpty }
         _ = try await waitFor("the surface gone") { view.superview == nil ? true : nil }
         step(":only closes the pane and its terminal")
+    }
+
+    /// `SILL_SHOWCASE=<file.png>`: a picture of sill at work, whatever size the window is. nvim is asked for a 150x46
+    /// screen, `SILL_SHOWCASE_FILE` (else sill's own runtime) opens beside a terminal pane running `git log`, and the
+    /// frame is rendered offscreen at that size.
+    private func showcase(to path: String) async throws {
+        try await wait("nvim's first screen") { $0.placements.values.contains { $0.kind == .window } }
+        await session.resize(cols: 150, rows: 46)
+        try await wait("a 150x46 screen") { $0.grids[1]?.cols == 150 && $0.grids[1]?.rows == 46 }
+        let file = ProcessInfo.processInfo.environment["SILL_SHOWCASE_FILE"] ??
+            Runtime.directory.appendingPathComponent("plugin/sill.lua").path
+        try await session.channel.command("edit \(file.replacingOccurrences(of: " ", with: "\\ "))")
+        try await session.channel.command("set number cursorline")
+        try await session.channel.command("call cursor(32, 5)")
+        try await session.channel.command("SillTerminal")
+        let pane = try await waitFor("the pane's surface") { self.panes.view(for: 1) }
+        #if SILL_GHOSTTY
+            if let surface = pane as? GhosttySurfaceView {
+                try await Task.sleep(for: .seconds(1.5)) // The shell's prompt.
+                surface.typeLine("git -C \(Runtime.directory.deletingLastPathComponent().path) log --oneline -12")
+                try await Task.sleep(for: .seconds(1.5))
+            }
+        #else
+            _ = pane
+        #endif
+        session.channel.send(keys: "<C-w>h")
+        try await wait("the editor window current") { $0.currentPane == nil && $0.cursorWindow != nil }
+        try await Task.sleep(for: .milliseconds(300))
+        let screen = try require(latest, "a screen")
+        try shot(to: path, cols: screen.grids[1]?.cols ?? 150, rows: screen.grids[1]?.rows ?? 46, cursor: true)
+        print("sill showcase: saved \(path)")
+        fflush(stdout)
     }
 
     /// Day 3 on screen: the Metal grid draws nothing while idle, and how long a key takes to reach the display.
@@ -400,20 +436,33 @@ final class SelfCheck {
     /// Renders the editor's current frame offscreen with a renderer of its own (the render thread's is not shared),
     /// then draws each terminal's text where its surface is.
     private func shot(to path: String) throws {
+        try shot(
+            to: path, cols: Int(editor.bounds.width / editor.metrics.width),
+            rows: Int(editor.bounds.height / editor.metrics.height), cursor: false
+        )
+    }
+
+    /// Renders `cols` x `rows` cells of the current screen, with the editor's cursor if `cursor`.
+    private func shot(to path: String, cols: Int, rows: Int, cursor: Bool) throws {
         let scale = window.backingScaleFactor
         let device = try require(MTLCreateSystemDefaultDevice(), "a Metal device")
         let renderer = try GridRenderer(
             device: device, font: editor.metrics.regular, cellSize: editor.metrics.cellSize, scale: scale,
             pixelFormat: .bgra8Unorm
         )
-        let (width, height) = (Int(editor.bounds.width * scale), Int(editor.bounds.height * scale))
+        let size = CGSize(width: CGFloat(cols) * editor.metrics.width, height: CGFloat(rows) * editor.metrics.height)
+        let (width, height) = (Int(size.width * scale), Int(size.height * scale))
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false
         )
         descriptor.usage = [.renderTarget, .shaderRead]
         descriptor.storageMode = .shared
         let texture = try require(device.makeTexture(descriptor: descriptor), "a texture for the shot")
-        let commands = try require(renderer.render(editor.currentFrame, to: texture), "a command buffer")
+        var frame = editor.currentFrame
+        if cursor, frame.cursor == nil, let style = frame.screen.cursorStyle, style.cursorShape == .block {
+            frame.cursor = Frame.Cursor(shape: .block, highlight: style.attrId)
+        }
+        let commands = try require(renderer.render(frame, to: texture), "a command buffer")
         commands.waitUntilCompleted()
         let rep = try require(NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
@@ -425,7 +474,7 @@ final class SelfCheck {
         for index in stride(from: 0, to: width * height * 4, by: 4) {
             (pixels[index], pixels[index + 2]) = (pixels[index + 2], pixels[index])
         }
-        rep.size = editor.bounds.size
+        rep.size = size
         #if SILL_GHOSTTY
             // Over each surface, its text as read back from Ghostty. The bitmap's context is not flipped.
             let context = try require(NSGraphicsContext(bitmapImageRep: rep), "a context on the shot")
@@ -433,7 +482,7 @@ final class SelfCheck {
             NSGraphicsContext.current = context
             for case let surface as GhosttySurfaceView in editor.subviews where !surface.isHidden {
                 let frame = NSRect(
-                    x: surface.frame.minX, y: editor.bounds.height - surface.frame.maxY,
+                    x: surface.frame.minX, y: size.height - surface.frame.maxY,
                     width: surface.frame.width, height: surface.frame.height
                 )
                 NSColor(srgbRed: 0.08, green: 0.09, blue: 0.10, alpha: 1).setFill()
