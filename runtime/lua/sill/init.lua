@@ -471,6 +471,17 @@ function M.setup()
   vim.g.loaded_sill = true
   -- Files an agent edits on disk are read again (sill runs :checktime after its tool calls).
   vim.o.autoread = true
+  -- heed's sessions (M5): the next one that needs you opens in heed; send gives an agent the problems.
+  vim.api.nvim_create_user_command('SillAgent', function(opts)
+    notify('sill_agent', opts.args ~= '' and opts.args or 'next')
+  end, {
+    nargs = '?',
+    complete = function() return { 'next', 'send', 'list' } end,
+    desc = 'Agents: next (the next that needs you, in heed), send (the problems), list (the sidebar)',
+  })
+  if vim.fn.maparg('<leader>a', 'n') == '' then
+    vim.keymap.set('n', '<leader>a', '<Cmd>SillAgent next<CR>', { desc = 'Next agent that needs you' })
+  end
   vim.api.nvim_create_user_command('SillChrome', M.chrome, { desc = "sill's window: sidebar, panel, colours" })
   vim.api.nvim_create_user_command('SillProfile', function()
     M.open_pane('profile', 'tab')

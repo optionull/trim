@@ -51,10 +51,18 @@ In a merge, `]x` and `[x` walk the conflicts and `\o`, `\t` and `\b` take ours, 
 
 ## Agents
 
-sill runs an MCP server for the agents you use. Send all to agent (in the Problems panel) starts `claude` in a
-terminal pane with it configured; any agent can use it with the config sill writes to
+sill runs an MCP server for the agents you use. Any agent can use it with the config sill writes to
 `$TMPDIR/sill-mcp-<pid>.json` (it runs `nc -U` on sill's socket). Its tools: `problems`, `build`, `read_file` and
 `open_file`. An agent's first build asks you first.
+
+Send all to agent (in the Problems panel, or `:SillAgent send`) gives the problems to an agent with sill's server
+configured. With [heed](https://github.com/heed-build/heed) running, the agent starts there, or the session already
+working in this folder gets them, and the Agents sidebar lists heed's sessions, those that need you first; Return
+opens one in heed, and `<leader>a` (`:SillAgent next`) goes to the next that needs you. Without heed, `claude` (or
+`SILL_AGENT`) runs in a terminal pane. `SILL_HEED_AGENT` picks heed's agent (claude by default); `HEED_CONTROL`
+points at another heed's control socket.
+
+`SILL_CHECK=m5` checks the bridge against a heed whose claude is a stand-in (see the M5 note in docs/plan.md).
 
 ## Layout
 

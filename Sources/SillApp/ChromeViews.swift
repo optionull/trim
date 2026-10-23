@@ -114,6 +114,11 @@ final class ActivityBarView: NSView {
         didSet { if selected != oldValue { needsDisplay = true } }
     }
 
+    /// A count on an icon: the agents that need you.
+    var badges: [Activity: Int] = [:] {
+        didSet { if badges != oldValue { needsDisplay = true } }
+    }
+
     var onSelect: ((Activity) -> Void)?
     private var hovered: Activity?
 
@@ -148,6 +153,18 @@ final class ActivityBarView: NSView {
                 width: size.width,
                 height: size.height
             ))
+            if let count = badges[activity], count > 0 {
+                let text = NSAttributedString(string: "\(count)", attributes: [
+                    .font: Design.ui(9, weight: .bold), .foregroundColor: Design.onAccent,
+                ])
+                let width = max(ceil(text.size().width) + 6, 14)
+                let badge = NSRect(x: rect.midX + 3, y: rect.minY + 7, width: width, height: 14)
+                Design.modified.setFill()
+                NSBezierPath(roundedRect: badge, xRadius: 7, yRadius: 7).fill()
+                text.draw(at: NSPoint(
+                    x: badge.midX - text.size().width / 2, y: badge.midY - text.size().height / 2
+                ))
+            }
         }
     }
 

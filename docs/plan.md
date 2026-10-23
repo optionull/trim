@@ -100,9 +100,8 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 - MCP server on a unix socket, modeled on Passenger's `--mcp-attach`, with a permission broker.
 - BuildCapture normalises dotnet, cargo JSON, swift and tsc output into one `Diagnostic` shape; problems
   panel sends them to the agent.
-- heed gap: heed has no URL scheme and no inbound request API (one-way hook socket only). It needs
-  start/send/sessions/watch over a control socket; that is heed work, scheduled on heed's roadmap to land
-  before M5.
+- heed gap (closed 2026-10-23, heed-build/heed#137): heed had no inbound request API. It now has a control
+  socket, `control.sock` beside its hooks socket: start, send, show, sessions and watch, one JSON object a line.
 - heed owns agent sessions. sill shows a thin view over the control socket (who needs you, status, open in
   heed) and does not rebuild heed's session UI.
 - Day-1 fallback: the editor's own Ghostty pane runs the agent.
@@ -116,7 +115,7 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 | M2 | Full UI protocol and the app's chrome (see M2 below); signing and notarizing wait for the owner | sill looks like board 1, problems panel aside, and every nvim message, command line and completion is native |
 | M3 (done) | LSP, C# sidecar, build capture, problems | Open a .NET solution, build, jump to errors |
 | M4 (done) | MCP server, editor-only agent loop | Agent fixes a build error end to end |
-| M5 | heed bridge (needs heed's control socket) | Send to heed and see the session in the editor |
+| M5 (done) | heed bridge (needs heed's control socket) | Send to heed and see the session in the editor |
 | M6 | .NET profiler in sidecar, Razor | CPU and heap diff on a sample app |
 | M7 | Rust and Swift profiling, remaining language servers | samply and xctrace sessions viewable |
 | M8 | Debugger (DAP) | Breakpoints and stepping in C# |
@@ -273,8 +272,8 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   time, total and hot path, and the payload an agent would get. The profile is M0's synthetic one; Timeline, Call
   tree, Allocations and Heap diff say they come with M6. Pane buffers have names ("Terminal 2", "Profile") for the
   tab line.
-- Still placeholders: sessions and the handoff (boards 2 and 9, heed's control socket and M5) and packages (board
-  3, M3's .NET work).
+- Still placeholders: packages (board 3, M3's .NET work). Sessions (boards 2 and 9) are M5's thin list over heed,
+  as decided, not the boards' full session UI.
 - No swap files (owner, 2026-10-23): sill always starts nvim with `-n`, whatever a config sets. Quitting (⌘Q or
   closing the window) with unsaved changes asks: Save All, Don't Save, or Cancel.
 - M3 (done 2026-10-23): build capture, Roslyn, Problems. Exit test `SILL_CHECK=m3` in a scratch solution: Roslyn
@@ -298,6 +297,20 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   - The permission broker: an agent's first `build` asks the person (Allow Once, Always for the session, Deny).
   - Send all to agent (board 9) starts `claude` (or `SILL_AGENT`) in a terminal pane with sill's MCP config and the
     problems in its prompt.
+- M5 (done 2026-10-23): the heed bridge. Exit test `SILL_CHECK=m5` against a heed whose claude is a stand-in that
+  logs what it is given (a dev heed in its own home: `CFFIXED_USER_HOME`, `XDG_CONFIG_HOME`):
+  - heed's control socket (heed-build/heed#137): `start` runs an agent on a prompt in a folder, as work in a
+    worktree heed knows or a chat in the folder, off screen, with extra launch `arguments`; `send` types into the
+    agent's pane only while it is idle or done; `show`; `sessions`; `watch` streams the list as it changes.
+  - Send all to agent goes to heed when it runs: a new session in this folder, claude given `--mcp-config` (codex
+    `-c mcp_servers.sill…`), titled by the problems ("Fix CS1061"); again, the problems are typed into the session
+    already working here; while it asks, heed holds them and sill says why. Without heed, the M4 terminal pane.
+  - The Agents sidebar follows heed's sessions (`SillAgent/Heed`, a watch that reconnects): those that need you
+    first, then this folder's, with a count on the activity bar. Return opens one in heed.
+  - `:SillAgent next|send|list`; `<leader>a` (unless the config maps it) opens the next session that needs you in
+    heed.
+  - Not verified: a real claude started by heed reaching sill's MCP server (the stand-in shows it got the config;
+    M4's live run showed claude using it), codex's MCP arguments, and heed in a fixture or tutor world.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

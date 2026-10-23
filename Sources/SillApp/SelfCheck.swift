@@ -44,6 +44,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "m5" {
+                try await m5Steps()
+                print("sill check (M5): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "m4" {
                 try await m4Steps()
                 print("sill check (M4): passed")
@@ -210,6 +216,103 @@ final class SelfCheck {
         try shot(of: root, to: path, cursor: true)
         print("sill showcase: saved \(path)")
         fflush(stdout)
+    }
+
+    /// M5's exit (`SILL_CHECK=m5`): Send to agent goes to heed and the session shows in the editor. Needs a heed
+    /// with its control socket at `HEED_CONTROL` whose claude agent is a stand-in that logs what it is given to
+    /// `SILL_CHECK_AGENT_LOG`, and that heed's `heed` at `SILL_CHECK_HEED` (to report the agent asking, as its hooks
+    /// would). `SILL_CHECK_SHOT` saves the window with the Agents sidebar.
+    private func m5Steps() async throws {
+        let app = try require(app, "the app")
+        let environment = ProcessInfo.processInfo.environment
+        let log = try require(environment["SILL_CHECK_AGENT_LOG"], "SILL_CHECK_AGENT_LOG")
+        let heedBinary = try require(environment["SILL_CHECK_HEED"], "SILL_CHECK_HEED")
+        try? FileManager.default.removeItem(atPath: log)
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        let before = try await waitFor("heed's sessions", timeout: .seconds(10)) { app.agents.sessions }
+        try expect(app.agents.sessionHere == nil, "no session works here yet (a fresh folder)")
+        step("sill follows heed's sessions over its control socket: \(before.count) before")
+
+        let path = (app.workingDirectory as NSString).appendingPathComponent("Program.cs")
+        let problem = Diagnostic(
+            severity: 1, message: "'int' does not contain a definition for 'Lines'", source: "build",
+            code: "CS1061", path: path, buffer: 0, line: 2, col: 19
+        )
+        app.agents.send([problem])
+        let sent = try await waitFor("Send to agent to reach heed", timeout: .seconds(10)) { app.agents.lastSent }
+        try expect(sent.error == nil, "heed took it: \(sent.error ?? "")")
+        let id = try require(sent.session, "the new session's id")
+        let shown = try await waitFor("the session in the Agents view", timeout: .seconds(10)) {
+            app.tools.sidebar.agents.ordered.first { $0.id == id }
+        }
+        try expect(AgentsView.isHere(shown, app.workingDirectory), "it works in this folder: \(shown.directory ?? "")")
+        try expect(shown.agent == "claude", "with claude: \(shown.agent)")
+        try expect(shown.title == "Fix CS1061", "titled by the problem: \(shown.title)")
+        let started = try await waitFor("the agent to start", timeout: .seconds(10)) {
+            (try? String(contentsOfFile: log, encoding: .utf8)).flatMap { $0.contains("CS1061") ? $0 : nil }
+        }
+        try expect(
+            started.contains("--mcp-config") && started.contains(app.agents.configPath),
+            "heed started it with sill's MCP config: \(started.prefix(300))"
+        )
+        step("Send to agent starts claude in heed, given sill's MCP config and the problems; \"\(shown.title)\" " +
+            "shows in Agents")
+
+        // Again: the problems go to the session that already works here, typed in, not a second session.
+        app.agents.send([problem])
+        _ = try await waitFor("the second send", timeout: .seconds(10)) {
+            app.agents.lastSent.flatMap { $0.session == id ? $0 : nil }
+        }
+        _ = try await waitFor("the agent to be told again", timeout: .seconds(10)) {
+            (try? String(contentsOfFile: log, encoding: .utf8)).flatMap {
+                $0.contains("typed: Fix CS1061") ? true : nil
+            }
+        }
+        try expect(app.agents.lastSent?.error == nil, "sent: \(app.agents.lastSent?.error ?? "")")
+        try expect(
+            (app.agents.sessions ?? []).count { AgentsView.isHere($0, app.workingDirectory) } == 1,
+            "still one session here"
+        )
+        step("a second Send to agent types the problems into that session")
+
+        // The agent asks (its hook says so): it needs you, in the sidebar and on the activity bar.
+        let hook = Process()
+        hook.executableURL = URL(fileURLWithPath: heedBinary)
+        hook.arguments = ["state", "asking", "--reason", "which project?"]
+        var hookEnvironment = environment
+        hookEnvironment["HEED_SESSION_ID"] = id
+        hookEnvironment["HEED_SOCKET"] = ((environment["HEED_CONTROL"] ?? "") as NSString)
+            .deletingLastPathComponent + "/heed.sock"
+        hook.environment = hookEnvironment
+        try hook.run()
+        hook.waitUntilExit()
+        _ = try await waitFor("it to need you", timeout: .seconds(10)) {
+            app.tools.sidebar.agents.ordered.first.flatMap { $0.id == id && $0.needsYou ? true : nil }
+        }
+        let waiting = (app.agents.sessions ?? []).count(where: \.needsYou)
+        try expect(
+            waiting >= 1 && app.root.activityBar.badges[.agents] == waiting,
+            "the activity bar counts what needs you (\(waiting)): \(app.root.activityBar.badges)"
+        )
+        app.agents.send([problem])
+        _ = try await waitFor("the refusal", timeout: .seconds(10)) {
+            app.agents.lastSent.flatMap { $0.error }
+        }
+        try expect(
+            app.agents.lastSent?.error?.contains("asking you something") == true,
+            "heed holds the problems while it asks: \(app.agents.lastSent?.error ?? "")"
+        )
+        step("asking, it comes first in Agents as needing you, with a count on the activity bar; a send waits")
+
+        _ = try await session.channel.lua("vim.cmd('SillAgent list')")
+        try await wait("the sidebar") { $0.paneRects.contains { $0.kind == "sidebar" } }
+        _ = try await waitFor("the sidebar to show Agents") { app.tools.sidebar.activity == .agents ? true : nil }
+        if let shot = environment["SILL_CHECK_SHOT"] {
+            try await Task.sleep(for: .milliseconds(300))
+            try self.shot(to: shot)
+            step("saved \(shot)")
+        }
+        step(":SillAgent list shows the Agents sidebar")
     }
 
     /// M4's exit (`SILL_CHECK=m4`, run in a .NET solution with an error, `SILL_MCP_ALLOW=build`): an agent, connected

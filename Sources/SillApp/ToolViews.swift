@@ -90,6 +90,7 @@ final class SidebarView: NSView {
     private let channel: NvimChannel
     let explorer: ExplorerView
     let sourceControl: SourceControlView
+    let agents: AgentsView
     private var content: NSView & ToolContent
     var focused = false {
         didSet { if focused != oldValue { needsDisplay = true; content.needsDisplay = true } }
@@ -99,6 +100,7 @@ final class SidebarView: NSView {
         self.channel = channel
         explorer = ExplorerView(channel: channel, root: directory, metrics: metrics)
         sourceControl = SourceControlView(channel: channel, root: directory)
+        agents = AgentsView(root: directory)
         content = explorer
         super.init(frame: .zero)
         addSubview(content)
@@ -116,11 +118,7 @@ final class SidebarView: NSView {
         content = switch activity {
         case .explorer: explorer
         case .sourceControl: sourceControl
-        case .agents: EmptyStateView(
-                symbol: "sparkles", title: "Agents",
-                body: "heed's sessions show here once heed has its control socket (M5). Until then, run an agent in a " +
-                    "terminal pane: :SillTerminal."
-            )
+        case .agents: agents
         case .packages: EmptyStateView(
                 symbol: "shippingbox", title: "Packages",
                 body: "Vulnerable, outdated and deprecated packages of the open solution (board 3, M9)."

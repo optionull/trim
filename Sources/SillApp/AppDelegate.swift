@@ -1,4 +1,5 @@
 import AppKit
+import SillAgent
 import SillCore
 import SillNvim
 import SillRender
@@ -163,7 +164,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         splitTabs.update(screen)
         if screen.buffer.kind.isEmpty, !screen.buffer.path.isEmpty { tools.sidebar.explorer.reveal(screen.buffer.path) }
         updateFrame(screen)
+        if let ask = screen.agentAsk, ask.serial != agentAskSeen {
+            agentAskSeen = ask.serial
+            answerAgentAsk(ask.action)
+        }
         check?.observe(update)
+    }
+
+    private var agentAskSeen = 0
+
+    /// `:SillAgent next|send|list`.
+    private func answerAgentAsk(_ action: String) {
+        switch action {
+        case "send": agents.send(tools.screen.diagnostics)
+        case "list":
+            tools.sidebar.show(.agents)
+            root.activityBar.selected = .agents
+            Nvim.lua(session.channel, "require'sill'.focus('sidebar')")
+        default: agents.openNextWaiting()
+        }
+    }
+
+    /// heed's sessions changed (nil: heed went away): the Agents sidebar and its badge.
+    func agentsChanged(_ sessions: [HeedSession]?) {
+        tools.sidebar.agents.sessions = sessions
+        root?.activityBar.badges = [.agents: tools.sidebar.agents.waiting]
     }
 
     /// The title bar and the status bar.
@@ -228,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         tools.panel.onSendToAgent = { [weak self] problems in self?.agents.send(problems) }
+        tools.sidebar.agents.onOpen = { [weak self] session in self?.agents.open(session) }
     }
 
     /// Run: a terminal pane at the bottom running the project's run command, guessed from its files.

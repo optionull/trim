@@ -216,6 +216,8 @@ public struct Screen: Sendable {
     /// A merge in progress (`:SillMerge`): conflicts left in the result, the one under the cursor (1-based, 0 for
     /// none), and the file.
     public private(set) var merge: (left: Int, current: Int, file: String)?
+    /// What nvim asked of the agents last (`:SillAgent next|send|list`), numbered so the same ask twice is two.
+    public private(set) var agentAsk: (action: String, serial: Int)?
     /// Each editor window's tabs, by window handle.
     public private(set) var windowTabs: [Int: WindowTabs] = [:]
 
@@ -344,6 +346,8 @@ public struct Screen: Sendable {
                 }
             }
             merge = (left, current, file)
+        case let .notification(method, args) where method == "sill_agent":
+            agentAsk = (args.first?.stringValue ?? "", (agentAsk?.serial ?? 0) + 1)
         case let .notification(method, args) where method == "sill_tabs":
             windowTabs = Self.windowTabs(args)
         case let .notification(method, args) where method == "sill_diagnostics":

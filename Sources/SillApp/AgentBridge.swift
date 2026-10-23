@@ -4,8 +4,9 @@ import SillAgent
 import SillCore
 import SillNvim
 
-/// The editor's side of the agent loop (M4): sill's tools on its MCP server, the permission broker, and Send to
-/// agent, which starts an agent in a terminal pane with sill's MCP server configured and the problems in its prompt.
+/// The editor's side of the agent loop: sill's tools on its MCP server, the permission broker (M4), and Send to
+/// agent. With heed running, Send to agent starts the agent there, sill's MCP server configured and the problems in
+/// its prompt, and the Agents sidebar follows heed's sessions (M5); without heed, the agent runs in a terminal pane.
 @MainActor
 final class AgentBridge {
     let server: McpServer
@@ -18,6 +19,11 @@ final class AgentBridge {
     private var allowed: Set<String>
     /// Calls so far, for the self-check.
     private(set) var calls: [String] = []
+    /// heed's control socket, and its sessions (nil while heed is not running).
+    let heed = Heed()
+    private(set) var sessions: [HeedSession]?
+    /// What the last Send to agent did, for the self-check: the heed session it went to, or nil for the pane.
+    private(set) var lastSent: (session: String?, error: String?)?
 
     init(app: AppDelegate, channel: NvimChannel, directory: String) {
         self.app = app
@@ -50,9 +56,13 @@ final class AgentBridge {
         } catch {
             NSLog("sill: the MCP server did not start: \(error)")
         }
+        heed.watch { [weak self] sessions in
+            Task { @MainActor in self?.heedChanged(sessions) }
+        }
     }
 
     func stop() {
+        heed.stopWatching()
         running?.stop()
         try? FileManager.default.removeItem(atPath: configPath)
     }
@@ -217,14 +227,128 @@ final class AgentBridge {
         return "\(agent) --mcp-config \(shellQuote(configPath)) \(shellQuote(prompt))"
     }
 
-    /// Board 9: an agent in a terminal pane at the bottom, given the problems.
-    func send(_ problems: [Diagnostic]) {
+    /// The prompt Send to agent gives: the problems, and how to use sill's tools on them.
+    func prompt(_ problems: [Diagnostic]) -> String {
         let list = problems
             .map { "- \(relative($0.path)):\($0.line): \($0.code.isEmpty ? "" : $0.code + " ")\($0.message)" }
-        let prompt = "Fix these problems without changing public behavior. Use sill's tools: problems to see them, " +
+        return Self.headline(problems) + "\n" +
+            "Fix these problems without changing public behavior. Use sill's tools: problems to see them, " +
             "read_file to read files as the editor has them, build to check. Then confirm build succeeds.\n" +
             list.joined(separator: "\n")
-        app?.run(command: agentCommand(prompt: prompt))
+    }
+
+    /// The prompt's first line, which heed titles the session with (up to its first full stop, so no file names):
+    /// "Fix CS1061", "Fix 3 problems: CS1061, CS0103".
+    static func headline(_ problems: [Diagnostic]) -> String {
+        var codes: [String] = []
+        for problem in problems where !problem.code.isEmpty && !codes.contains(problem.code) {
+            codes.append(problem.code)
+        }
+        if problems.count == 1 { return "Fix " + (codes.first ?? "a problem") }
+        let named = codes.prefix(3).joined(separator: ", ") + (codes.count > 3 ? " and more" : "")
+        return "Fix \(problems.count) problems" + (named.isEmpty ? "" : ": " + named)
+    }
+
+    /// Board 9: the agent given the problems. In heed when it runs (a new session in this folder, or the one that
+    /// already works here), else in a terminal pane at the bottom.
+    func send(_ problems: [Diagnostic]) {
+        let prompt = prompt(problems)
+        guard sessions != nil else {
+            lastSent = (nil, nil)
+            app?.run(command: agentCommand(prompt: prompt))
+            return
+        }
+        Task { await sendToHeed(prompt) }
+    }
+
+    /// heed's name for the agent sill starts (`SILL_HEED_AGENT`, else claude).
+    private var heedAgent: String { ProcessInfo.processInfo.environment["SILL_HEED_AGENT"] ?? "claude" }
+
+    /// The words that give an agent sill's MCP server, for the agents sill knows how to tell.
+    func mcpArguments(agent: String) -> [String] {
+        switch agent {
+        case "claude": return ["--mcp-config", configPath]
+        case "codex":
+            guard let path = socketPath else { return [] }
+            return [
+                "-c",
+                "mcp_servers.sill.command=\"/usr/bin/nc\"",
+                "-c",
+                "mcp_servers.sill.args=[\"-U\",\"\(path)\"]",
+            ]
+        default: return []
+        }
+    }
+
+    /// The session that already works in this folder, if one is still alive: Send to agent goes to it.
+    var sessionHere: HeedSession? {
+        sessions?.filter { AgentsView.isHere($0, directory) && $0.state != "exited" }
+            .max { ($0.lastActivity ?? .distantPast) < ($1.lastActivity ?? .distantPast) }
+    }
+
+    private func sendToHeed(_ prompt: String) async {
+        let agent = heedAgent
+        if let here = sessionHere { return await sendTo(here.id, prompt) }
+        do {
+            let reply = try await heed.call(.start(
+                directory: directory, prompt: prompt, agent: agent, arguments: mcpArguments(agent: agent)
+            ))
+            lastSent = (reply.session, nil)
+            say("Sent to heed: \(agent) started on the problems. It is in Agents.")
+        } catch let HeedError.refused(_, session?) {
+            // A session heed knows works in this worktree: the problems go to it.
+            await sendTo(session, prompt)
+        } catch {
+            lastSent = (nil, "\(error)")
+            say("heed: \(error)", warn: true)
+        }
+    }
+
+    private func sendTo(_ session: String, _ prompt: String) async {
+        do {
+            _ = try await heed.call(.send(session, prompt))
+            lastSent = (session, nil)
+            say("Sent to \(title(of: session)) in heed.")
+        } catch {
+            lastSent = (session, "\(error)")
+            say("\(title(of: session)) in heed: \(error). Return on it in Agents opens it there.", warn: true)
+        }
+    }
+
+    private func title(of session: String) -> String {
+        sessions?.first { $0.id == session }?.title ?? "the session"
+    }
+
+    private func say(_ text: String, warn: Bool = false) {
+        Nvim.lua(channel, "vim.notify(...)", [.string(text), .int(warn ? 3 : 2)])
+    }
+
+    // MARK: heed's sessions
+
+    private func heedChanged(_ sessions: [HeedSession]?) {
+        self.sessions = sessions
+        app?.agentsChanged(sessions)
+    }
+
+    /// Opens a session in heed, heed in front.
+    func open(_ session: HeedSession) {
+        Task {
+            do { _ = try await heed.call(.show(session.id, focus: true)) } catch {
+                say("heed: \(error)", warn: true)
+            }
+        }
+    }
+
+    /// `<leader>a`: the next session that needs you, after the one opened last, in heed.
+    private var lastOpened: String?
+
+    func openNextWaiting() {
+        guard let sessions else { return say("heed is not running: no agents to go to.") }
+        let waiting = AgentsView.order(sessions, here: directory).filter(\.needsYou)
+        guard !waiting.isEmpty else { return say("No agent needs you.") }
+        let index = waiting.firstIndex { $0.id == lastOpened }.map { ($0 + 1) % waiting.count } ?? 0
+        lastOpened = waiting[index].id
+        open(waiting[index])
     }
 }
 
