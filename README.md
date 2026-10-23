@@ -22,6 +22,8 @@ mise run lint
 
 ![sill on 2026-10-23: the explorer, a Lua file with its tab, a terminal pane, the Problems panel and the status bar](docs/showcase-2026-10-23.png)
 
+![The Agents sidebar over heed's sessions: two need you, one works, one is done](docs/showcase-agents-2026-10-23.png)
+
 ![The profiler on a synthetic 11.8M-sample profile](docs/showcase-profiler-2026-10-23.png)
 
 `SILL_SHOWCASE=<file.png>` renders a picture like that one (the window at 1440x900, off screen: a file beside a terminal pane running
