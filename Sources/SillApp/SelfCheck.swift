@@ -157,7 +157,8 @@ final class SelfCheck {
 
     /// `SILL_SHOWCASE=<file.png>`: a picture of sill at work, whatever size the window is. nvim is asked for a 150x46
     /// screen, `SILL_SHOWCASE_FILE` (else sill's own runtime) opens beside a terminal pane running `git log`, and the
-    /// frame is rendered offscreen at that size.
+    /// frame is rendered offscreen at that size. `SILL_SHOWCASE_SCENE` is `profile` (the profiler) or `agents` (the
+    /// Agents sidebar over the heed at `HEED_CONTROL`).
     private func showcase(to path: String) async throws {
         try await wait("nvim's first screen") { $0.placements.values.contains { $0.kind == .window } }
         let root = try require(app?.root, "the root view")
@@ -181,6 +182,13 @@ final class SelfCheck {
             message = "Unused local `next_pane`." },
         })
         """)
+        if ProcessInfo.processInfo.environment["SILL_SHOWCASE_SCENE"] == "agents" {
+            // The Agents sidebar over heed's sessions (heed at HEED_CONTROL), the rest as the default scene.
+            _ = try await session.channel.lua("vim.cmd('SillAgent list')")
+            _ = try await waitFor("heed's sessions", timeout: .seconds(10)) { self.app?.agents.sessions }
+            _ = try await waitFor("the Agents sidebar") { self.app?.tools.sidebar.activity == .agents ? true : nil }
+            try await session.channel.command("wincmd p")
+        }
         if ProcessInfo.processInfo.environment["SILL_SHOWCASE_SCENE"] == "profile" {
             try await session.channel.command("SillProfile")
             let profile = try await waitFor("the profiler") {
