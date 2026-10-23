@@ -162,6 +162,22 @@ final class SelfCheck {
             message = "Unused local `next_pane`." },
         })
         """)
+        if ProcessInfo.processInfo.environment["SILL_SHOWCASE_SCENE"] == "profile" {
+            try await session.channel.command("SillProfile")
+            let profile = try await waitFor("the profiler") {
+                self.app?.tools.profile.flatMap { $0.isHidden ? nil : $0 }
+            }
+            if let hot = profile.profile.nodes.indices.filter({ profile.profile.nodes[$0].depth == 5 })
+                .max(by: { profile.profile.nodes[$0].samples < profile.profile.nodes[$1].samples })
+            {
+                profile.select(hot, zoom: false)
+            }
+            try await Task.sleep(for: .milliseconds(300))
+            try shot(of: root, to: path, cursor: false)
+            print("sill showcase: saved \(path)")
+            fflush(stdout)
+            return
+        }
         try await session.channel.command("SillTerminal")
         let pane = try await waitFor("the pane's surface") {
             self.panes.view(for: self.latest?.paneRects.first { $0.kind == "terminal" }?.pane ?? -1)
@@ -367,6 +383,30 @@ final class SelfCheck {
             }
         #endif
         step("Run opens a terminal at the bottom running the project's command")
+
+        // The profiler: a profile pane in a tab page of its own, the flame graph drawn by level of detail.
+        try await session.channel.command("SillProfile")
+        try await wait("the profile pane") { $0.currentPaneKind == "profile" }
+        let profile = try await waitFor("the profiler") { tools.profile.flatMap { $0.isHidden ? nil : $0 } }
+        profile.display()
+        try expect(profile.blocksDrawn > 10, "\(profile.blocksDrawn) blocks drawn")
+        let hot = try require(
+            profile.profile.nodes.indices.filter { profile.profile.nodes[$0].depth == 4 }
+                .max { profile.profile.nodes[$0].samples < profile.profile.nodes[$1].samples },
+            "a hot frame"
+        )
+        profile.select(hot, zoom: true)
+        try expect(profile.path(hot).count == 5 && profile.path(hot).first == 0, "the hot path from the root")
+        try expect(profile.to - profile.from == Double(profile.profile.nodes[hot].samples), "zoomed to the frame")
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_PROFILE_SHOT"] {
+            try shot(to: path)
+            step("saved \(path)")
+        }
+        try await session.channel.command("tabclose")
+        try await wait("back from the profile") { $0.currentPaneKind != "profile" }
+        step(
+            "the profiler: \(profile.profile.totalSamples.formatted()) samples as \(profile.blocksDrawn) blocks, a frame's hot path"
+        )
 
         // Merge, last: it takes the window over. A real conflict; the status bar counts it down.
         let folder = FileManager.default.temporaryDirectory

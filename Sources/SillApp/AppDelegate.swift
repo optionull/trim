@@ -213,7 +213,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         tools.panel.onSendToAgent = { problems in
-            let text = "Sending \(problems.count) problems to an agent comes with the heed bridge (M5). Until then: " +
+            let text = "Sending \(problems.count == 1 ? "a problem" : "\(problems.count) problems") to an agent " +
+                "comes with the heed bridge (M5). Until then: " +
                 ":SillTerminal and run one there."
             Nvim.lua(channel, "vim.notify(...)", [.string(text)])
         }

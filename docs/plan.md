@@ -268,6 +268,13 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   status bar's MERGE badge counts the conflicts down. The right-click menu: Go to definition, Find usages, Rename
   (language servers), Blame line, History of file, and Compare file (or the whole tree) with a recent branch, tag or
   commit; `:SillDiff` takes a tab page of its own when the window is too narrow to split.
+- A first version of boards 7 and 8: `:SillProfile` opens the profiler in a tab page of its own: the flame graph
+  drawn by level of detail (scroll to zoom around the pointer, drag to pan, click a frame), the selected frame's self
+  time, total and hot path, and the payload an agent would get. The profile is M0's synthetic one; Timeline, Call
+  tree, Allocations and Heap diff say they come with M6. Pane buffers have names ("Terminal 2", "Profile") for the
+  tab line.
+- Still placeholders: sessions and the handoff (boards 2 and 9, heed's control socket and M5) and packages (board
+  3, M3's .NET work).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

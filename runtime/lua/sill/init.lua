@@ -180,6 +180,9 @@ local function placeholder(buf, kind)
   vim.bo[buf].swapfile = false
   vim.bo[buf].modifiable = false
   vim.bo[buf].filetype = 'sill' .. kind
+  -- A name for the tab line and the window list: "Terminal 2", "Profile".
+  local title = kind:sub(1, 1):upper() .. kind:sub(2)
+  pcall(vim.api.nvim_buf_set_name, buf, kind == 'terminal' and (title .. ' ' .. next_pane) or title)
   if kind == 'terminal' then
     for _, key in ipairs({ 'i', 'a', 'I', 'A', '<Insert>' }) do
       vim.keymap.set('n', key, focus_terminal, { buffer = buf, desc = 'Type into the terminal' })
@@ -448,6 +451,9 @@ function M.setup()
   end
   vim.g.loaded_sill = true
   vim.api.nvim_create_user_command('SillChrome', M.chrome, { desc = "sill's window: sidebar, panel, colours" })
+  vim.api.nvim_create_user_command('SillProfile', function()
+    M.open_pane('profile', 'tab')
+  end, { desc = 'Open the profiler (a synthetic profile until M6)' })
   vim.api.nvim_create_user_command('SillMerge', function(opts)
     if #opts.fargs ~= 4 then
       vim.notify(':SillMerge takes four files: local base remote merged', vim.log.levels.ERROR)

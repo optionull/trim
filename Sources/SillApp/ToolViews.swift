@@ -16,6 +16,8 @@ protocol ToolContent: NSView {
 final class ToolPanes {
     let sidebar: SidebarView
     let panel: BottomPanelView
+    /// The profiler, made the first time a profile pane opens (the synthetic profile takes a moment to build).
+    private(set) var profile: ProfileView?
     private let editor: EditorView
     private(set) var screen = Screen()
 
@@ -44,6 +46,19 @@ final class ToolPanes {
                 view.isHidden = true
             }
         }
+        if let rect = screen.paneRects.first(where: { $0.kind == "profile" }) {
+            let view = profile ?? {
+                let view = ProfileView()
+                editor.addSubview(view)
+                profile = view
+                return view
+            }()
+            view.frame = editor.rect(row: rect.row, col: rect.col, width: rect.width, height: rect.height)
+            view.isHidden = false
+            covered.insert(rect.grid)
+        } else {
+            profile?.isHidden = true
+        }
         self.covered = covered
         sidebar.focused = screen.currentPaneKind == "sidebar"
         panel.focused = screen.currentPaneKind == "panel"
@@ -55,6 +70,7 @@ final class ToolPanes {
         switch screen.currentPaneKind {
         case "sidebar": sidebar.handleKey(event)
         case "panel": panel.handleKey(event)
+        case "profile": profile?.handleKey(event) ?? false
         default: false
         }
     }
@@ -111,7 +127,8 @@ final class SidebarView: NSView {
             )
         case .profiler: EmptyStateView(
                 symbol: "chart.bar.xaxis", title: "Profiler",
-                body: "CPU and memory profiles of a run: flame graph, call tree, heap diff (boards 7 and 8, M6)."
+                body: "CPU and memory profiles of a run (boards 7 and 8) come with M6. :SillProfile opens the flame graph " +
+                    "on a synthetic 11.8M-sample profile."
             )
         }
         if activity == .sourceControl { sourceControl.refresh() }
