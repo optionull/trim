@@ -295,9 +295,22 @@ final class EditorView: NSView {
 
     override func mouseDragged(with event: NSEvent) { mouse(event, button: "left", action: "drag") }
     override func mouseUp(with event: NSEvent) { mouse(event, button: "left", action: "release") }
-    override func rightMouseDown(with event: NSEvent) { mouse(event, button: "right", action: "press") }
-    override func rightMouseDragged(with event: NSEvent) { mouse(event, button: "right", action: "drag") }
-    override func rightMouseUp(with event: NSEvent) { mouse(event, button: "right", action: "release") }
+    /// The right-click menu, made by the app (it knows the folder and runs commands in a terminal).
+    var contextMenu: (() -> NSMenu)?
+
+    /// Right-click: the cursor goes where the click is (unless a selection is being made), then sill's menu.
+    override func rightMouseDown(with event: NSEvent) {
+        guard let contextMenu else {
+            mouse(event, button: "right", action: "press")
+            return
+        }
+        if !(screen.mode.hasPrefix("visual") || screen.mode.hasPrefix("select")) {
+            mouse(event, button: "left", action: "press")
+            mouse(event, button: "left", action: "release")
+        }
+        NSMenu.popUpContextMenu(contextMenu(), with: event, for: self)
+    }
+
     override func otherMouseDown(with event: NSEvent) { mouse(event, button: "middle", action: "press") }
     override func otherMouseDragged(with event: NSEvent) { mouse(event, button: "middle", action: "drag") }
     override func otherMouseUp(with event: NSEvent) { mouse(event, button: "middle", action: "release") }

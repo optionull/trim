@@ -299,6 +299,10 @@ function M.diff(ref)
     old = {}
   end
   local filetype = vim.bo.filetype
+  -- Side by side in this tab page if there is room, else in a tab page of its own.
+  if vim.api.nvim_win_get_width(0) < 2 * math.max(vim.o.winwidth, 20) + 1 then
+    vim.cmd('tab split')
+  end
   vim.cmd('diffthis')
   vim.cmd('leftabove vnew')
   local buf = vim.api.nvim_get_current_buf()
@@ -310,6 +314,36 @@ function M.diff(ref)
   pcall(vim.api.nvim_buf_set_name, buf, relative .. ' @ ' .. ref)
   vim.cmd('diffthis')
   vim.cmd('wincmd p')
+end
+
+--- A language server action ('definition', 'references', 'rename') where one is attached, else a notice.
+function M.lsp(action)
+  if #vim.lsp.get_clients({ bufnr = 0 }) == 0 then
+    vim.notify('No language server for this file', vim.log.levels.INFO)
+    return
+  end
+  vim.lsp.buf[action]()
+end
+
+--- Who last changed the cursor's line, and in which commit, as a notification.
+function M.blame()
+  local path = vim.api.nvim_buf_get_name(0)
+  local line = vim.api.nvim_win_get_cursor(0)[1]
+  local out = vim.fn.systemlist({ 'git', '-C', vim.fn.fnamemodify(path, ':h'), 'blame', '-L', line .. ',' .. line,
+    '--porcelain', '--', path })
+  if vim.v.shell_error ~= 0 or #out == 0 then
+    vim.notify('No blame: ' .. path .. ' is not committed', vim.log.levels.INFO)
+    return
+  end
+  local fields = { commit = out[1]:match('^(%x+)'):sub(1, 8) }
+  for _, l in ipairs(out) do
+    local key, value = l:match('^(%S+) (.*)$')
+    if key == 'author' or key == 'summary' or key == 'author-time' then
+      fields[key] = value
+    end
+  end
+  local when = fields['author-time'] and os.date('%Y-%m-%d', tonumber(fields['author-time'])) or ''
+  vim.notify(string.format('%s  %s, %s: %s', fields.commit, fields.author or '?', when, fields.summary or ''))
 end
 
 --- The window showing the pane of `kind` in this tab page, if there is one.
@@ -414,6 +448,23 @@ function M.setup()
   end
   vim.g.loaded_sill = true
   vim.api.nvim_create_user_command('SillChrome', M.chrome, { desc = "sill's window: sidebar, panel, colours" })
+  vim.api.nvim_create_user_command('SillMerge', function(opts)
+    if #opts.fargs ~= 4 then
+      vim.notify(':SillMerge takes four files: local base remote merged', vim.log.levels.ERROR)
+      return
+    end
+    require('sill.merge').open(unpack(opts.fargs))
+  end, { nargs = '+', complete = 'file', desc = 'Three-way merge: local base remote merged' })
+  vim.api.nvim_create_user_command('SillMergeBase', function()
+    require('sill.merge').toggle_base()
+  end, { desc = 'Show or hide the base of a merge' })
+  vim.api.nvim_create_user_command('SillDiffFiles', function(opts)
+    if #opts.fargs ~= 2 then
+      vim.notify(':SillDiffFiles takes two files', vim.log.levels.ERROR)
+      return
+    end
+    require('sill.merge').diff(unpack(opts.fargs))
+  end, { nargs = '+', complete = 'file', desc = 'Two-way diff of two files' })
   vim.api.nvim_create_user_command('SillDiff', function(opts)
     M.diff(opts.args)
   end, { nargs = '?', desc = 'Compare the file with its version at a ref (HEAD)' })

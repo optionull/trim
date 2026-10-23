@@ -88,6 +88,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // Arguments after the binary are nvim's (files to open); `open` adds -psn and -NS ones of its own.
                 var arguments = CommandLine.arguments.dropFirst()
                     .filter { !$0.hasPrefix("-psn") && !$0.hasPrefix("-NS") }
+                // As git's mergetool and difftool: `Sill merge LOCAL BASE REMOTE MERGED`, `Sill diff A B`.
+                let tool = Array(arguments)
+                let merging = tool.first == "merge" && tool.count == 5,
+                    diffing = tool.first == "diff" && tool.count == 3
+                if merging || diffing { arguments = [] }
                 // The self-check and the showcase run sill alone (no user config) and leave no swap files behind, even
                 // when stopped half-way. SILL_NVIM_CONFIG=0 asks for sill alone too.
                 let environment = NvimProcess.cachedEnv.merging(ProcessInfo.processInfo.environment) { _, own in own }
@@ -101,6 +106,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     runtime: Runtime.directory, cols: cols, rows: rows, cwd: workingDirectory, appName: startup.appName,
                     extraArgs: base + Array(arguments)
                 )
+                if merging {
+                    _ = try await session.channel.lua(
+                        "require('sill.merge').open(...)",
+                        args: tool.dropFirst().map { .string($0) }
+                    )
+                } else if diffing {
+                    _ = try await session.channel.lua(
+                        "require('sill.merge').diff(...)",
+                        args: tool.dropFirst().map { .string($0) }
+                    )
+                }
                 if chrome {
                     do {
                         try await session.channel.command("SillChrome")
@@ -168,6 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         state.filetype = screen.buffer.filetype
         state.position = screen.buffer.kind.isEmpty ? screen.cursorPosition : nil
         state.modified = screen.buffer.modified
+        state.merge = screen.merge.map { ($0.left, $0.current) }
         root.statusBar.state = state
         root.activityBar.selected = screen.paneRects.contains { $0.kind == "sidebar" } ? tools.sidebar.activity : nil
     }
@@ -189,6 +206,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         root.titleBar.onRun = { [weak self] in self?.run() }
+        editor.contextMenu = { [weak self] in
+            guard let self else { return NSMenu() }
+            return ContextMenu.menu(directory: workingDirectory, channel: channel) { [weak self] command in
+                self?.run(command: command)
+            }
+        }
         tools.panel.onSendToAgent = { problems in
             let text = "Sending \(problems.count) problems to an agent comes with the heed bridge (M5). Until then: " +
                 ":SillTerminal and run one there."

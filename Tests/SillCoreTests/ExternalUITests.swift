@@ -314,3 +314,80 @@ struct DragTests {
         try await nvim.screen("narrower") { $0.paneRects.first { $0.kind == "sidebar" }?.width == sidebar.width - 4 }
     }
 }
+
+@Suite("three-way merge", .serialized)
+struct MergeTests {
+    private func merge() throws -> (local: String, base: String, remote: String, merged: String) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("sill-merge-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        func write(_ name: String, _ text: String) throws -> String {
+            let path = directory.appendingPathComponent(name).path
+            try text.write(toFile: path, atomically: true, encoding: .utf8)
+            return path
+        }
+        return try (
+            write("local.cs", "a\nours\nb\n"), write("base.cs", "a\nbase\nb\n"), write("remote.cs", "a\ntheirs\nb\n"),
+            write("Program.cs", "a\n<<<<<<< ours\nours\n||||||| base\nbase\n=======\ntheirs\n>>>>>>> theirs\nb\n")
+        )
+    }
+
+    @Test(
+        "ours, result and theirs side by side; ]x finds the conflict; the keys take a side",
+        arguments: ["o", "t", "b"]
+    )
+    func resolve(key: String) async throws {
+        let files = try merge()
+        let nvim = try await Harness.start(cols: 150, rows: 30)
+        defer { Task { await nvim.stop() } }
+        _ = try await nvim.session.channel.lua("require('sill.merge').open(...)", args: [
+            .string(files.local), .string(files.base), .string(files.remote), .string(files.merged),
+        ])
+        var screen = try await nvim
+            .screen("three windows and a conflict") { $0.windows.count == 3 && $0.merge?.left == 1 }
+        let windows = screen.windows
+        // Each window's buffer, left to right (diff mode pads with filler lines, so not their rows).
+        let contents = try await nvim.session.channel.lua("""
+        local wins = vim.api.nvim_tabpage_list_wins(0)
+        table.sort(wins, function(a, b) return vim.api.nvim_win_get_position(a)[2] < vim.api.nvim_win_get_position(b)[2] end)
+        return vim.tbl_map(function(w) return table.concat(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(w), 0, -1, false), ' ') end, wins)
+        """)
+        let texts = (contents.arrayValue ?? []).compactMap(\.stringValue)
+        #expect(texts.count == 3 && texts[0] == "a ours b" && texts[2] == "a theirs b" && texts[1].contains("<<<<<<<"))
+        #expect(screen.cursorWindow == windows[1].placement.win, "the result is current")
+
+        await nvim.keys("gg]x")
+        screen = try await nvim.screen("on the conflict") { $0.merge?.current == 1 }
+        await nvim.keys("\\\(key)")
+        screen = try await nvim.screen("resolved") { $0.merge?.left == 0 }
+        let lines = try await nvim.session.channel.lua("return vim.api.nvim_buf_get_lines(0, 0, -1, false)")
+        let text = (lines.arrayValue ?? []).compactMap(\.stringValue)
+        let expected = ["o": ["a", "ours", "b"], "t": ["a", "theirs", "b"], "b": ["a", "ours", "theirs", "b"]][key]
+        #expect(text == expected)
+    }
+}
+
+@Suite("sill's runtime")
+struct RuntimeTests {
+    @Test("it loads without errors and defines its commands")
+    func loads() async throws {
+        let nvim = try await Harness.start()
+        defer { Task { await nvim.stop() } }
+        let commands = try await nvim.session.channel.lua("""
+        return vim.tbl_filter(function(name) return name:match('^Sill') end, vim.tbl_keys(vim.api.nvim_get_commands({})))
+        """)
+        let names = Set((commands.arrayValue ?? []).compactMap(\.stringValue))
+        #expect(
+            names.isSuperset(of: [
+                "SillTerminal",
+                "SillChrome",
+                "SillDiff",
+                "SillMerge",
+                "SillMergeBase",
+                "SillDiffFiles",
+            ]),
+            "\(names.sorted())"
+        )
+        let errors = try await nvim.session.channel.lua("return vim.v.errmsg")
+        #expect(errors.stringValue == "", "\(errors)")
+    }
+}

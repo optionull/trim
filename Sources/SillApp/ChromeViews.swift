@@ -192,13 +192,16 @@ final class StatusBarView: NSView {
         var filetype = ""
         var position: (line: Int, column: Int)?
         var modified = false
+        /// A merge: conflicts left, and the current one.
+        var merge: (left: Int, current: Int)?
 
         static func == (lhs: State, rhs: State) -> Bool {
             lhs.mode == rhs.mode && lhs.branch == rhs.branch && lhs.pending == rhs.pending &&
                 lhs.services.map(\.name) == rhs.services.map(\.name) &&
                 lhs.services.map(\.ready) == rhs.services.map(\.ready) && lhs.filetype == rhs.filetype &&
                 lhs.position?.line == rhs.position?.line && lhs.position?.column == rhs.position?.column &&
-                lhs.modified == rhs.modified
+                lhs.modified == rhs.modified && lhs.merge?.left == rhs.merge?.left &&
+                lhs.merge?.current == rhs.merge?.current
         }
     }
 
@@ -227,7 +230,8 @@ final class StatusBarView: NSView {
         Design.border.setFill()
         NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
 
-        let (label, color) = Self.badge(state.mode)
+        let (label, color) = state.merge != nil && state.mode == "normal" ? ("MERGE", Design.modified) :
+            Self.badge(state.mode)
         let badgeText = NSAttributedString(string: label, attributes: [
             .font: Design.ui(11, weight: .bold), .foregroundColor: Design.onAccent,
         ])
@@ -242,6 +246,15 @@ final class StatusBarView: NSView {
             let string = NSAttributedString(string: text, attributes: [.font: Design.ui(12), .foregroundColor: color])
             string.draw(at: NSPoint(x: x, y: (bounds.height - string.size().height) / 2))
             x += string.size().width + 16
+        }
+        if let merge = state.merge {
+            left(
+                merge.left == 0 ? "All conflicts resolved: :w to save, :qa to finish" :
+                    (merge
+                        .current > 0 ? "Conflict \(merge.current) of \(merge.left)" : "\(merge.left) conflicts left") +
+                    "   ]x next · \\o ours · \\t theirs · \\b both",
+                color: merge.left == 0 ? Design.accent : Design.text
+            )
         }
         left(state.branch.isEmpty ? "" : state.branch)
         left(state.pending, color: Design.modified)

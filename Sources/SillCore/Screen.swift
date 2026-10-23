@@ -198,6 +198,9 @@ public struct Screen: Sendable {
     public private(set) var paneKinds: [Int: String] = [:]
     public private(set) var buffer = BufferInfo()
     public private(set) var diagnostics: [Diagnostic] = []
+    /// A merge in progress (`:SillMerge`): conflicts left in the result, the one under the cursor (1-based, 0 for
+    /// none), and the file.
+    public private(set) var merge: (left: Int, current: Int, file: String)?
     /// Each editor window's tabs, by window handle.
     public private(set) var windowTabs: [Int: WindowTabs] = [:]
 
@@ -310,6 +313,17 @@ public struct Screen: Sendable {
             (panes, paneKinds) = Self.panes(args)
         case let .notification(method, args) where method == "sill_buffer":
             buffer = Self.buffer(args)
+        case let .notification(method, args) where method == "sill_merge":
+            var left = 0, current = 0, file = ""
+            for (key, value) in args.first?.dictionaryValue ?? [:] {
+                switch key.stringValue {
+                case "left": left = value.intValue
+                case "current": current = value.intValue
+                case "file": file = value.stringValue ?? ""
+                default: break
+                }
+            }
+            merge = (left, current, file)
         case let .notification(method, args) where method == "sill_tabs":
             windowTabs = Self.windowTabs(args)
         case let .notification(method, args) where method == "sill_diagnostics":

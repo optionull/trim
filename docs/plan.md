@@ -262,6 +262,12 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
 - The startup hang seen once in the chrome check: when a start-up step failed, sill opened an alert with
   `runModal`, which waits forever in an unattended run. The check and the showcase print and exit now, and a
   failing `:SillChrome` is a notification, not a failed start.
+- First versions of boards 5 and 6. The merge tool: `Sill merge LOCAL BASE REMOTE MERGED` (and `Sill diff A B`), as
+  git's mergetool and difftool call it, opens ours, result and theirs in nvim's diff mode; `]x`/`[x` walk the
+  conflict markers and `<localleader>o/t/b` take ours, theirs or both (§11); `:SillMergeBase` shows the base; the
+  status bar's MERGE badge counts the conflicts down. The right-click menu: Go to definition, Find usages, Rename
+  (language servers), Blame line, History of file, and Compare file (or the whole tree) with a recent branch, tag or
+  commit; `:SillDiff` takes a tab page of its own when the window is too narrow to split.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

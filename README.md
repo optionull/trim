@@ -35,6 +35,18 @@ release build. `SILL_FONTS=<dir>` uses the fonts in a directory without installi
 `:only` and `:q` close it. The sidebar and the bottom panel are panes too (`:SillChrome` opens them, as the app does). As with nvim's own `:terminal`, `i` hands the keyboard to the terminal and `<C-\><C-n>`
 hands it back; a click on the pane or on the editor does the same.
 
+## As git's merge and diff tool
+
+```sh
+git config merge.tool sill
+git config mergetool.sill.cmd '"/Applications/Sill.app/Contents/MacOS/Sill" merge "$LOCAL" "$BASE" "$REMOTE" "$MERGED"'
+git config diff.tool sill
+git config difftool.sill.cmd '"/Applications/Sill.app/Contents/MacOS/Sill" diff "$LOCAL" "$REMOTE"'
+```
+
+In a merge, `]x` and `[x` walk the conflicts and `\o`, `\t` and `\b` take ours, theirs or both (`<localleader>`);
+`:w` saves the result and `:qa` ends the merge.
+
 ## Layout
 
 | Path | |

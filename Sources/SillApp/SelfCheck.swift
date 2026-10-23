@@ -319,6 +319,39 @@ final class SelfCheck {
         try expect(frames >= 4, "\(frames) frames drawn for a slide")
         step("<C-d> slides the window: \(frames) frames over \(Bench.format(lasted)) ms")
 
+        // The right-click menu: Compare file with › a branch puts the file beside its version there.
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [
+            .string((app.workingDirectory as NSString).appendingPathComponent("Package.swift")),
+        ])
+        try await wait("Package.swift to compare") { $0.buffer.name == "Package.swift" }
+        let menu = try require(editor.contextMenu?(), "the context menu")
+        let compare = try require(menu.items.first { $0.title == "Compare file with" }?.submenu, "Compare file with")
+        let branch = try require(compare.items.compactMap { $0 as? ClosureItem }.first, "a branch to compare with")
+        branch.choose()
+        // The file's version at the branch, beside it in diff mode (in a tab page of its own in a narrow window).
+        let diffQuery = """
+        local found, diffed = false, 0
+        for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+          if vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(w)):find(' @ ', 1, true) then found = true end
+          if vim.wo[w].diff then diffed = diffed + 1 end
+        end
+        return found and diffed or 0
+        """
+        var diffed = 0
+        for _ in 0 ..< 50 where diffed != 2 {
+            try await Task.sleep(for: .milliseconds(100))
+            diffed = try await session.channel.lua(diffQuery).intValue
+        }
+        try expect(diffed == 2, "the file and its version at \(branch.title) in diff mode")
+        _ = try await session.channel.lua("""
+        for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+          if vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(w)):find(' @ ', 1, true) then vim.api.nvim_win_close(w, true) end
+        end
+        vim.cmd('diffoff!')
+        if #vim.api.nvim_list_tabpages() > 1 then vim.cmd('tabclose') end
+        """)
+        step("the right-click menu compares the file with \(branch.title)")
+
         tools.panel.onSendToAgent?(tools.panel.problems)
         try await wait("the heed notice") { $0.messages.contains { $0.text.contains("heed bridge") } }
         step("Send all to agent says it comes with the heed bridge")
@@ -334,6 +367,30 @@ final class SelfCheck {
             }
         #endif
         step("Run opens a terminal at the bottom running the project's command")
+
+        // Merge, last: it takes the window over. A real conflict; the status bar counts it down.
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sill-check-merge-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        func write(_ name: String, _ text: String) throws -> String {
+            let path = folder.appendingPathComponent(name).path
+            try text.write(toFile: path, atomically: true, encoding: .utf8)
+            return path
+        }
+        let paths = try [
+            write("l.txt", "a\nours\n"),
+            write("b.txt", "a\nbase\n"),
+            write("r.txt", "a\ntheirs\n"),
+            write("m.txt", "a\n<<<<<<< ours\nours\n=======\ntheirs\n>>>>>>> theirs\n"),
+        ]
+        _ = try await session.channel.lua("require('sill.merge').open(...)", args: paths.map { .string($0) })
+        try await waitFor("MERGE in the status bar") {
+            root.statusBar.state.merge?.left == 1 ? true : nil
+        }
+        type("gg]x")
+        session.channel.send(keys: "\\t")
+        try await waitFor("resolved") { root.statusBar.state.merge?.left == 0 ? true : nil }
+        step("a merge: ours, result and theirs, and the status bar counts the conflicts down")
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             try shot(to: path)
             step("saved \(path)")
