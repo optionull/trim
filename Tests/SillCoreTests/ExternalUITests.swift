@@ -282,3 +282,35 @@ struct DiffTests {
         #expect(diffOn.arrayValue?.allSatisfy { $0.boolValue == true } == true)
     }
 }
+
+@Suite("dragging separators", .serialized)
+struct DragTests {
+    @Test("a press on the sidebar's separator, a drag and a release resize it", arguments: 1 ... 3)
+    func drag(attempt _: Int) async throws {
+        let nvim = try await Harness.start(cols: 120, rows: 40)
+        defer { Task { await nvim.stop() } }
+        try await nvim.command("SillChrome")
+        let screen = try await nvim.screen("the sidebar") { $0.paneRects.contains { $0.kind == "sidebar" } }
+        let sidebar = try #require(screen.paneRects.first { $0.kind == "sidebar" })
+        let separator = sidebar.col + sidebar.width
+        #expect(screen.grids[1]?[5, separator].text == "│")
+        // Spaced as a hand moves a mouse: nvim drops a drag that arrives with its press still unread.
+        for (action, col) in [
+            ("press", separator),
+            ("drag", separator - 2),
+            ("drag", separator - 4),
+            ("release", separator - 4),
+        ] {
+            await nvim.session.channel.send(.mouse(
+                button: "left",
+                action: action,
+                modifiers: "",
+                grid: 1,
+                row: 5,
+                col: col
+            ))
+            try await Task.sleep(for: .milliseconds(40))
+        }
+        try await nvim.screen("narrower") { $0.paneRects.first { $0.kind == "sidebar" }?.width == sidebar.width - 4 }
+    }
+}

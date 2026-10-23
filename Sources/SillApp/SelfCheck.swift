@@ -222,7 +222,9 @@ final class SelfCheck {
 
         // The explorer: focus it from the activity bar, walk it with the keyboard, open a file.
         let explorer = tools.sidebar.explorer
-        try await waitFor("the explorer's rows") { explorer.rows.count > 3 ? true : nil }
+        try await waitFor("the explorer's rows, with git's view") {
+            explorer.gitRead && explorer.rows.count > 3 ? true : nil
+        }
         root.activityBar.onSelect?(.explorer) // Selected and showing: hides the sidebar.
         try await wait("the sidebar hidden") { !$0.paneRects.contains { $0.kind == "sidebar" } }
         try expect(root.activityBar.selected == nil, "no activity selected while the sidebar is hidden")
@@ -253,6 +255,22 @@ final class SelfCheck {
         )
         step("each editor window has a strip of its tabs on its winbar row")
 
+        // Drag-to-resize: the separator right of the sidebar, dragged four columns left, narrows it by four.
+        // Once the layout has held still: a sidebar just reopened may still be fitting the window.
+        var before = try require(latest?.paneRects.first { $0.kind == "sidebar" }, "the sidebar")
+        for _ in 0 ..< 20 {
+            try await Task.sleep(for: .milliseconds(150))
+            let now = try require(latest?.paneRects.first { $0.kind == "sidebar" }, "the sidebar")
+            if now == before { break }
+            before = now
+        }
+        let separator = before.col + before.width
+        // Left, narrowing the sidebar: the current editor window keeps 'winwidth' (20) columns, so in a narrow
+        // window widening the sidebar would rightly be refused.
+        try await drag(from: (row: 6, col: separator), to: (row: 6, col: separator - 4))
+        try await wait("a narrower sidebar") { $0.paneRects.first { $0.kind == "sidebar" }?.width == before.width - 4 }
+        step("dragging the separator resizes the window: the sidebar \(before.width) to \(before.width - 4) columns")
+
         root.activityBar.onSelect?(.sourceControl)
         let changes = Git.status(in: app.workingDirectory).count
         try await waitFor("the source control view") {
@@ -282,8 +300,12 @@ final class SelfCheck {
         step("the panel lists nvim's diagnostics, and Return goes to one")
 
         // Smooth scrolling: <C-d> slides the window half a page, and the slide ends.
-        _ = try await session.channel
-            .lua("vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.tbl_map(tostring, vim.fn.range(400)))")
+        // In a scratch buffer: the check never changes a file's buffer.
+        _ = try await session.channel.lua("""
+        vim.cmd('enew')
+        vim.bo.buftype = 'nofile'
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.tbl_map(tostring, vim.fn.range(400)))
+        """)
         _ = try await session.channel.lua("vim.cmd('normal! gg')")
         try await Task.sleep(for: .milliseconds(300))
         let loop = try require(editor.loop, "the render loop")
@@ -556,6 +578,38 @@ final class SelfCheck {
             ) else { continue }
             if type == .leftMouseDown { editor.mouseDown(with: event) } else { editor.mouseUp(with: event) }
         }
+    }
+
+    /// A left-button drag from one cell of grid 1 to another, straight to the editor, spaced as a hand moves a mouse:
+    /// nvim drops a drag that arrives with its press still unread.
+    private func drag(from: (row: Int, col: Int), to: (row: Int, col: Int)) async throws {
+        func point(_ cell: (row: Int, col: Int)) -> NSPoint {
+            editor.convert(NSPoint(
+                x: (CGFloat(cell.col) + 0.5) * editor.metrics.width,
+                y: (CGFloat(cell.row) + 0.5) * editor.metrics.height
+            ), to: nil)
+        }
+        func event(_ type: NSEvent.EventType, _ location: NSPoint) -> NSEvent? {
+            NSEvent.mouseEvent(
+                with: type,
+                location: location,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        }
+        if let down = event(.leftMouseDown, point(from)) { editor.mouseDown(with: down) }
+        for step in 1 ... 4 {
+            try await Task.sleep(for: .milliseconds(40))
+            let col = from.col + (to.col - from.col) * step / 4
+            if let dragged = event(.leftMouseDragged, point((to.row, col))) { editor.mouseDragged(with: dragged) }
+        }
+        try await Task.sleep(for: .milliseconds(40))
+        if let up = event(.leftMouseUp, point(to)) { editor.mouseUp(with: up) }
     }
 
     private func wheel(lines: Int32, row: Int, col: Int) {

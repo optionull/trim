@@ -86,8 +86,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Task { [weak self] in
             do {
                 // Arguments after the binary are nvim's (files to open); `open` adds -psn and -NS ones of its own.
-                let arguments = CommandLine.arguments.dropFirst()
+                var arguments = CommandLine.arguments.dropFirst()
                     .filter { !$0.hasPrefix("-psn") && !$0.hasPrefix("-NS") }
+                // The self-check and the showcase leave no swap files behind, even when stopped half-way.
+                if ProcessInfo.processInfo.environment["SILL_CHECK"] != nil ||
+                    ProcessInfo.processInfo.environment["SILL_SHOWCASE"] != nil
+                {
+                    arguments.insert("-n", at: 0)
+                }
                 try await session.start(
                     runtime: Runtime.directory, cols: cols, rows: rows, cwd: workingDirectory,
                     extraArgs: Array(arguments)

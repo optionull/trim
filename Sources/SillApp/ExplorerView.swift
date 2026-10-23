@@ -29,6 +29,8 @@ final class ExplorerView: NSView, ToolContent {
     private(set) var status: [String: String] = [:]
     private(set) var ignored: Set<String> = []
     private var currentFile = ""
+    /// git's view has been read at least once: until then ignored files show, and rows may move when it arrives.
+    private(set) var gitRead = false
     private var footerShow = NSRect.zero
 
     init(channel: NvimChannel, root: String, metrics: CellMetrics) {
@@ -60,6 +62,7 @@ final class ExplorerView: NSView, ToolContent {
             await MainActor.run { [weak self] in
                 self?.status = changes
                 self?.ignored = ignored
+                self?.gitRead = true
                 self?.rebuild()
             }
         }

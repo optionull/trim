@@ -302,6 +302,35 @@ final class EditorView: NSView {
     override func otherMouseDragged(with event: NSEvent) { mouse(event, button: "middle", action: "drag") }
     override func otherMouseUp(with event: NSEvent) { mouse(event, button: "middle", action: "release") }
 
+    // Separators: nvim resizes windows when their separators are dragged (grid 1 holds them); the pointer says so.
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self
+        ))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        separatorCursor(event)?.set() ?? NSCursor.iBeam.set()
+    }
+
+    /// The resize cursor over a separator nvim draws: │ between side-by-side windows, ─ between stacked ones.
+    func separatorCursor(_ event: NSEvent) -> NSCursor? {
+        let point = convert(event.locationInWindow, from: nil)
+        let row = Int(point.y / metrics.height), col = Int(point.x / metrics.width)
+        guard screen.hit(row: row, col: col).grid == 1, let grid = screen.grids[1], row < grid.rows, col < grid.cols
+        else { return nil }
+        switch grid[row, col].text {
+        case "│", "┤", "├": return .resizeLeftRight
+        case "─", "┬", "┴": return .resizeUpDown
+        default: return nil
+        }
+    }
+
     override func scrollWheel(with event: NSEvent) {
         if event.phase == .began { scroll.reset() }
         let steps = scroll.steps(
