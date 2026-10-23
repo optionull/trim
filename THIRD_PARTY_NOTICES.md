@@ -37,7 +37,9 @@ SOFTWARE.
 ## Passenger
 
 https://github.com/Zaneris/passenger at 7686138. The sidecar's protocol and server (`sidecar/Sill.Sidecar/Protocol.cs`,
-`Server.cs`) are adapted from Passenger's project host (`src/Passenger.Host`).
+`Server.cs`) are adapted from Passenger's project host (`src/Passenger.Host`). The profiler (`sidecar/Sill.Profiler`) is
+Passenger's `src/Passenger.Profiler`, vendored: EventPipe sampling, heap snapshots through createdump read with ClrMD,
+and their comparison.
 
 ```
 MIT License
@@ -119,3 +121,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## NuGet packages in the sidecar
+
+The profiler's packages, and what they bring, all under the MIT licence: Microsoft.Diagnostics.Tracing.TraceEvent
+(its Windows-only native helpers, KernelTraceControl and msdia140, are left out of the app), Microsoft.Diagnostics.Runtime
+(ClrMD), Microsoft.Diagnostics.NETCore.Client, Azure.Core, Azure.Identity, Microsoft.Identity.Client and its
+extensions, Microsoft.IdentityModel.Abstractions, Microsoft.Security.AntiSSRF, System.ClientModel, System.Memory.Data,
+System.Security.Cryptography.ProtectedData, Microsoft.Bcl.AsyncInterfaces and the Microsoft.Extensions abstractions.
+Each is © Microsoft Corporation and others, https://github.com/microsoft/perfview, https://github.com/microsoft/clrmd,
+https://github.com/dotnet/diagnostics, https://github.com/Azure/azure-sdk-for-net,
+https://github.com/AzureAD/microsoft-authentication-library-for-dotnet and https://github.com/dotnet/runtime.
+

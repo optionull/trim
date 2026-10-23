@@ -23,6 +23,17 @@ struct FlameGraphTests {
         }
     }
 
+    @Test("a call tree in preorder: each frame starts where its previous sibling ended")
+    func preorder() {
+        // root 10: a 6 (c 4), b 3; then a second root's worth is not possible, so the tree ends.
+        let graph = FlameGraph(preorder: [(0, 0, 10), (1, 1, 6), (2, 2, 4), (3, 1, 3)])
+        #expect(graph.nodes.map(\.start) == [0, 0, 0, 6])
+        #expect(graph.nodes.map(\.end) == [4, 3, 3, 4])
+        #expect(graph.nodes.map(\.name) == [0, 1, 2, 3])
+        #expect(graph.totalSamples == 10)
+        #expect(graph.maxDepth == 2)
+    }
+
     @Test("zoomed out, blocks stay near the pixel count and cover the root")
     func zoomedOut() {
         let blocks = profile.blocks(from: 0, to: Double(profile.totalSamples), pixels: 1000)

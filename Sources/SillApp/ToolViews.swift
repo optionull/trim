@@ -16,8 +16,22 @@ protocol ToolContent: NSView {
 final class ToolPanes {
     let sidebar: SidebarView
     let panel: BottomPanelView
-    /// The profiler, made the first time a profile pane opens (the synthetic profile takes a moment to build).
+    /// The profiler, made the first time a profile pane opens or a run starts (the synthetic profile takes a moment to
+    /// build).
     private(set) var profile: ProfileView?
+    /// Called with the profiler the first time it is made.
+    var onProfileMade: ((ProfileView) -> Void)?
+
+    func profileView() -> ProfileView {
+        if let profile { return profile }
+        let view = ProfileView()
+        view.isHidden = true
+        editor.addSubview(view)
+        profile = view
+        onProfileMade?(view)
+        return view
+    }
+
     private let editor: EditorView
     private(set) var screen = Screen()
 
@@ -47,12 +61,7 @@ final class ToolPanes {
             }
         }
         if let rect = screen.paneRects.first(where: { $0.kind == "profile" }) {
-            let view = profile ?? {
-                let view = ProfileView()
-                editor.addSubview(view)
-                profile = view
-                return view
-            }()
+            let view = profileView()
             view.frame = editor.rect(row: rect.row, col: rect.col, width: rect.width, height: rect.height)
             view.isHidden = false
             covered.insert(rect.grid)
@@ -125,8 +134,8 @@ final class SidebarView: NSView {
             )
         case .profiler: EmptyStateView(
                 symbol: "chart.bar.xaxis", title: "Profiler",
-                body: "CPU and memory profiles of a run (boards 7 and 8) come with M6. :SillProfile opens the flame graph " +
-                    "on a synthetic 11.8M-sample profile."
+                body: ":SillProfile runs the project's .NET program under the profiler: its CPU profile, and heap " +
+                    "snapshots compared (s to take one, x to stop). :SillProfile synthetic shows an 11.8M-sample one."
             )
         }
         if activity == .sourceControl { sourceControl.refresh() }

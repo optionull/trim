@@ -12,4 +12,12 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
+  <!-- TraceEvent copies its Windows-only native helpers (KernelTraceControl, Microsoft's msdia140) into every output;
+       they do nothing on macOS, and msdia140 is not open source: they never ship. -->
+  <Target Name="DropWindowsNatives" AfterTargets="Publish">
+    <RemoveDir Directories="$(PublishDir)x86;$(PublishDir)amd64;$(PublishDir)arm64" />
+  </Target>
+  <ItemGroup>
+    <ProjectReference Include="../Sill.Profiler/Sill.Profiler.csproj" />
+  </ItemGroup>
 </Project>

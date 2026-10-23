@@ -37,6 +37,18 @@ public static class Methods
     /// <see cref="RoslynServer"/>: Roslyn's language server on this machine, the newest version, downloaded if needed.</summary>
     public const string Roslyn = "roslyn";
 
+    /// <summary><see cref="ProfileParams"/>: builds and starts a program under the profiler, <see cref="ProfilePartial"/>
+    /// partials (building, running, its output, reading), then <see cref="ProfileDocument"/> once stopped or ended. The
+    /// request's id names the run.</summary>
+    public const string Profile = "profile";
+
+    /// <summary><see cref="ProfileRunParams"/> to <see cref="HeapDocument"/>: a heap snapshot of a run, compared with its
+    /// last.</summary>
+    public const string ProfileSnapshot = "profile.snapshot";
+
+    /// <summary><see cref="ProfileRunParams"/>: ends a run's recording; true if it was recording.</summary>
+    public const string ProfileStop = "profile.stop";
+
     /// <summary><see cref="CancelParams"/>: ends a running request; true if one was running.</summary>
     public const string Cancel = "cancel";
 }
@@ -69,3 +81,39 @@ public sealed record RoslynParams(string CacheDirectory, string Rid, string? Fee
 public sealed record RoslynProgress(string Stage, long Bytes, long Total);
 
 public sealed record RoslynServer(string Dll, string Version, bool Downloaded);
+
+/// <summary>A project (folder or project file) to build and run, or a program; its arguments; where traces go.</summary>
+public sealed record ProfileParams(string? Project, string? Program, string[]? Arguments, string? WorkingDirectory, string? Folder);
+
+public sealed record ProfileRunParams(int Run);
+
+/// <summary>building, running (with the program's process and name), output (its text, on standard error or not), or
+/// reading.</summary>
+public sealed record ProfilePartial(string Stage, string? Text, bool? Error)
+{
+    public int? ProcessId { get; init; }
+
+    public string? Name { get; init; }
+}
+
+/// <summary>The call tree flattened in preorder as triples in <see cref="Frames"/>: a name's index in <see cref="Names"/>,
+/// the depth, the samples.</summary>
+public sealed record ProfileDocument(string Name, int Samples, double DurationMs, double SampleMs, bool Exited,
+    IReadOnlyList<string> Names, IReadOnlyList<int> Frames, IReadOnlyList<HotFrame> HotSpots, IReadOnlyList<GcRow> Collections,
+    IReadOnlyList<AllocationRow> Allocations);
+
+public sealed record HotFrame(string Name, string Module, int Self, int Total, string? File, int? Line);
+
+public sealed record GcRow(int Number, int Generation, string Reason, double AtMs, double PauseMs);
+
+public sealed record AllocationRow(string Name, long Bytes, int Ticks);
+
+public sealed record HeapDocument(int Number, string Name, int Objects, long Bytes, double TookMs, IReadOnlyList<HeapTypeRow> Types,
+    HeapComparison? Comparison);
+
+public sealed record HeapTypeRow(string Name, int Count, long Bytes, long RetainedBytes);
+
+public sealed record HeapComparison(string Title, int NewObjects, int DeadObjects, int SurvivedObjects, string? Inexact,
+    IReadOnlyList<HeapDelta> Types);
+
+public sealed record HeapDelta(string Name, int ObjectsDelta, long BytesDelta, int NewObjects, long NewBytes, int DeadObjects, long DeadBytes);

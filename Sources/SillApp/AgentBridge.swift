@@ -228,10 +228,10 @@ final class AgentBridge {
     }
 
     /// The prompt Send to agent gives: the problems, and how to use sill's tools on them.
-    func prompt(_ problems: [Diagnostic]) -> String {
+    func prompt(_ problems: [Diagnostic], headline: Bool = true) -> String {
         let list = problems
             .map { "- \(relative($0.path)):\($0.line): \($0.code.isEmpty ? "" : $0.code + " ")\($0.message)" }
-        return Self.headline(problems) + "\n" +
+        return (headline ? Self.headline(problems) + "\n" : "") +
             "Fix these problems without changing public behavior. Use sill's tools: problems to see them, " +
             "read_file to read files as the editor has them, build to check. Then confirm build succeeds.\n" +
             list.joined(separator: "\n")
@@ -252,7 +252,13 @@ final class AgentBridge {
     /// Board 9: the agent given the problems. In heed when it runs (a new session in this folder, or the one that
     /// already works here), else in a terminal pane at the bottom.
     func send(_ problems: [Diagnostic]) {
-        let prompt = prompt(problems)
+        send(headline: Self.headline(problems), prompt(problems, headline: false))
+    }
+
+    /// An ask from the editor (problems, a profile): to heed when it runs, else a terminal pane. `headline` is the
+    /// prompt's first line, which heed titles the session with.
+    func send(headline: String, _ body: String) {
+        let prompt = headline + "\n" + body
         guard sessions != nil else {
             lastSent = (nil, nil)
             app?.run(command: agentCommand(prompt: prompt))

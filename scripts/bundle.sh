@@ -22,7 +22,8 @@ cp -R "$root/runtime" "$app/Contents/Resources/runtime"
 # The sidecar: managed code only, no apphost, so nothing in it is native code to sign.
 rm -rf "$app/Contents/Resources/sidecar"
 dotnet publish "$root/sidecar/Sill.Sidecar" -c Release -o "$app/Contents/Resources/sidecar" -nologo -v q >/dev/null
-native="$(find "$app/Contents/Resources/sidecar" -type f -exec file {} + | grep -i 'Mach-O' || true)"
+# Mach-O would need signing; a Windows native binary (TraceEvent's helpers) is dead weight, and not all of it is ours to ship.
+native="$(find "$app/Contents/Resources/sidecar" -type f -exec file {} + | grep -iE 'Mach-O|PE32.*for MS Windows' | grep -v 'Mono/.Net assembly' || true)"
 if [ -n "$native" ]; then
   echo "bundle: the sidecar carries native code, which would need signing: $native" >&2
   exit 1

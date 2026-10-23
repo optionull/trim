@@ -24,7 +24,9 @@ mise run lint
 
 ![The Agents sidebar over heed's sessions: two need you, one works, one is done](docs/showcase-agents-2026-10-23.png)
 
-![The profiler on a synthetic 11.8M-sample profile](docs/showcase-profiler-2026-10-23.png)
+![The CPU profile of a sample .NET program: the flame graph, the hot frame Pricing.Total with its source line, and what an agent gets](docs/showcase-profiler-2026-10-23.png)
+
+![Two heap snapshots of the same run compared: a treemap of what grew, Order selected, the growth bars](docs/showcase-heap-2026-10-23.png)
 
 `SILL_SHOWCASE=<file.png>` renders a picture like that one (the window at 1440x900, off screen: a file beside a terminal pane running
 `git log`; `SILL_SHOWCASE_FILE` picks the file; `SILL_SHOWCASE_SCENE=profile` shows the profiler instead, `agents` the Agents sidebar over heed's sessions). `SILL_CHECK=1 build/Sill.app/Contents/MacOS/Sill` plays the first week in the real app, with key events sent through
@@ -51,6 +53,13 @@ git config difftool.sill.cmd '"/Applications/Sill.app/Contents/MacOS/Sill" diff 
 In a merge, `]x` and `[x` walk the conflicts and `\o`, `\t` and `\b` take ours, theirs or both (`<localleader>`);
 `:w` saves the result and `:qa` ends the merge.
 
+## Profiling
+
+`:SillProfile` builds the .NET program of the project you are in and runs it under the profiler. While it records,
+Take snapshot (`s`) records the heap; a second one is compared with the first, object by object, as a treemap of what
+grew. Stop (`x`) shows the CPU profile: the flame graph, the hot spots with where they are written, allocations and
+collections. Send to agent gives the hot frame or the growth to an agent. It needs the .NET sidecar (your dotnet 10).
+
 ## Agents
 
 sill runs an MCP server for the agents you use. Any agent can use it with the config sill writes to
@@ -73,9 +82,11 @@ points at another heed's control socket.
 | `Sources/SillNvim` | nvim over msgpack-RPC, lifted from Veil |
 | `Sources/SillCore` | the screen model built from redraw events, and the session that runs nvim |
 | `Sources/SillInput` | AppKit input in nvim's terms: key notation, mouse modifiers, wheel steps |
-| `Sources/SillRender` | the Metal grid: glyph atlas, instanced passes, render thread; the flame graph's level of detail |
+| `Sources/SillRender` | the Metal grid: glyph atlas, instanced passes, render thread; the flame graph's level of detail, the treemap |
 | `Sources/SillTerminal` | the Ghostty surface, from heed |
 | `Sources/SillApp` | the AppKit app: the frame, the sidebar (explorer, source control), the panel, tabs per split |
 | `runtime/` | sill's nvim runtime (`:SillTerminal`, the placeholder buffers) |
+| `Sources/SillSidecar`, `Sources/SillAgent` | the .NET sidecar's client (Roslyn, the profiler); the MCP server and heed's control socket |
+| `sidecar/` | the .NET sidecar (`Sill.Sidecar`) and the profiler it runs (`Sill.Profiler`, from Passenger) |
 
 Third-party code and licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

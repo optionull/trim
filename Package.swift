@@ -20,7 +20,8 @@ var targets: [Target] = [
     .testTarget(name: "SillInputTests", dependencies: ["SillInput"]),
     // The .NET sidecar: started on the user's own dotnet, JSON lines over its standard input and output.
     .target(name: "SillSidecar", dependencies: ["SillNvim"]),
-    .testTarget(name: "SillSidecarTests", dependencies: ["SillSidecar"]),
+    // Fixtures: a .NET sample the profiler tests run.
+    .testTarget(name: "SillSidecarTests", dependencies: ["SillSidecar"], exclude: ["Fixtures"]),
     // The agent bridge: sill's MCP server on a Unix socket.
     .target(name: "SillAgent"),
     .testTarget(name: "SillAgentTests", dependencies: ["SillAgent"]),

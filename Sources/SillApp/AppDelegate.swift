@@ -38,6 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         builds = BuildRunner(directory: workingDirectory, channel: session.channel, panel: tools.panel)
         agents = AgentBridge(app: self, channel: session.channel, directory: workingDirectory)
         agents.start()
+        profiler = Profiler(app: self, channel: session.channel, directory: workingDirectory)
+        tools.onProfileMade = { [weak self] view in self?.profiler.attach(view) }
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered,
@@ -52,9 +54,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         root.bare = !chrome
         window.contentView = root
         window.delegate = self
-        if environment["SILL_SHOWCASE"] != nil {
+        if environment["SILL_SHOWCASE"] != nil || environment["SILL_OFFSCREEN"] == "1" {
             // The showcase's picture is the window at 1440x900, whatever a tiling window manager would make of it:
-            // the window stays off screen, and the picture is composited, not captured.
+            // the window stays off screen, and the picture is composited, not captured. SILL_OFFSCREEN=1 runs a check
+            // so, for shots at that size (one that needs real key events cannot).
             window.setFrame(NSRect(x: 0, y: 0, width: 1440, height: 900), display: false)
             root.frame = NSRect(x: 0, y: 0, width: 1440, height: 900)
             root.layoutSubtreeIfNeeded()
@@ -145,6 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var splitTabs: SplitTabs!
     private(set) var builds: BuildRunner!
     private(set) var agents: AgentBridge!
+    private(set) var profiler: Profiler!
     /// Roslyn's provisioning: what the status bar says while it downloads.
     private(set) var roslynStatus: String?
     private(set) var roslyn: RoslynServer?
@@ -164,6 +168,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         splitTabs.update(screen)
         if screen.buffer.kind.isEmpty, !screen.buffer.path.isEmpty { tools.sidebar.explorer.reveal(screen.buffer.path) }
         updateFrame(screen)
+        if let ask = screen.profileAsk, ask.serial != profileAskSeen {
+            profileAskSeen = ask.serial
+            profiler.answer(ask.action)
+        }
         if let ask = screen.agentAsk, ask.serial != agentAskSeen {
             agentAskSeen = ask.serial
             answerAgentAsk(ask.action)
@@ -172,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private var agentAskSeen = 0
+    private var profileAskSeen = 0
 
     /// `:SillAgent next|send|list`.
     private func answerAgentAsk(_ action: String) {

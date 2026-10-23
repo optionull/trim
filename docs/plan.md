@@ -116,7 +116,7 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 | M3 (done) | LSP, C# sidecar, build capture, problems | Open a .NET solution, build, jump to errors |
 | M4 (done) | MCP server, editor-only agent loop | Agent fixes a build error end to end |
 | M5 (done) | heed bridge (needs heed's control socket) | Send to heed and see the session in the editor |
-| M6 | .NET profiler in sidecar, Razor | CPU and heap diff on a sample app |
+| M6 (profiler done; Razor next) | .NET profiler in sidecar, Razor | CPU and heap diff on a sample app |
 | M7 | Rust and Swift profiling, remaining language servers | samply and xctrace sessions viewable |
 | M8 | Debugger (DAP) | Breakpoints and stepping in C# |
 | M9 | Polish: diff/merge tool modes, packages view, settings, Sparkle updates | Beta release |
@@ -311,6 +311,23 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     heed.
   - Not verified: a real claude started by heed reaching sill's MCP server (the stand-in shows it got the config;
     M4's live run showed claude using it), codex's MCP arguments, and heed in a fixture or tutor world.
+- M6, the profiler (done 2026-10-23; Razor, M6's other half, is next). Exit test `SILL_CHECK=m6` on the sample in
+  `Tests/SillSidecarTests/Fixtures/Sample` (a hot loop and a cache that only grows), off screen at 1440x900
+  (`SILL_OFFSCREEN=1`):
+  - The sidecar vendors Passenger's profiler (`sidecar/Sill.Profiler`): `profile` builds the project in Release and
+    runs it held at a diagnostic port of its own, so sampling starts at its first line; `profile.snapshot` writes the
+    heap through createdump (no debugger) and reads it with ClrMD, compared object by object with the run's last;
+    `profile.stop` ends the recording and answers with the call tree, hot spots with file:line from their PDBs,
+    allocations and collections. Each snapshot took about 1.2 s on the sample.
+  - `:SillProfile` (run, snapshot, stop; synthetic for M0's profile) profiles the project the current file is in, or
+    the folder's first runnable one. The profile pane (boards 7 and 8): the flame graph from the real call tree (hot,
+    warm and cool as board 7), the call tree as hot spots (Return opens the source), allocations, collections, and the
+    heap diff as a treemap coloured by growth with growth bars; each with what the agent gets, and Send to agent
+    ("Make Pricing Total faster", "Stop Order growing"), to heed or a terminal pane.
+  - TraceEvent's Windows-only native helpers (KernelTraceControl, Microsoft's msdia140) are dropped from the
+    sidecar's publish, and the bundle refuses any native binary, Windows' as well as Mach-O.
+  - Not done: board 8's retainer path (who keeps them alive) and per-object zoom; board 7's CPU-over-time strip; an
+    MCP tool for profiles; attaching to a running program.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

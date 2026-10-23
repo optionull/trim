@@ -44,6 +44,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "m6" {
+                try await m6Steps()
+                print("sill check (M6): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "m5" {
                 try await m5Steps()
                 print("sill check (M5): passed")
@@ -190,7 +196,7 @@ final class SelfCheck {
             try await session.channel.command("wincmd p")
         }
         if ProcessInfo.processInfo.environment["SILL_SHOWCASE_SCENE"] == "profile" {
-            try await session.channel.command("SillProfile")
+            try await session.channel.command("SillProfile synthetic")
             let profile = try await waitFor("the profiler") {
                 self.app?.tools.profile.flatMap { $0.isHidden ? nil : $0 }
             }
@@ -224,6 +230,79 @@ final class SelfCheck {
         try shot(of: root, to: path, cursor: true)
         print("sill showcase: saved \(path)")
         fflush(stdout)
+    }
+
+    /// M6's exit (`SILL_CHECK=m6`, run in a folder with a .NET program that has a hot method and a growing cache, as
+    /// Tests/SillSidecarTests/Fixtures/Sample): its CPU profile and a heap diff, then the hot frame to an agent (with
+    /// `SILL_AGENT=echo` and no heed, in a terminal pane). `SILL_CHECK_SHOT` saves the CPU view; with `-heap` before
+    /// its extension, the heap view.
+    private func m6Steps() async throws {
+        let app = try require(app, "the app")
+        let environment = ProcessInfo.processInfo.environment
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await waitFor("the sidecar", timeout: .seconds(20)) { app.sidecar }
+        _ = try await session.channel.lua("vim.cmd('SillProfile')")
+        try await wait("the profile pane") { $0.currentPaneKind == "profile" }
+        let view = try await waitFor("the profiler") { app.tools.profile.flatMap { $0.isHidden ? nil : $0 } }
+        _ = try await waitFor("the program to run", timeout: .seconds(60)) { view.isRecording ? true : nil }
+        try expect(view.title == "Sample", "profiling the sample: \(view.title)")
+        step("`:SillProfile` builds the project in Release and runs it under the profiler")
+
+        try await Task.sleep(for: .seconds(1))
+        _ = try await session.channel.lua("vim.cmd('SillProfile snapshot')")
+        _ = try await waitFor("snapshot #1", timeout: .seconds(30)) { view.heaps.count == 1 ? true : nil }
+        try await Task.sleep(for: .seconds(1.5))
+        app.profiler.snapshot()
+        _ = try await waitFor("snapshot #2", timeout: .seconds(30)) { view.heaps.count == 2 ? true : nil }
+        let comparison = try require(view.heaps.last?.comparison, "the comparison")
+        let orders = try require(comparison.types.first { $0.name == "Order" }, "Order in the comparison")
+        try expect(orders.objectsDelta > 1000, "Order grew: \(orders.objectsDelta)")
+        try expect(view.tab == .heapDiff, "the heap diff shows")
+        view.display()
+        try expect(view.tiles.contains { $0.name == "Order" }, "Order has a tile: \(view.tiles.map(\.name))")
+        view.select(type: "Order")
+        try expect(view.agentPrompt()?.headline == "Stop Order growing", "\(view.agentPrompt()?.headline ?? "")")
+        if let shot = environment["SILL_CHECK_SHOT"] {
+            let heap = (shot as NSString).deletingPathExtension + "-heap.png"
+            try self.shot(to: heap)
+            step("saved \(heap)")
+        }
+        step("two heap snapshots, compared object by object: Order +\(orders.objectsDelta.formatted()) objects, " +
+            "\(comparison.newObjects.formatted()) new in all")
+
+        _ = try await session.channel.lua("vim.cmd('SillProfile stop')")
+        let document = try await waitFor("the CPU profile", timeout: .seconds(30)) { view.document }
+        try expect(document.samples > 100, "\(document.samples) samples")
+        let hot = try require(view.selected, "the hottest frame selected")
+        try expect(view.name(hot).hasPrefix("Pricing.Total"), "the hot frame: \(view.name(hot))")
+        let source = try require(view.source(of: view.name(hot)), "its source")
+        try expect(source.file.hasSuffix("Program.cs"), "written in Program.cs: \(source.file)")
+        view.select(tab: .flameGraph)
+        view.display()
+        try expect(view.blocksDrawn > 3, "\(view.blocksDrawn) blocks")
+        try expect(view.cpuPayload(hot).contains("file: \(source.file):\(source.line)"), "the payload says where")
+        if let shot = environment["SILL_CHECK_SHOT"] {
+            try self.shot(to: shot)
+            step("saved \(shot)")
+        }
+        step("stopped: \(document.samples) samples; the hot frame \(view.name(hot)) at " +
+            "\((source.file as NSString).lastPathComponent):\(source.line), the flame graph from the real call tree")
+
+        // The hot spot's source, from the call tree.
+        view.select(tab: .callTree)
+        _ = try view.handleKey(require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36
+        ), "a key event"))
+        try await wait("Program.cs open") { $0.buffer.name == "Program.cs" }
+        step("Return on a hot spot opens its source")
+
+        // To an agent: no heed here, so a terminal pane running SILL_AGENT with the prompt.
+        let prompt = try require(view.agentPrompt(), "a prompt")
+        try expect(prompt.headline == "Make Pricing Total faster", "titled: \(prompt.headline)")
+        app.agents.send(headline: prompt.headline, prompt.prompt)
+        try await wait("the agent's pane", timeout: .seconds(10)) { $0.paneRects.contains { $0.kind == "terminal" } }
+        step("Send to agent: \"\(prompt.headline)\" with the hot frame, its path and its source")
     }
 
     /// M5's exit (`SILL_CHECK=m5`): Send to agent goes to heed and the session shows in the editor. Needs a heed
@@ -714,7 +793,7 @@ final class SelfCheck {
         step("Run opens a terminal at the bottom running the project's command")
 
         // The profiler: a profile pane in a tab page of its own, the flame graph drawn by level of detail.
-        try await session.channel.command("SillProfile")
+        try await session.channel.command("SillProfile synthetic")
         try await wait("the profile pane") { $0.currentPaneKind == "profile" }
         let profile = try await waitFor("the profiler") { tools.profile.flatMap { $0.isHidden ? nil : $0 } }
         profile.display()

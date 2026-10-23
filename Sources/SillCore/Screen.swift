@@ -218,6 +218,8 @@ public struct Screen: Sendable {
     public private(set) var merge: (left: Int, current: Int, file: String)?
     /// What nvim asked of the agents last (`:SillAgent next|send|list`), numbered so the same ask twice is two.
     public private(set) var agentAsk: (action: String, serial: Int)?
+    /// What nvim asked of the profiler last (`:SillProfile run|snapshot|stop|synthetic`), numbered likewise.
+    public private(set) var profileAsk: (action: String, serial: Int)?
     /// Each editor window's tabs, by window handle.
     public private(set) var windowTabs: [Int: WindowTabs] = [:]
 
@@ -346,6 +348,8 @@ public struct Screen: Sendable {
                 }
             }
             merge = (left, current, file)
+        case let .notification(method, args) where method == "sill_profile":
+            profileAsk = (args.first?.stringValue ?? "", (profileAsk?.serial ?? 0) + 1)
         case let .notification(method, args) where method == "sill_agent":
             agentAsk = (args.first?.stringValue ?? "", (agentAsk?.serial ?? 0) + 1)
         case let .notification(method, args) where method == "sill_tabs":

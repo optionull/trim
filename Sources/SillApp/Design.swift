@@ -28,6 +28,10 @@ enum Design {
     static let onAccent = NSColor(hex: 0x0C2A1F)
     // Mode badges besides NORMAL's mint.
     static let insert = NSColor(hex: 0x8AB4F8)
+    /// The profiler's heat (boards 7 and 8): hot frames and growth, warm, and cool (the rest).
+    static let hot = NSColor(hex: 0xFF8A4C)
+    static let warm = NSColor(hex: 0xD9A441)
+    static let cool = NSColor(hex: 0x3A4A66)
     static let visual = NSColor(hex: 0xC4A7F5)
 
     static let radius: CGFloat = 8

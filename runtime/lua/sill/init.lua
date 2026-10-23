@@ -233,6 +233,17 @@ function M.open_pane(kind, mods)
   return win
 end
 
+--- The profile pane: the one open, wherever it is, else a new one in a tab page of its own.
+function M.show_profile()
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.b[vim.api.nvim_win_get_buf(win)].sill_kind == 'profile' then
+      vim.api.nvim_set_current_win(win)
+      return win
+    end
+  end
+  return M.open_pane('profile', 'tab')
+end
+
 -- :SillTerminal opens a terminal pane. Modifiers place it as they place :new (:vertical SillTerminal,
 -- :botright SillTerminal); without one it opens to the right.
 vim.api.nvim_create_user_command('SillTerminal', function(opts)
@@ -483,9 +494,19 @@ function M.setup()
     vim.keymap.set('n', '<leader>a', '<Cmd>SillAgent next<CR>', { desc = 'Next agent that needs you' })
   end
   vim.api.nvim_create_user_command('SillChrome', M.chrome, { desc = "sill's window: sidebar, panel, colours" })
-  vim.api.nvim_create_user_command('SillProfile', function()
-    M.open_pane('profile', 'tab')
-  end, { desc = 'Open the profiler (a synthetic profile until M6)' })
+  -- :SillProfile runs the project's .NET program under the profiler (M6); snapshot and stop act on the run;
+  -- synthetic shows M0's synthetic profile.
+  vim.api.nvim_create_user_command('SillProfile', function(opts)
+    local action = opts.args ~= '' and opts.args or 'run'
+    if action == 'run' or action == 'synthetic' then
+      M.show_profile()
+    end
+    notify('sill_profile', action)
+  end, {
+    nargs = '?',
+    complete = function() return { 'run', 'snapshot', 'stop', 'synthetic' } end,
+    desc = "Profile the project's program: run, snapshot, stop; synthetic for the synthetic profile",
+  })
   vim.api.nvim_create_user_command('SillMerge', function(opts)
     if #opts.fargs ~= 4 then
       vim.notify(':SillMerge takes four files: local base remote merged', vim.log.levels.ERROR)

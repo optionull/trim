@@ -26,6 +26,29 @@ public struct FlameGraph: Sendable {
         maxDepth = nodes.map(\.depth).max() ?? 0
     }
 
+    /// A call tree given in preorder (each frame's name, depth and samples, children after their parent): each frame
+    /// starts where its previous sibling ended, or where its parent starts.
+    public init(preorder: [(name: Int, depth: Int, samples: Int)]) {
+        var nodes: [Node] = []
+        nodes.reserveCapacity(preorder.count)
+        // The open frames, root first, and where each one's next child starts.
+        var open: [(index: Int, next: Int)] = []
+        for frame in preorder {
+            while let last = open.last, nodes[last.index].depth >= frame.depth {
+                nodes[last.index].end = nodes.count
+                open.removeLast()
+            }
+            let start = open.last?.next ?? 0
+            if !open.isEmpty { open[open.count - 1].next += frame.samples }
+            nodes.append(Node(start: start, samples: frame.samples, depth: frame.depth, name: frame.name, end: 0))
+            open.append((nodes.count - 1, start))
+        }
+        for frame in open {
+            nodes[frame.index].end = nodes.count
+        }
+        self.init(nodes: nodes)
+    }
+
     /// A deterministic synthetic profile of `samples` samples, with skewed fan-out like a real call tree. Frames with
     /// at least `minSamples` samples get up to `maxChildren` children.
     public static func synthetic(
