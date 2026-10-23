@@ -35,6 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         tools = ToolPanes(editor: editor, channel: session.channel, directory: workingDirectory)
         splitTabs = SplitTabs(editor: editor, channel: session.channel)
         builds = BuildRunner(directory: workingDirectory, channel: session.channel, panel: tools.panel)
+        agents = AgentBridge(app: self, channel: session.channel, directory: workingDirectory)
+        agents.start()
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered,
@@ -141,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var tools: ToolPanes!
     private(set) var splitTabs: SplitTabs!
     private(set) var builds: BuildRunner!
+    private(set) var agents: AgentBridge!
     /// Roslyn's provisioning: what the status bar says while it downloads.
     private(set) var roslynStatus: String?
     private(set) var roslyn: RoslynServer?
@@ -224,12 +227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.run(command: command)
             }
         }
-        tools.panel.onSendToAgent = { problems in
-            let text = "Sending \(problems.count == 1 ? "a problem" : "\(problems.count) problems") to an agent " +
-                "comes with the heed bridge (M5). Until then: " +
-                ":SillTerminal and run one there."
-            Nvim.lua(channel, "vim.notify(...)", [.string(text)])
-        }
+        tools.panel.onSendToAgent = { [weak self] problems in self?.agents.send(problems) }
     }
 
     /// Run: a terminal pane at the bottom running the project's run command, guessed from its files.
@@ -357,6 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_: Notification) {
+        agents?.stop()
         let session = session, sidecar = sidecar
         Task {
             await session.stop()

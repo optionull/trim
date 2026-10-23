@@ -21,6 +21,9 @@ var targets: [Target] = [
     // The .NET sidecar: started on the user's own dotnet, JSON lines over its standard input and output.
     .target(name: "SillSidecar", dependencies: ["SillNvim"]),
     .testTarget(name: "SillSidecarTests", dependencies: ["SillSidecar"]),
+    // The agent bridge: sill's MCP server on a Unix socket.
+    .target(name: "SillAgent"),
+    .testTarget(name: "SillAgentTests", dependencies: ["SillAgent"]),
     // The Metal grid: glyph atlas, instanced passes, and the render thread that draws screens.
     .target(
         name: "SillRender", dependencies: ["SillCore"],
@@ -34,6 +37,7 @@ var appDependencies: [Target.Dependency] = [
     "SillRender",
     "SillInput",
     "SillSidecar",
+    "SillAgent",
     messagePack,
 ]
 if hasGhostty {

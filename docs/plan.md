@@ -115,7 +115,7 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 | M1 | Metal grid on a single nvim window | Daily-drivable text editing, 120 fps scroll |
 | M2 | Full UI protocol and the app's chrome (see M2 below); signing and notarizing wait for the owner | sill looks like board 1, problems panel aside, and every nvim message, command line and completion is native |
 | M3 (done) | LSP, C# sidecar, build capture, problems | Open a .NET solution, build, jump to errors |
-| M4 | MCP server, editor-only agent loop | Agent fixes a build error end to end |
+| M4 (done) | MCP server, editor-only agent loop | Agent fixes a build error end to end |
 | M5 | heed bridge (needs heed's control socket) | Send to heed and see the session in the editor |
 | M6 | .NET profiler in sidecar, Razor | CPU and heap diff on a sample app |
 | M7 | Rust and Swift profiling, remaining language servers | samply and xctrace sessions viewable |
@@ -287,6 +287,17 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     §5's broker: nvim's own LSP client talks to the server directly, as roslyn.nvim does (solution/open, project
     load, pull diagnostics); a broker in the sidecar waits for Razor (M6), which needs it. A config that already
     runs a C# server keeps its own.
+- M4 (done 2026-10-23): sill's MCP server and the agent loop. Exit test `SILL_CHECK=m4` (a scripted agent) and,
+  with `SILL_LIVE_AGENT=1`, Claude Code (haiku) given only sill's tools plus Read and Edit: it built, read the error,
+  fixed `order.Total` and built again, in 14 s.
+  - The server (`SillAgent`) speaks MCP on a Unix socket only the user can open; agents reach it as an ordinary stdio
+    server through `nc -U <socket>`, written to an MCP config file (Passenger's `--mcp-attach`, without a helper).
+  - Tools: `problems` (build and language server diagnostics), `build` (as ⌘B, returning its errors), `read_file`
+    (as the editor has it, unsaved changes included), `open_file` (shows it to the person). Agents edit files with
+    their own tools; sill runs `:checktime` after each call, so open files show the edits.
+  - The permission broker: an agent's first `build` asks the person (Allow Once, Always for the session, Deny).
+  - Send all to agent (board 9) starts `claude` (or `SILL_AGENT`) in a terminal pane with sill's MCP config and the
+    problems in its prompt.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

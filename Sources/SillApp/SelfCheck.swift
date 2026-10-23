@@ -2,6 +2,7 @@ import AppKit
 import Metal
 import os
 import SillCore
+import SillNvim
 import SillRender
 import SillSidecar
 #if SILL_GHOSTTY
@@ -41,6 +42,12 @@ final class SelfCheck {
         do {
             if let path = ProcessInfo.processInfo.environment["SILL_SHOWCASE"] {
                 try await showcase(to: path)
+                exit(0)
+            }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "m4" {
+                try await m4Steps()
+                print("sill check (M4): passed")
+                fflush(stdout)
                 exit(0)
             }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "m3" {
@@ -203,6 +210,141 @@ final class SelfCheck {
         try shot(of: root, to: path, cursor: true)
         print("sill showcase: saved \(path)")
         fflush(stdout)
+    }
+
+    /// M4's exit (`SILL_CHECK=m4`, run in a .NET solution with an error, `SILL_MCP_ALLOW=build`): an agent, connected
+    /// only through sill's MCP server as `nc -U` puts it, fixes the build error end to end. Scripted here; with
+    /// `SILL_LIVE_AGENT=1` Claude Code (haiku) then fixes a fresh error on its own.
+    private func m4Steps() async throws {
+        let app = try require(app, "the app")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let program = try require(
+            FileManager.default.enumerator(atPath: app.workingDirectory)?.compactMap { $0 as? String }
+                .first { $0.hasSuffix("Program.cs") && !$0.contains("/obj/") }, "Program.cs"
+        )
+        let path = (app.workingDirectory as NSString).appendingPathComponent(program)
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(path)])
+        try await wait("Program.cs open") { $0.buffer.name == "Program.cs" }
+
+        // The agent's side: only the MCP server, through nc -U.
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18",
+            "capabilities": [:],
+            "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        let tools = try await agent.request("tools/list", [:])
+        let names = Set(((tools["tools"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String })
+        try expect(names == ["problems", "build", "read_file", "open_file"], "sill's tools: \(names.sorted())")
+        step("an agent connects through nc -U and sees sill's tools: \(names.sorted().joined(separator: ", "))")
+
+        let failed = try await agent.call("build")
+        try expect(
+            failed.contains("Build failed") && failed.contains("CS1061"),
+            "the build tool reports CS1061: \(failed)"
+        )
+        let problems = try await agent.call("problems")
+        try expect(problems.contains("CS1061"), "the problems tool lists it")
+        let read = try await agent.call("read_file", ["path": program])
+        try expect(read.contains("2\tConsole.WriteLine(order.Lines);"), "read_file gives the file with line numbers")
+        step("the agent builds, sees CS1061 in problems, and reads the file as the editor has it")
+
+        // The agent fixes the file on disk, as agents do, and checks with a build.
+        try "var order = 1;\nConsole.WriteLine(order);\n".write(toFile: path, atomically: true, encoding: .utf8)
+        let fixed = try await agent.call("build")
+        try expect(fixed.hasPrefix("Build succeeded"), "after the fix, the build tool: \(fixed)")
+        let remaining = try await agent.call("problems")
+        try expect(!remaining.contains("[build]"), "no build problems left: \(remaining)")
+        let buffer = try await session.channel.lua(
+            "return vim.api.nvim_buf_get_lines(vim.fn.bufnr(...), 0, -1, false)",
+            args: [.string(path)]
+        )
+        try expect(
+            (buffer.arrayValue ?? []).compactMap(\.stringValue) == ["var order = 1;", "Console.WriteLine(order);"],
+            "the editor read the agent's fix again"
+        )
+        try expect(app.agents.calls.count(where: { $0 == "build" }) == 2, "both builds went through sill")
+        step("the agent's fix builds, the problems clear, and the open file shows the fix")
+
+        // Send to agent (board 9): the agent's command in a terminal pane, given the problems and sill's MCP config.
+        let command = app.agents.agentCommand(prompt: "Fix it")
+        try expect(
+            command.contains("--mcp-config") && command.contains(app.agents.configPath),
+            "the agent gets sill's MCP config"
+        )
+        let config = try JSONSerialization
+            .jsonObject(with: Data(contentsOf: URL(fileURLWithPath: app.agents.configPath)))
+        let server = ((config as? [String: Any])?["mcpServers"] as? [String: Any])?["sill"] as? [String: Any]
+        try expect(
+            server?["command"] as? String == "/usr/bin/nc" && (server?["args"] as? [String]) == ["-U", socket],
+            "the config starts nc -U on sill's socket"
+        )
+        #if SILL_GHOSTTY
+            app.agents.send([Diagnostic(
+                severity: 1,
+                message: "check",
+                source: "build",
+                code: "CS0000",
+                path: path,
+                buffer: 0,
+                line: 1,
+                col: 1
+            )])
+            let pane = try await wait("the agent's terminal") { $0.paneRects.contains { $0.kind == "terminal" } }
+            let paneId = try require(pane.paneRects.first { $0.kind == "terminal" }?.pane, "the pane")
+            let surface = try await waitFor("its surface") { self.panes.view(for: paneId) as? GhosttySurfaceView }
+            _ = try await waitFor("the agent started with the problems", timeout: .seconds(15)) {
+                (surface.visibleText() ?? "").contains("--mcp-config") ? true : nil
+            }
+        #endif
+        step("Send to agent starts the agent in a terminal with sill's MCP server and the problems")
+
+        if ProcessInfo.processInfo.environment["SILL_LIVE_AGENT"] == "1" {
+            try await liveAgent(app: app, path: path)
+        }
+    }
+
+    /// A real agent: Claude Code (haiku, the cheapest), given only sill's MCP server and file edits, fixes a fresh
+    /// error. Printed, not interactive; it uses the person's Claude Code login.
+    private func liveAgent(app: AppDelegate, path: String) async throws {
+        try "var order = 1;\nConsole.WriteLine(order.Total);\n".write(toFile: path, atomically: true, encoding: .utf8)
+        _ = try await session.channel.lua("vim.cmd('silent! checktime')")
+        let prompt = "This project does not build. Use sill's tools: build to see the errors, read_file to read the " +
+            "file, then fix it with your edit tool keeping what it prints the same, and call build again until it " +
+            "succeeds. Be brief."
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "claude -p --model haiku --strict-mcp-config --mcp-config \(shellQuote(app.agents.configPath)) " +
+                "--allowedTools mcp__sill__build mcp__sill__problems mcp__sill__read_file Read Edit " +
+                "--permission-mode acceptEdits \(shellQuote(prompt))",
+        ]
+        process.currentDirectoryURL = URL(fileURLWithPath: app.workingDirectory)
+        process.environment = NvimProcess.cachedEnv
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        let started = CACurrentMediaTime()
+        try process.run()
+        let collected = Collected()
+        output.fileHandleForReading.readabilityHandler = { collected.append($0.availableData) }
+        while process.isRunning, CACurrentMediaTime() - started < 300 {
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        if process.isRunning { process.terminate() }
+        let said = String(decoding: collected.data, as: UTF8.self)
+        print("live agent said: \(said.prefix(600))")
+        let builds = app.agents.calls.count(where: { $0 == "build" })
+        let source = try String(contentsOfFile: path, encoding: .utf8)
+        try expect(!source.contains("order.Total"), "the agent changed the file: \(source)")
+        try expect(builds >= 4, "the agent built through sill (\(builds - 2) builds)")
+        try expect(app.builds.last?.succeeded == true, "the last build succeeded")
+        step("Claude Code (haiku) fixed a fresh build error through sill's tools in " +
+            "\(Bench.format(CACurrentMediaTime() - started)) s, \(builds - 2) builds")
     }
 
     /// M3's exit (`SILL_CHECK=m3`, run in a .NET solution with an error): Roslyn provisioned and reporting it, a build
@@ -447,10 +589,6 @@ final class SelfCheck {
         if #vim.api.nvim_list_tabpages() > 1 then vim.cmd('tabclose') end
         """)
         step("the right-click menu compares the file with \(branch.title)")
-
-        tools.panel.onSendToAgent?(tools.panel.problems)
-        try await wait("the heed notice") { $0.messages.contains { $0.text.contains("heed bridge") } }
-        step("Send all to agent says it comes with the heed bridge")
 
         try expect(RunCommand.guess(in: app.workingDirectory) == "swift run", "Run guesses swift run for a package")
         app.run(command: "echo sill-run-check")
@@ -1016,4 +1154,76 @@ extension NSPoint {
     func flipped(in screen: NSScreen?) -> CGPoint {
         CGPoint(x: x, y: (NSScreen.screens.first?.frame.height ?? screen?.frame.height ?? 0) - y)
     }
+}
+
+/// An MCP client over `nc -U`, as an agent connects: for the self-check.
+final class McpClient: @unchecked Sendable {
+    private let process = Process()
+    private let input = Pipe()
+    private let lock = NSLock()
+    private var replies: [Int: [String: Any]] = [:]
+    private var buffer = Data()
+    private var next = 1
+
+    init(_ socket: String) throws {
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/nc")
+        process.arguments = ["-U", socket]
+        process.standardInput = input
+        let output = Pipe()
+        process.standardOutput = output
+        output.fileHandleForReading.readabilityHandler = { [weak self] handle in self?.received(handle.availableData) }
+        try process.run()
+    }
+
+    private func received(_ data: Data) {
+        lock.withLock {
+            buffer.append(data)
+            while let newline = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex ..< newline]
+                buffer = Data(buffer[buffer.index(after: newline)...])
+                if let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                   let id = object["id"] as? Int
+                {
+                    replies[id] = object
+                }
+            }
+        }
+    }
+
+    private func send(_ object: [String: Any]) {
+        guard var data = try? JSONSerialization.data(withJSONObject: object) else { return }
+        data.append(0x0A)
+        try? input.fileHandleForWriting.write(contentsOf: data)
+    }
+
+    func notify(_ method: String) {
+        send(["jsonrpc": "2.0", "method": method])
+    }
+
+    func request(_ method: String, _ params: [String: Any], timeout: TimeInterval = 180) async throws -> [String: Any] {
+        let id = lock.withLock { () -> Int in
+            next += 1
+            return next
+        }
+        send(["jsonrpc": "2.0", "id": id, "method": method, "params": params])
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let reply = lock.withLock({ replies[id] }) {
+                if let error = reply["error"] as? [String: Any] {
+                    throw CheckFailure(description: "\(method): \(error["message"] ?? "")")
+                }
+                return reply["result"] as? [String: Any] ?? [:]
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        throw CheckFailure(description: "no reply to \(method)")
+    }
+
+    /// A tool's text.
+    func call(_ tool: String, _ arguments: [String: Any] = [:]) async throws -> String {
+        let result = try await request("tools/call", ["name": tool, "arguments": arguments])
+        return ((result["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+    }
+
+    func close() { process.terminate() }
 }

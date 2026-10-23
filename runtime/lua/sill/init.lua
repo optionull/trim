@@ -469,6 +469,8 @@ function M.setup()
     return
   end
   vim.g.loaded_sill = true
+  -- Files an agent edits on disk are read again (sill runs :checktime after its tool calls).
+  vim.o.autoread = true
   vim.api.nvim_create_user_command('SillChrome', M.chrome, { desc = "sill's window: sidebar, panel, colours" })
   vim.api.nvim_create_user_command('SillProfile', function()
     M.open_pane('profile', 'tab')

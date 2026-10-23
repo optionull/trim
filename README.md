@@ -49,6 +49,13 @@ git config difftool.sill.cmd '"/Applications/Sill.app/Contents/MacOS/Sill" diff 
 In a merge, `]x` and `[x` walk the conflicts and `\o`, `\t` and `\b` take ours, theirs or both (`<localleader>`);
 `:w` saves the result and `:qa` ends the merge.
 
+## Agents
+
+sill runs an MCP server for the agents you use. Send all to agent (in the Problems panel) starts `claude` in a
+terminal pane with it configured; any agent can use it with the config sill writes to
+`$TMPDIR/sill-mcp-<pid>.json` (it runs `nc -U` on sill's socket). Its tools: `problems`, `build`, `read_file` and
+`open_file`. An agent's first build asks you first.
+
 ## Layout
 
 | Path | |
