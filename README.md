@@ -29,7 +29,7 @@ mise run lint
 ![Two heap snapshots of the same run compared: a treemap of what grew, Order selected, the growth bars](docs/showcase-heap-2026-10-23.png)
 
 `SILL_SHOWCASE=<file.png>` renders a picture like that one (the window at 1440x900, off screen: a file beside a terminal pane running
-`git log`; `SILL_SHOWCASE_FILE` picks the file; `SILL_SHOWCASE_SCENE=profile` shows the profiler instead, `agents` the Agents sidebar over heed's sessions). `SILL_CHECK=1 build/Sill.app/Contents/MacOS/Sill` plays the first week in the real app, with key events sent through
+`git log`; `SILL_SHOWCASE_FILE` picks the file; `SILL_SHOWCASE_SCENE=profile` shows the profiler instead, `agents` the Agents sidebar over heed's sessions). `SILL_CHECK=project SILL_CWD=<a .NET repo>` measures a real project (load, Roslyn, build) and fails if the UI ever waits over 100 ms. `SILL_CHECK=1 build/Sill.app/Contents/MacOS/Sill` plays the first week in the real app, with key events sent through
 the window, and exits non-zero on the first failing step; it also measures idle frames and key-to-screen latency.
 `SILL_CHECK_SHOT=<file.png>` saves the window with a pane open. `mise run bench` measures the Metal grid at 4K on a
 release build. `SILL_FONTS=<dir>` uses the fonts in a directory without installing them (JetBrains Mono, say).
@@ -52,6 +52,12 @@ git config difftool.sill.cmd '"/Applications/Sill.app/Contents/MacOS/Sill" diff 
 
 In a merge, `]x` and `[x` walk the conflicts and `\o`, `\t` and `\b` take ours, theirs or both (`<localleader>`);
 `:w` saves the result and `:qa` ends the merge.
+
+## C# and Razor
+
+In a .NET folder sill downloads Roslyn's language server (nuget.org's `roslyn-language-server`, into
+`~/Library/Caches/sill/roslyn`), and nvim's own LSP client uses it for .cs, .razor and .cshtml files: Razor runs inside
+it. Markup gets Razor's answers (components, directives); plain HTML, CSS and JavaScript in it get none yet.
 
 ## Profiling
 

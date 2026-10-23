@@ -32,10 +32,14 @@ final class ExplorerView: NSView, ToolContent {
     /// git's view has been read at least once: until then ignored files show, and rows may move when it arrives.
     private(set) var gitRead = false
     private var footerShow = NSRect.zero
+    /// The ignored entries at the top level, for the footer: what is hidden. Read with the rows.
+    private var hiddenAtTop: [String] = []
+    /// Each rebuild's number: a tree read off the main thread is shown only if no later rebuild began meanwhile.
+    private var generation = 0
 
     init(channel: NvimChannel, root: String, metrics: CellMetrics) {
         self.channel = channel
-        self.root = (root as NSString).standardizingPath
+        self.root = realPath(root)
         self.metrics = metrics
         expanded = [self.root]
         super.init(frame: .zero)
@@ -82,75 +86,105 @@ final class ExplorerView: NSView, ToolContent {
             expanded.insert(folder)
             folder = (folder as NSString).deletingLastPathComponent
         }
-        rebuild()
-        if let index = rows.firstIndex(where: { $0.path == path }) { selected = index }
-        needsDisplay = true
+        rebuild { [weak self] in
+            guard let self, let index = rows.firstIndex(where: { $0.path == path }) else { return }
+            selected = index
+        }
     }
 
     private func relative(_ path: String) -> String {
         path == root ? "" : String(path.dropFirst(root.count + 1))
     }
 
-    private func isIgnored(_ path: String, directory: Bool) -> Bool {
-        let name = (path as NSString).lastPathComponent
-        if name == ".git" { return true }
-        let relativePath = relative(path)
-        return ignored.contains(relativePath) || (directory && ignored.contains(relativePath + "/"))
-    }
+    /// What a tree is read from: a snapshot of the view's state, so the reading can happen off the main thread.
+    private struct Reading: Sendable {
+        var root: String
+        var expanded: Set<String>
+        var filter: String?
+        var ignored: Set<String>
+        var showIgnored: Bool
 
-    private func rebuild() {
-        var rows: [Row] = [Row(
-            path: root,
-            name: (root as NSString).lastPathComponent,
-            depth: 0,
-            isDirectory: true,
-            ignored: false
-        )]
-        func walk(_ folder: String, depth: Int) {
-            let names = (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []
-            let entries = names.map { name -> (String, Bool) in
+        func relative(_ path: String) -> String {
+            path == root ? "" : String(path.dropFirst(root.count + 1))
+        }
+
+        func isIgnored(_ path: String, directory: Bool) -> Bool {
+            let name = (path as NSString).lastPathComponent
+            if name == ".git" { return true }
+            let relativePath = relative(path)
+            return ignored.contains(relativePath) || (directory && ignored.contains(relativePath + "/"))
+        }
+
+        private func entries(_ folder: String) -> [(path: String, isDirectory: Bool)] {
+            ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).map { name in
                 var isDirectory: ObjCBool = false
                 let path = (folder as NSString).appendingPathComponent(name)
                 FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
                 return (path, isDirectory.boolValue)
             }
-            .sorted { lhs, rhs in
-                lhs.1 != rhs.1 ? lhs.1 : (lhs.0 as NSString).lastPathComponent
-                    .localizedStandardCompare((rhs.0 as NSString).lastPathComponent) == .orderedAscending
-            }
-            for (path, isDirectory) in entries {
-                let ignored = isIgnored(path, directory: isDirectory)
-                if ignored, !showIgnored { continue }
-                let name = (path as NSString).lastPathComponent
-                if let filter, !filter.isEmpty, !isDirectory,
-                   !name.localizedCaseInsensitiveContains(filter) { continue }
-                rows.append(Row(path: path, name: name, depth: depth, isDirectory: isDirectory, ignored: ignored))
-                if isDirectory, expanded.contains(path) || (filter.map { !$0.isEmpty } ?? false) && !ignored {
-                    walk(path, depth: depth + 1)
+        }
+
+        /// The rows: the open folders read from disk (all of them under a filter), and the ignored names at the top.
+        func rows() -> (rows: [Row], hidden: [String]) {
+            var rows: [Row] = [Row(
+                path: root, name: (root as NSString).lastPathComponent, depth: 0, isDirectory: true, ignored: false
+            )]
+            let filtering = filter.map { !$0.isEmpty } ?? false
+            func walk(_ folder: String, depth: Int) {
+                let sorted = entries(folder).sorted { lhs, rhs in
+                    lhs.isDirectory != rhs.isDirectory ? lhs.isDirectory : (lhs.path as NSString).lastPathComponent
+                        .localizedStandardCompare((rhs.path as NSString).lastPathComponent) == .orderedAscending
+                }
+                for (path, isDirectory) in sorted {
+                    let ignored = isIgnored(path, directory: isDirectory)
+                    if ignored, !showIgnored { continue }
+                    let name = (path as NSString).lastPathComponent
+                    if let filter, filtering, !isDirectory, !name.localizedCaseInsensitiveContains(filter) { continue }
+                    rows.append(Row(path: path, name: name, depth: depth, isDirectory: isDirectory, ignored: ignored))
+                    if isDirectory, expanded.contains(path) || filtering && !ignored {
+                        walk(path, depth: depth + 1)
+                    }
                 }
             }
+            if expanded.contains(root) { walk(root, depth: 1) }
+            if filtering {
+                // Folders with nothing that matches go.
+                rows = rows.enumerated().filter { index, row in
+                    guard row.isDirectory, row.depth > 0 else { return true }
+                    return rows.dropFirst(index + 1).prefix { $0.depth > row.depth }.contains { !$0.isDirectory }
+                }.map(\.element)
+            }
+            let hidden = entries(root)
+                .filter { ($0.path as NSString).lastPathComponent != ".git" && isIgnored(
+                    $0.path,
+                    directory: $0.isDirectory
+                ) }
+                .map { ($0.path as NSString).lastPathComponent }.sorted()
+            return (rows, hidden)
         }
-        if expanded.contains(root) { walk(root, depth: 1) }
-        if let filter, !filter.isEmpty {
-            // Folders with nothing that matches go.
-            rows = rows.enumerated().filter { index, row in
-                guard row.isDirectory, row.depth > 0 else { return true }
-                return rows.dropFirst(index + 1).prefix { $0.depth > row.depth }.contains { !$0.isDirectory }
-            }.map(\.element)
-        }
-        self.rows = rows
-        selected = min(selected, max(rows.count - 1, 0))
-        needsDisplay = true
     }
 
-    /// The ignored entries at the top level, for the footer: what is hidden.
-    private var hiddenAtTop: [String] {
-        ((try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []).filter { name in
-            var isDirectory: ObjCBool = false
-            let path = (root as NSString).appendingPathComponent(name)
-            FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-            return name != ".git" && isIgnored(path, directory: isDirectory.boolValue)
-        }.sorted()
+    /// Reads the tree again off the main thread (a filter reads all of it, which takes a while in a large repo), then
+    /// shows it, unless another rebuild began meanwhile; `then` runs once it is shown.
+    private func rebuild(then: (() -> Void)? = nil) {
+        generation += 1
+        let number = generation
+        let reading = Reading(
+            root: root,
+            expanded: expanded,
+            filter: filter,
+            ignored: ignored,
+            showIgnored: showIgnored
+        )
+        Task { [weak self] in
+            let (rows, hidden) = await Task.detached(priority: .userInitiated) { reading.rows() }.value
+            guard let self, number == generation else { return }
+            self.rows = rows
+            hiddenAtTop = hidden
+            selected = min(selected, max(rows.count - 1, 0))
+            then?()
+            needsDisplay = true
+        }
     }
 
     /// git's mark for a row: its own change, or for a folder whether anything under it changed.

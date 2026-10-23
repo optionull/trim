@@ -67,7 +67,9 @@ public enum BuildCapture {
         let absolute = path.hasPrefix("/") ? path : (directory as NSString).appendingPathComponent(path)
         return Diagnostic(
             severity: severity == "error" ? 1 : 2, message: message, source: source, code: code,
-            path: (absolute as NSString).standardizingPath, buffer: 0, line: line, col: col
+            // URL's standardizing only folds . and ..; NSString's also drops /private from paths that exist, and the
+            // language servers report the real ones.
+            path: URL(fileURLWithPath: absolute).standardized.path, buffer: 0, line: line, col: col
         )
     }
 }

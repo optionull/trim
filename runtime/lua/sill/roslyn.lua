@@ -1,7 +1,63 @@
--- C# through Roslyn's language server, which sill's sidecar downloads to the user's machine (plan §5: never in the
--- app). nvim's own LSP client talks to it; on starting, the server is told which solution (or projects) to open, as
--- roslyn.nvim does. A config that already runs a C# server keeps its own.
+-- C# and Razor through Roslyn's language server, which sill's sidecar downloads to the user's machine (plan §5: never in
+-- the app). nvim's own LSP client talks to it; on starting, the server is told which solution (or projects) to open, as
+-- roslyn.nvim does. Razor is cohosted in the server: .razor and .cshtml files go to it as `aspnetcorerazor`, and Razor's
+-- questions about their HTML (which VS Code's HTML server answers) get empty answers, so Razor's own (components,
+-- directives, the C#) stand alone. A config that already runs a C# server keeps its own.
 local M = {}
+
+M.filetypes = { 'cs', 'razor' }
+
+vim.filetype.add({ extension = { razor = 'razor', cshtml = 'razor' } })
+
+--- What Razor asks the client about a file's HTML, wrapped with the file and its HTML's checksum: lists answer empty,
+--- resolves answer the item they were given, the rest null.
+local html_lists = {
+  'textDocument/formatting', 'textDocument/rangeFormatting', 'textDocument/onTypeFormatting', 'textDocument/codeAction',
+  'textDocument/documentHighlight', 'textDocument/references', 'textDocument/foldingRange',
+  'textDocument/documentColor', 'textDocument/colorPresentation',
+}
+local html_nulls = {
+  'textDocument/hover', 'textDocument/signatureHelp', 'textDocument/definition', 'textDocument/implementation',
+  'textDocument/prepareRename', 'textDocument/rename', 'textDocument/linkedEditingRange',
+  'textDocument/_vs_onAutoInsert',
+}
+
+--- Whether a message is Razor asking about HTML (its params carry the HTML's checksum), not a reply to the client.
+local function from_razor(params)
+  return type(params) == 'table' and params.checksum ~= nil
+end
+
+--- A handler for a method Razor also asks the client: Razor's question answered `answer(params)`, anything else as
+--- nvim would have handled it.
+local function html(method, answer)
+  return function(err, result, ctx, config)
+    if from_razor(result) then
+      return answer(result)
+    end
+    local default = vim.lsp.handlers[method]
+    if default then
+      return default(err, result, ctx, config)
+    end
+  end
+end
+
+local function html_handlers()
+  local handlers = {
+    ['razor/updateHtml'] = function() return vim.NIL end,
+    ['textDocument/completion'] = html('textDocument/completion', function()
+      return { isIncomplete = false, items = {} }
+    end),
+    ['completionItem/resolve'] = html('completionItem/resolve', function(params) return params.request or vim.NIL end),
+    ['codeAction/resolve'] = html('codeAction/resolve', function(params) return params.request or vim.NIL end),
+  }
+  for _, method in ipairs(html_lists) do
+    handlers[method] = html(method, function() return {} end)
+  end
+  for _, method in ipairs(html_nulls) do
+    handlers[method] = html(method, function() return vim.NIL end)
+  end
+  return handlers
+end
 
 local function notify(method, ...)
   local channel = vim.g.sill_channel
@@ -49,6 +105,14 @@ function M.attach(buf, dll, logs)
     name = 'roslyn',
     cmd = { 'dotnet', dll, '--logLevel=Information', '--extensionLogDirectory=' .. logs, '--stdio' },
     root_dir = root,
+    -- No file watching offered: Roslyn then watches the solution itself, in its own process. Offered, nvim matched
+    -- every file a build or a clean touched against Roslyn's patterns, in Lua, and paused for seconds.
+    capabilities = vim.tbl_deep_extend('force', vim.lsp.protocol.make_client_capabilities(), {
+      workspace = { didChangeWatchedFiles = { dynamicRegistration = false } },
+    }),
+    get_language_id = function(_, filetype)
+      return filetype == 'razor' and 'aspnetcorerazor' or filetype == 'cs' and 'csharp' or filetype
+    end,
     on_init = function(client)
       if target.solution then
         client:notify('solution/open', { solution = vim.uri_from_fname(target.solution) })
@@ -56,32 +120,42 @@ function M.attach(buf, dll, logs)
         client:notify('project/open', { projects = vim.tbl_map(vim.uri_from_fname, target.projects) })
       end
     end,
-    handlers = {
+    handlers = vim.tbl_extend('force', html_handlers(), {
       ['workspace/projectInitializationComplete'] = function(_, _, ctx)
         state('ready')
         -- Pull diagnostics again for what is open, now the projects are loaded.
         for _, b in ipairs(vim.api.nvim_list_bufs()) do
-          if vim.api.nvim_buf_is_loaded(b) and vim.bo[b].filetype == 'cs' then
+          if vim.api.nvim_buf_is_loaded(b) and vim.tbl_contains(M.filetypes, vim.bo[b].filetype) then
             pcall(vim.lsp.diagnostic._refresh, b, ctx.client_id)
           end
         end
       end,
       ['workspace/_roslyn_projectNeedsRestore'] = function() return vim.NIL end,
-    },
+      -- Roslyn's diagnostic sources are registered for every document, so a Razor file is pulled once for each, and
+      -- Razor answers each with the same: its diagnostics are Razor's own pull (the one with no identifier) alone.
+      ['textDocument/diagnostic'] = function(err, result, ctx, config)
+        local identifier = ctx.params and ctx.params.identifier
+        if identifier ~= nil and ctx.bufnr and vim.api.nvim_buf_is_valid(ctx.bufnr)
+          and vim.bo[ctx.bufnr].filetype == 'razor' then
+          return
+        end
+        return vim.lsp.diagnostic.on_diagnostic(err, result, ctx, config)
+      end,
+    }),
     on_exit = function() state('stopped') end,
   }, { bufnr = buf })
 end
 
---- Starts Roslyn for every C# buffer, now and as they open. `dll` is the server sill provisioned.
+--- Starts Roslyn for every C# and Razor buffer, now and as they open. `dll` is the server sill provisioned.
 function M.setup(dll, logs)
   vim.fn.mkdir(logs, 'p')
   local group = vim.api.nvim_create_augroup('sill_roslyn', {})
   vim.api.nvim_create_autocmd('FileType', {
-    group = group, pattern = 'cs',
+    group = group, pattern = M.filetypes,
     callback = function(args) M.attach(args.buf, dll, logs) end,
   })
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].filetype == 'cs' then
+    if vim.api.nvim_buf_is_loaded(buf) and vim.tbl_contains(M.filetypes, vim.bo[buf].filetype) then
       M.attach(buf, dll, logs)
     end
   end

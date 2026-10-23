@@ -27,7 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         buildMenu()
         let directory = environment["SILL_CWD"] ?? FileManager.default.currentDirectoryPath
-        workingDirectory = directory == "/" ? NSHomeDirectory() : directory
+        // The folder as the file system names it (/tmp is /private/tmp): language servers report real paths, and a
+        // diagnostic's file must be the buffer's.
+        let real = realPath(directory)
+        workingDirectory = real == "/" ? NSHomeDirectory() : real
         // The self-check's first part runs as days 1 to 5 had sill: no frame, no sidebar, no panel.
         chrome = environment["SILL_CHROME"] != "0" && environment["SILL_CHECK"] != "1"
 

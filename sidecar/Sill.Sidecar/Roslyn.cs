@@ -5,22 +5,32 @@ using System.Text.RegularExpressions;
 
 namespace Sill.Sidecar;
 
-/// <summary>Roslyn's language server, provisioned on the user's machine (plan §5: it carries non-OSS Visual Studio
-/// assemblies, so it is downloaded, never shipped): the newest version on Microsoft's public vs-impl feed, cached per
-/// version. Offline, the newest one already cached.</summary>
+/// <summary>Roslyn's language server, provisioned on the user's machine (plan §5: downloaded, never shipped): the newest
+/// stable <c>roslyn-language-server.&lt;rid&gt;</c> on nuget.org (MIT, built in the Roslyn repo, Razor cohosted in it),
+/// cached per version. Four assemblies in it are under Visual Studio's terms and loaded on no path sill takes; as
+/// Passenger does, they are left out. Offline, the newest one already cached.</summary>
 public static partial class Roslyn
 {
-    public const string DefaultFeed = "https://pkgs.dev.azure.com/azure-public/vside/_packaging/vs-impl/nuget/v3/index.json";
+    public const string DefaultFeed = "https://api.nuget.org/v3/index.json";
+
+    /// <summary>Visual Studio's ServiceHub client, debugger and RPC contracts, and remote settings client: not open source,
+    /// and not needed outside Visual Studio. Left out with their satellite resources.</summary>
+    public static readonly string[] LeftOut =
+    [
+        "Microsoft.ServiceHub.Client", "Microsoft.VisualStudio.Debugger.Contracts", "Microsoft.VisualStudio.RemoteControl",
+        "Microsoft.VisualStudio.RpcContracts",
+    ];
 
     public static async Task<RoslynServer> Ensure(RoslynParams asked, Action<RoslynProgress> progress, CancellationToken cancel)
     {
-        string id = "microsoft.codeanalysis.languageserver." + asked.Rid.ToLowerInvariant();
+        string id = "roslyn-language-server." + asked.Rid.ToLowerInvariant();
         string feed = asked.Feed ?? DefaultFeed;
         Directory.CreateDirectory(asked.CacheDirectory);
         string? latest;
         try
         {
-            latest = Newest(await Versions(feed, id, cancel));
+            List<string> versions = [.. await Versions(feed, id, cancel)];
+            latest = Newest(versions.Where(v => !v.Contains('-'))) ?? Newest(versions);
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or IOException)
         {
@@ -51,17 +61,19 @@ public static partial class Roslyn
         {
             Directory.Delete(staging, true);
         }
-        string prefix = $"content/LanguageServer/{asked.Rid.ToLowerInvariant()}/";
+        // tools/<the .NET it is built for>/<rid>/, whichever .NET that is.
+        Regex prefix = new($"^tools/[^/]+/{Regex.Escape(asked.Rid)}/", RegexOptions.IgnoreCase);
         using (ZipArchive zip = ZipFile.OpenRead(package))
         {
             foreach (ZipArchiveEntry entry in zip.Entries)
             {
                 string name = entry.FullName.Replace('\\', '/');
-                if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || name.EndsWith('/'))
+                Match at = prefix.Match(name);
+                if (!at.Success || name.EndsWith('/') || LeftOut.Any(n => entry.Name.StartsWith(n + ".", StringComparison.Ordinal)))
                 {
                     continue;
                 }
-                string target = Path.GetFullPath(Path.Combine(staging, name[prefix.Length..]));
+                string target = Path.GetFullPath(Path.Combine(staging, name[at.Length..]));
                 if (!target.StartsWith(Path.GetFullPath(staging) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
                 {
                     continue; // A path that climbs out of the folder.
@@ -74,7 +86,7 @@ public static partial class Roslyn
         string final = Path.Combine(asked.CacheDirectory, latest);
         if (!File.Exists(Path.Combine(staging, DllName)))
         {
-            throw new InvalidOperationException($"the package has no {prefix}{DllName}");
+            throw new InvalidOperationException($"the package has no tools/*/{asked.Rid}/{DllName}");
         }
         if (Directory.Exists(final))
         {

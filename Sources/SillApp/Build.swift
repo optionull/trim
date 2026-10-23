@@ -41,6 +41,9 @@ final class BuildRunner {
         environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1"
         environment["DOTNET_NOLOGO"] = "1"
         environment["TERM"] = "dumb"
+        // The shell keeps an inherited PWD that names this folder another way (/tmp for /private/tmp), and the build's
+        // paths follow it: they must be the folder's real ones, as the language servers' are.
+        environment["PWD"] = directory
         process.environment = environment
         let pipe = Pipe()
         process.standardOutput = pipe

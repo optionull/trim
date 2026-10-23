@@ -1,5 +1,6 @@
 import AppKit
 import SillAgent
+import SillCore
 
 /// Agents in the sidebar: heed's sessions, a thin view over its control socket (plan §7). Those that need you come
 /// first, then this project's, then the rest by when they last did something. Return (or a click) opens one in heed.
@@ -43,8 +44,11 @@ final class AgentsView: NSView, ToolContent {
         }
     }
 
+    /// Whether a session works in this folder, or in one inside it or around it. Compared as the file system names
+    /// them: heed may say /tmp where sill says /private/tmp.
     static func isHere(_ session: HeedSession, _ here: String) -> Bool {
-        guard let directory = session.directory else { return false }
+        guard let directory = session.directory.map(realPath) else { return false }
+        let here = realPath(here)
         return directory == here || directory.hasPrefix(here + "/") || here.hasPrefix(directory + "/")
     }
 

@@ -44,6 +44,18 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "project" {
+                try await projectSteps()
+                print("sill check (project): passed")
+                fflush(stdout)
+                exit(0)
+            }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "razor" {
+                try await razorSteps()
+                print("sill check (Razor): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "m6" {
                 try await m6Steps()
                 print("sill check (M6): passed")
@@ -230,6 +242,284 @@ final class SelfCheck {
         try shot(of: root, to: path, cursor: true)
         print("sill showcase: saved \(path)")
         fflush(stdout)
+    }
+
+    /// A real project (`SILL_CHECK=project`, `SILL_CWD` its folder; docs-builder is the one it was written against):
+    /// how
+    /// long each step takes there, and whether the UI ever waits. The main thread is watched throughout (a block
+    /// scheduled every 10 ms, how late it ran) and nvim is asked a round trip every 100 ms; each phase reports its
+    /// worst, and the check fails on a main-thread stall over `SILL_CHECK_STALL_MS` (100 by default).
+    private func projectSteps() async throws {
+        let app = try require(app, "the app")
+        let tools = try require(app.tools, "the tools")
+        let limit = Double(ProcessInfo.processInfo.environment["SILL_CHECK_STALL_MS"] ?? "") ?? 100
+        // A person watching has sill in front, where App Nap never applies; the check's window is behind others or off
+        // screen, where macOS naps it and its run loop waits seconds through a build. So the check holds App Nap
+        // off, as being in front does; SILL_CHECK_NAP=1 lets it nap.
+        let activity = ProcessInfo.processInfo.environment["SILL_CHECK_NAP"] != "1"
+            ? ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "check") : nil
+        defer { activity.map(ProcessInfo.processInfo.endActivity) }
+        let watch = MainThreadWatch()
+        watch.start()
+        defer { watch.stop() }
+        // nvim's round trips, by phase.
+        let pings = PingLog()
+        let pinging = Task { [session] in
+            while !Task.isCancelled {
+                let sent = CACurrentMediaTime()
+                _ = try? await session.channel.lua("return 1")
+                pings.add(watch.current, (CACurrentMediaTime() - sent) * 1000)
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        defer { pinging.cancel() }
+        var rows: [(String, Double)] = []
+        func phase<T>(_ name: String, _ body: () async throws -> T) async throws -> T {
+            watch.enter(name)
+            let started = CACurrentMediaTime()
+            let result = try await body()
+            rows.append((name, CACurrentMediaTime() - started))
+            return result
+        }
+
+        try await phase("launch") {
+            try await wait("the chrome", timeout: .seconds(20)) { $0.paneRects.contains { $0.kind == "panel" } }
+        }
+        try await phase("explorer") {
+            tools.sidebar.show(.explorer)
+            _ = try await waitFor("git's status in the explorer", timeout: .seconds(30)) {
+                tools.sidebar.explorer.gitRead ? true : nil
+            }
+        }
+        var filtered = 0
+        try await phase("explorer filter") {
+            // Typing a filter over the whole tree, as a person would: "/" then "Changelog".
+            for key in ["/"] + "Changelog".map(String.init) {
+                _ = try tools.sidebar.explorer.handleKey(require(NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                    characters: key, charactersIgnoringModifiers: key, isARepeat: false, keyCode: 0
+                ), "a key"))
+                try await Task.sleep(for: .milliseconds(30))
+            }
+            // Read off the main thread, the matches come a moment after the keys.
+            let matches = try await waitFor("the filter's matches", timeout: .seconds(10)) {
+                let files = tools.sidebar.explorer.rows.filter { !$0.isDirectory && $0.name.contains("Changelog") }
+                return files.isEmpty ? nil : files.count
+            }
+            filtered = matches
+            _ = try tools.sidebar.explorer.handleKey(require(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53
+            ), "escape"))
+        }
+        // SILL_CHECK_SAMPLE: sample(1) the app from here until the file is open, to say what a stall there is. Its
+        // attaching pauses the app: that lands in this phase, not the open.
+        if let out = ProcessInfo.processInfo.environment["SILL_CHECK_SAMPLE"] {
+            let sample = Process()
+            sample.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
+            sample.arguments = ["\(ProcessInfo.processInfo.processIdentifier)", "5", "1", "-file", out]
+            sample.standardOutput = FileHandle.nullDevice
+            sample.standardError = FileHandle.nullDevice
+            try sample.run()
+        }
+        try await phase("source control") {
+            tools.sidebar.show(.sourceControl)
+            tools.sidebar.sourceControl.refresh()
+            try await Task.sleep(for: .seconds(1))
+            tools.sidebar.show(.explorer)
+        }
+        // The largest C# file under src: a real one to open, edit nothing. Looked for off the main thread, which is
+        // the check's own work, not sill's.
+        let source = app.workingDirectory + "/src"
+        let file = try await require(Task.detached {
+            (FileManager.default.enumerator(atPath: source)?.compactMap { $0 as? String } ?? [])
+                .filter { $0.hasSuffix(".cs") && !$0.contains("/obj/") && !$0.contains("/bin/") }
+                .map { source + "/" + $0 }
+                .max { Self.size($0) < Self.size($1) }
+        }.value, "a C# file under src")
+        try await phase("open \((file as NSString).lastPathComponent)") {
+            _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(file)])
+            try await wait("the file open", timeout: .seconds(10)) { $0.buffer.path == file }
+        }
+        try await phase("Roslyn loads the solution") {
+            try await wait("Roslyn ready", timeout: .seconds(600)) { $0.languageServers["Roslyn"] == "ready" }
+        }
+        let completion = try await phase("completion") {
+            try await session.channel.lua("""
+            local l = vim.fn.search('\\\\<return\\\\>', 'nw')
+            if l == 0 then l = 1 end
+            local result = vim.lsp.buf_request_sync(0, 'textDocument/completion', {
+              textDocument = { uri = vim.uri_from_bufnr(0) }, position = { line = l - 1, character = 8 },
+              context = { triggerKind = 1 } }, 30000)
+            local n = 0
+            for _, r in pairs(result or {}) do n = n + #(r.result and (r.result.items or r.result) or {}) end
+            return n
+            """)
+        }
+        try await phase("diagnostics") {
+            try await Task.sleep(for: .seconds(5))
+        }
+        // SILL_CHECK_CLEAN=1: dotnet clean first, so ⌘B compiles everything and its warnings stream in.
+        if ProcessInfo.processInfo.environment["SILL_CHECK_CLEAN"] == "1" {
+            let directory = app.workingDirectory
+            try await phase("dotnet clean (not timed for sill)") {
+                try await Task.detached {
+                    let clean = Process()
+                    clean.executableURL = URL(fileURLWithPath: "/bin/sh")
+                    clean.arguments = ["-c", "dotnet clean -nologo -v q"]
+                    clean.currentDirectoryURL = URL(fileURLWithPath: directory)
+                    clean.standardOutput = FileHandle.nullDevice
+                    clean.standardError = FileHandle.nullDevice
+                    try clean.run()
+                    clean.waitUntilExit()
+                }.value
+            }
+        }
+        // SILL_CHECK_SAMPLE_BUILD: sample(1) the app (or with SILL_CHECK_SAMPLE_PID, another process: nvim) through the
+        // build, every 10 ms.
+        if let out = ProcessInfo.processInfo.environment["SILL_CHECK_SAMPLE_BUILD"] {
+            let sample = Process()
+            sample.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
+            let pid = ProcessInfo.processInfo.environment["SILL_CHECK_SAMPLE_PID"] == "nvim"
+                ? try await session.channel.lua("return vim.fn.getpid()").intValue
+                : Int(ProcessInfo.processInfo.processIdentifier)
+            sample.arguments = ["\(pid)", "170", "10", "-file", out]
+            sample.standardOutput = FileHandle.nullDevice
+            sample.standardError = FileHandle.nullDevice
+            try sample.run()
+            try await Task.sleep(for: .seconds(2))
+        }
+        let build = try await phase("build (⌘B)") {
+            app.builds.build()
+            return try await waitFor("the build", timeout: .seconds(900)) { app.builds.last }
+        }
+        try await phase("after the build") {
+            try await Task.sleep(for: .seconds(3))
+        }
+
+        print("")
+        print("  phase                          time      main worst / p99      nvim worst / p99")
+        for (name, seconds) in rows {
+            let main = watch.summary(name)
+            let nvim = pings.summary(name)
+            print("  " + name.padding(toLength: 30, withPad: " ", startingAt: 0) +
+                String(
+                    format: "%7.2f s %9.0f / %3.0f ms %11.0f / %3.0f ms",
+                    seconds,
+                    main.worst,
+                    main.p99,
+                    nvim.worst,
+                    nvim.p99
+                ))
+        }
+        print("")
+        fflush(stdout)
+        step("the explorer's filter found \(filtered) files named like Changelog across the tree")
+        step("\(file.replacingOccurrences(of: app.workingDirectory + "/", with: "")): completion offered " +
+            "\(completion.intValue) items; the build \(build.succeeded ? "succeeded" : "failed") with " +
+            "\(build.diagnostics.count) problems")
+        for trip in pings.slowTrips.prefix(12) {
+            print(String(format: "  nvim slow %6.0f ms at %6.1f s in %@", trip.milliseconds, trip.at, trip.phase))
+        }
+        let stalls = watch.allStalls.filter { $0.milliseconds > limit }
+        for stall in stalls.prefix(12) {
+            print(String(format: "  stall %6.0f ms at %6.1f s in %@", stall.milliseconds, stall.at, stall.phase))
+        }
+        fflush(stdout)
+        try expect(stalls.isEmpty, "\(stalls.count) main-thread stalls over \(Int(limit)) ms")
+        step("the main thread never waited more than \(Int(limit)) ms")
+    }
+
+    private nonisolated static func size(_ path: String) -> Int {
+        ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int) ?? 0
+    }
+
+    /// M6's Razor (`SILL_CHECK=razor`, run in a Blazor app as `dotnet new blazor` makes it, with a solution): Razor,
+    /// cohosted in Roslyn's server, answers for a component: its C# broken, the error shows in Problems at the
+    /// component's own line, once; hover names a component; completion offers components and the C#. The build agrees.
+    private func razorSteps() async throws {
+        let app = try require(app, "the app")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        let counter = try require(
+            FileManager.default.enumerator(atPath: app.workingDirectory)?.compactMap { $0 as? String }
+                .first { $0.hasSuffix("Pages/Counter.razor") && !$0.contains("/obj/") },
+            "Counter.razor"
+        )
+        let path = (app.workingDirectory as NSString).appendingPathComponent(counter)
+        let original = try String(contentsOfFile: path, encoding: .utf8)
+        defer { try? original.write(toFile: path, atomically: true, encoding: .utf8) }
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(path)])
+        try await wait("Counter.razor open") { $0.buffer.name == "Counter.razor" && $0.buffer.filetype == "razor" }
+        let started = CACurrentMediaTime()
+        try await wait("Roslyn ready", timeout: .seconds(300)) { $0.languageServers["Roslyn"] == "ready" }
+        let server = try require(app.roslyn, "the provisioned server")
+        step(
+            "Roslyn \(server.version) ready for a Razor component in \(Bench.format(CACurrentMediaTime() - started)) s" +
+                (server.downloaded ? " (downloaded)" : " (cached)")
+        )
+
+        // The component's C# broken: Razor reports it on the component's own line, once.
+        let line = try await session.channel.lua("""
+        local line = vim.fn.search('currentCount++;')
+        vim.api.nvim_buf_set_lines(0, line - 1, line, false, { '        currentCount += "x";' })
+        return line
+        """)
+        let broken = try await wait("Razor's CS0029", timeout: .seconds(120)) { screen in
+            screen.diagnostics.contains { $0.code == "CS0029" && $0.path == path && $0.source != "build" }
+        }
+        // Another pull would have come by now if one were coming.
+        try await Task.sleep(for: .seconds(3))
+        let errors = (latest ?? broken).diagnostics.filter {
+            $0.code == "CS0029" && $0.path == path && $0.source != "build"
+        }
+        try expect(errors.count == 1, "reported once, not once per Roslyn source: \(errors.count)")
+        try expect(errors[0].line == line.intValue, "at the component's line \(line.intValue): \(errors[0].line)")
+        step("Razor reports CS0029 in Counter.razor at line \(errors[0].line), once")
+
+        // Hover on a component, and completion: components in markup, the C# in @code.
+        let hover = try await session.channel.lua("""
+        local l = vim.fn.search('<PageTitle>', 'nw')
+        local c = vim.fn.getline(l):find('PageTitle', 1, true) + 1
+        local result = vim.lsp.buf_request_sync(0, 'textDocument/hover', {
+          textDocument = { uri = vim.uri_from_bufnr(0) }, position = { line = l - 1, character = c } }, 20000)
+        for _, r in pairs(result or {}) do
+          if r.result and r.result.contents then return r.result.contents.value or '' end
+        end
+        return ''
+        """)
+        try expect(hover.stringValue?.contains("PageTitle") == true, "hover names the component: \(hover)")
+        let completion = try await session.channel.lua("""
+        local function complete(pattern, offset)
+          local l = vim.fn.search(pattern, 'nw')
+          local c = vim.fn.getline(l):find(pattern, 1, true) - 1 + offset
+          local result = vim.lsp.buf_request_sync(0, 'textDocument/completion', {
+            textDocument = { uri = vim.uri_from_bufnr(0) }, position = { line = l - 1, character = c },
+            context = { triggerKind = 1 } }, 20000)
+          local labels = {}
+          for _, r in pairs(result or {}) do
+            for _, item in ipairs(r.result and (r.result.items or r.result) or {}) do labels[item.label] = true end
+          end
+          return labels
+        end
+        return { markup = complete('<PageTitle>', 3)['PageTitle'] == true,
+                 code = complete('currentCount +=', 4)['currentCount'] == true }
+        """)
+        let found = completion.dictionaryValue ?? [:]
+        try expect(found[.string("markup")]?.boolValue == true, "PageTitle offered in markup")
+        try expect(found[.string("code")]?.boolValue == true, "currentCount offered in @code")
+        step("hover names PageTitle; completion offers PageTitle in markup and currentCount in @code")
+
+        // The build agrees, at the same line of the component.
+        _ = try await session.channel.lua("vim.cmd('silent write')")
+        app.builds.build()
+        let built = try await waitFor("the build", timeout: .seconds(180)) { app.builds.last }
+        try expect(!built.succeeded, "the build fails")
+        let fromBuild = try require(built.diagnostics.first { $0.code == "CS0029" }, "the build's CS0029")
+        try expect(
+            fromBuild.path == path && fromBuild.line == errors[0].line,
+            "the build's error at the same place: \(fromBuild.path):\(fromBuild.line), not \(path):\(errors[0].line)"
+        )
+        step("Build (⌘B) finds the same CS0029 in Counter.razor")
     }
 
     /// M6's exit (`SILL_CHECK=m6`, run in a folder with a .NET program that has a hot method and a growing cache, as

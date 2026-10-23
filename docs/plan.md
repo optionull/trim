@@ -78,7 +78,7 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 
 | Language | Server | Notes |
 |---|---|---|
-| C# / Razor (first, M3) | .NET sidecar LSP broker (Roslyn LS + Razor HTML bridge via `__virtual.html`, `razor/updateHtml`) | Roslyn LS NuGet package contains non-OSS Visual Studio assemblies: download on the user's machine, never bundle in the DMG. |
+| C# / Razor (first, M3) | Roslyn LS with Razor cohosted in it, talked to by nvim's LSP client (M3, M6); an HTML server for Razor's markup (`__virtual.html`, `razor/updateHtml`) later | Downloaded on the user's machine, never bundled: nuget.org's `roslyn-language-server.<rid>` (MIT) still carries four Visual Studio assemblies, left out. |
 | Rust | rust-analyzer via `vim.lsp` | Profiling with samply |
 | Swift | sourcekit-lsp via `vim.lsp` | Profiling with xctrace |
 | Markdown | marksman | |
@@ -116,7 +116,7 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 | M3 (done) | LSP, C# sidecar, build capture, problems | Open a .NET solution, build, jump to errors |
 | M4 (done) | MCP server, editor-only agent loop | Agent fixes a build error end to end |
 | M5 (done) | heed bridge (needs heed's control socket) | Send to heed and see the session in the editor |
-| M6 (profiler done; Razor next) | .NET profiler in sidecar, Razor | CPU and heap diff on a sample app |
+| M6 (done) | .NET profiler in sidecar, Razor | CPU and heap diff on a sample app |
 | M7 | Rust and Swift profiling, remaining language servers | samply and xctrace sessions viewable |
 | M8 | Debugger (DAP) | Breakpoints and stepping in C# |
 | M9 | Polish: diff/merge tool modes, packages view, settings, Sparkle updates | Beta release |
@@ -281,11 +281,11 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   Output); Return goes to it; fixed, the build passes and its problems go.
   - Build capture (`SillCore/BuildCapture`) parses dotnet/MSBuild, Swift, Cargo and tsc into one `Diagnostic`
     shape and gives them to nvim as diagnostics (namespace `sill.build`), so Problems, signs and jumps are nvim's.
-  - Roslyn: the sidecar downloads the newest server from Microsoft's vs-impl feed into
-    `~/Library/Caches/sill/roslyn/<version>` (never in the app, §5), offline using the newest cached. Changed from
-    §5's broker: nvim's own LSP client talks to the server directly, as roslyn.nvim does (solution/open, project
-    load, pull diagnostics); a broker in the sidecar waits for Razor (M6), which needs it. A config that already
-    runs a C# server keeps its own.
+  - Roslyn: the sidecar downloads the newest server into `~/Library/Caches/sill/roslyn/<version>` (never in the
+    app, §5), offline using the newest cached. Since M6 it is nuget.org's newest stable `roslyn-language-server.<rid>`
+    (MIT, Razor in it; it was Microsoft's vs-impl feed). Changed from §5's broker: nvim's own LSP client talks to the
+    server directly, as roslyn.nvim does (solution/open, project load, pull diagnostics). A config that already runs
+    a C# server keeps its own.
 - M4 (done 2026-10-23): sill's MCP server and the agent loop. Exit test `SILL_CHECK=m4` (a scripted agent) and,
   with `SILL_LIVE_AGENT=1`, Claude Code (haiku) given only sill's tools plus Read and Edit: it built, read the error,
   fixed `order.Total` and built again, in 14 s.
@@ -311,7 +311,7 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     heed.
   - Not verified: a real claude started by heed reaching sill's MCP server (the stand-in shows it got the config;
     M4's live run showed claude using it), codex's MCP arguments, and heed in a fixture or tutor world.
-- M6, the profiler (done 2026-10-23; Razor, M6's other half, is next). Exit test `SILL_CHECK=m6` on the sample in
+- M6, the profiler (done 2026-10-23). Exit test `SILL_CHECK=m6` on the sample in
   `Tests/SillSidecarTests/Fixtures/Sample` (a hot loop and a cache that only grows), off screen at 1440x900
   (`SILL_OFFSCREEN=1`):
   - The sidecar vendors Passenger's profiler (`sidecar/Sill.Profiler`): `profile` builds the project in Release and
@@ -328,6 +328,29 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     sidecar's publish, and the bundle refuses any native binary, Windows' as well as Mach-O.
   - Not done: board 8's retainer path (who keeps them alive) and per-object zoom; board 7's CPU-over-time strip; an
     MCP tool for profiles; attaching to a running program.
+- M6, Razor (done 2026-10-23). Exit test `SILL_CHECK=razor` in a Blazor app as `dotnet new blazor` makes it:
+  - Razor is cohosted in Roslyn's server, so no broker is needed: nvim's client sends .razor and .cshtml files as
+    `aspnetcorerazor`, and answers Razor's questions about their HTML (`razor/updateHtml`, and the requests it
+    forwards with a checksum) empty, as Passenger does without an HTML server. Components, directives and the C#
+    stand alone: a component's broken C# is reported at its own line, hover names a component, completion offers
+    components in markup and the C# in `@code`, and ⌘B's build agrees.
+  - Roslyn's nine diagnostic sources are registered for every document, so nvim pulled a Razor file nine more times
+    and showed each error ten times: in Razor files only Razor's own pull counts.
+  - Paths are the file system's (`realpath`): sill's folder, the build's PWD, and build capture no longer shortens
+    /private/tmp to /tmp, so a diagnostic's file is the buffer's.
+  - Not done: HTML, CSS and JavaScript in markup (VS Code's HTML server on Node, plan §5's bridge); Razor's semantic
+    colours.
+- A real project (2026-10-23): `SILL_CHECK=project` in elastic/docs-builder (59 projects in one .slnx; `SILL_CWD`,
+  `SILL_CHECK_CLEAN=1` for a full build). The main thread is watched throughout (a block every 10 ms, how late it
+  ran) and nvim is asked a round trip every 100 ms; the check fails on a main-thread stall over 100 ms. Measured:
+  - Roslyn loads the solution in 7 s (14 s after a clean); completion answers in 0.15 to 0.27 s; a no-op ⌘B in 5 s,
+    a full one in 136 s (191 s from a terminal before the fixes below), 85 problems.
+  - Worst main-thread wait 17 ms and worst nvim round trip 13 ms, through all of it, the full build included.
+  - Fixed on the way: the explorer read folders on the main thread (a filter over the whole tree stalled 150 ms a
+    key): it reads them off it now. nvim matched every file a build touched against Roslyn's watch patterns in Lua
+    (2 s pauses, and 2.8 s to quit): Roslyn is no longer offered file watching and watches the solution itself.
+  - App Nap: in the background macOS naps sill and its run loop waits seconds through a build; in front it never
+    does, and the check holds App Nap off as being in front does (`SILL_CHECK_NAP=1` lets it nap).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

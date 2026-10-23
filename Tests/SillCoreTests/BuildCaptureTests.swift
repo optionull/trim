@@ -28,6 +28,18 @@ struct BuildCaptureTests {
         #expect(found[2].severity == 2 && found[2].code == "CS8019")
     }
 
+    @Test("a real path stays real: /private/tmp is not shortened to /tmp, as the language servers name it")
+    func realPaths() throws {
+        let folder = "/private/tmp/sill-capture-\(UUID().uuidString.prefix(8))"
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let file = folder + "/Counter.razor"
+        try "x".write(toFile: file, atomically: true, encoding: .utf8)
+        let output = "\(folder)/Pages/../Counter.razor(17,9): error CS0029: Cannot convert [\(folder)/App.csproj]"
+        let found = BuildCapture.diagnostics(in: output, directory: folder)
+        #expect(found.map(\.path) == [file])
+    }
+
     @Test("Swift and Cargo: file:line:col, relative paths from the folder")
     func compilers() {
         let output = """
