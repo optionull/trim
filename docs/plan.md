@@ -165,7 +165,7 @@ Nothing sill adds shadows a core nvim key.
 - Day 2 (done): multigrid, and a placeholder window covered by a libghostty surface; `<C-w>` across it.
 - Day 3 (done): instanced Metal grid drawing a static linegrid.
 - Day 4 (done): live nvim input to grid, cursor, colours.
-- Day 5: .NET sidecar handshake on the user's dotnet, signed build smoke test.
+- Day 5 (sidecar done; signed build waiting): .NET sidecar handshake on the user's dotnet, signed build smoke test.
 
 Days 1 and 2 left these behind, for later days to pick up or keep:
 
@@ -209,6 +209,10 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   protocol version. `SillSidecar` finds the user's dotnet (`SILL_DOTNET`, `DOTNET_ROOT`, the login shell's PATH, the
   usual places), starts it, and fails every waiting request with the exit status and stderr if it dies. The app
   starts it at launch; `scripts/bundle.sh` publishes it into Resources and refuses any native code in it.
+- Day 5, the signed half, is not done: the owner chose to leave signing with the Developer ID for later
+  (2026-10-23). The bundle id is settled as `com.mpdreamz.sill`. `scripts/sign.sh` is written (Developer ID, hardened
+  runtime, timestamp, no entitlements) and has not been run; the smoke test is to run it, then `SILL_CHECK=1` on the
+  signed app.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

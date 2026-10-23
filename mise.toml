@@ -45,6 +45,10 @@ description = "The grid's go/no-go numbers at 4K, on a release build"
 depends = ["bundle"]
 run = "SILL_BENCH=1 $BUILD_DIR/Sill.app/Contents/MacOS/Sill"
 
+[tasks.sign]
+description = "Sign build/Sill.app with a Developer ID (the identity is the argument)"
+run = "scripts/sign.sh"
+
 [tasks.bundle]
 description = "Release build, ad-hoc signed build/Sill.app"
 run = ["swift build -c release", "scripts/bundle.sh release"]
