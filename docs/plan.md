@@ -113,7 +113,7 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 |---|---|---|
 | M0 | Spikes, in order: placeholder Ghostty pane under multigrid with `<C-w>` across it; Veil RPC lift; instanced Metal grid; sidecar handshake | Each spike has a go/no-go note |
 | M1 | Metal grid on a single nvim window | Daily-drivable text editing, 120 fps scroll |
-| M2 | Full UI protocol, multigrid, Ghostty pane, signed and notarized build | Notarized DMG opens on a clean Mac |
+| M2 | Full UI protocol and the app's chrome (see M2 below); signing and notarizing wait for the owner | sill looks like board 1, problems panel aside, and every nvim message, command line and completion is native |
 | M3 | LSP, C# sidecar, build capture, problems | Open a .NET solution, build, jump to errors |
 | M4 | MCP server, editor-only agent loop | Agent fixes a build error end to end |
 | M5 | heed bridge (needs heed's control socket) | Send to heed and see the session in the editor |
@@ -121,6 +121,21 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 | M7 | Rust and Swift profiling, remaining language servers | samply and xctrace sessions viewable |
 | M8 | Debugger (DAP) | Breakpoints and stepping in C# |
 | M9 | Polish: diff/merge tool modes, packages view, settings, Sparkle updates | Beta release |
+
+### M2
+
+Decided 2026-10-23: the chrome the boards draw joins M2, built as native views to the design (the owner chose
+this over nvim drawing it); signing and notarizing wait until the owner wants them. In order:
+
+1. The nvim UI protocol drawn natively: `ext_cmdline` (the command line as an overlay), `ext_messages` (messages
+   and their history), `ext_popupmenu` (completion), `ext_tabline` (tabs).
+2. Smooth scrolling from `win_viewport`'s `scroll_delta`.
+3. The window's frame: the title bar (project and branch, Run), the activity bar, and the native status bar (mode,
+   branch, language server state, file type, line and column) that replaces nvim's.
+4. The explorer, as a tool view in nvim's layout (a placeholder window, like a terminal pane): the tree, file icons,
+   git state, filtering, and the hide-ignored toggle.
+5. Tabs per split (board 1's tab strips): what they list is to be settled when it is built.
+6. Design tokens from the boards (dark first, mint accent, Inter and JetBrains Mono) used by everything above.
 
 ## 9. Packaging
 
