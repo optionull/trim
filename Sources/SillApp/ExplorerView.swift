@@ -4,9 +4,13 @@ import SillCore
 import SillNvim
 import SillRender
 
-/// The explorer (board 1): the project's files as a tree, read from disk as folders open, with git's changes marked
-/// and ignored files hidden until asked for. It is drawn over the sidebar's placeholder window; while that window is
-/// current it takes j/k, Return, h/l, `/` to filter and `I` for ignored files, and every other key goes to nvim.
+/// The explorer (board 1): the project's files as a tree, read from disk off the main thread as folders open, with
+/// git's changes marked and ignored files hidden until asked for. The project files inform it (owner, 2026-10-23): a
+/// folder holding a project is marked with its kind, files nest as Visual Studio nests them (`Counter.razor.cs` under
+/// `Counter.razor`, a project's `DependentUpon`), and files a project removes are dimmed. With a .slnx it shows the
+/// solution's tree too (Files | Solution, `s`), and says how the .slnx differs from the folders on disk. It is drawn
+/// over the sidebar's placeholder window; while that window is current it takes j/k, Return, h/l, `/` to filter,
+/// `I` for ignored files and `s` for the solution, and every other key goes to nvim.
 final class ExplorerView: NSView, ToolContent {
     struct Row: Equatable {
         var path: String
@@ -14,6 +18,31 @@ final class ExplorerView: NSView, ToolContent {
         var depth: Int
         var isDirectory: Bool
         var ignored: Bool
+        /// Files nested under this one (`Counter.razor.cs` under `Counter.razor`).
+        var nested = 0
+        /// The project this folder holds (or, in the solution's tree, is).
+        var project: (name: String, kind: ProjectFile.Kind)?
+        /// Left out of its project's items.
+        var excluded = false
+        /// The solution lists it, but it is not on disk.
+        var missing = false
+        /// A solution folder: its name in the .slnx (`/src/tooling/`).
+        var solutionFolder: String?
+
+        static func == (lhs: Row, rhs: Row) -> Bool {
+            lhs.path == rhs.path && lhs.name == rhs.name && lhs.depth == rhs.depth &&
+                lhs.isDirectory == rhs.isDirectory && lhs.ignored == rhs.ignored && lhs.nested == rhs.nested &&
+                lhs.project?.name == rhs.project?.name && lhs.project?.kind == rhs.project?.kind &&
+                lhs.excluded == rhs.excluded && lhs.missing == rhs.missing && lhs.solutionFolder == rhs.solutionFolder
+        }
+
+        /// Opens to show more: a folder, a solution folder or project, a file with files nested under it.
+        var opens: Bool { isDirectory || nested > 0 }
+    }
+
+    /// The tree as the folders on disk have it, or as the solution (.slnx) does.
+    enum Mode: Sendable, Equatable {
+        case files, solution
     }
 
     let root: String
@@ -36,6 +65,11 @@ final class ExplorerView: NSView, ToolContent {
     private var hiddenAtTop: [String] = []
     /// Each rebuild's number: a tree read off the main thread is shown only if no later rebuild began meanwhile.
     private var generation = 0
+    private(set) var mode: Mode = .files
+    /// The folder's .slnx, read, and how it differs from the disk; nil without one.
+    private(set) var solution: (path: String, slnx: Slnx, drift: [Slnx.Drift])?
+    private var modeFrames: [(Mode, NSRect)] = []
+    var onSolutionRead: ((String, Slnx, [Slnx.Drift]) -> Void)?
 
     init(channel: NvimChannel, root: String, metrics: CellMetrics) {
         self.channel = channel
@@ -52,12 +86,16 @@ final class ExplorerView: NSView, ToolContent {
     override var isFlipped: Bool { true }
 
     private var rowHeight: CGFloat { 26 }
-    private var listTop: CGFloat { filter == nil ? 4 : 40 }
+    /// The Files | Solution switch, when there is a solution.
+    private var switchHeight: CGFloat { solution == nil ? 0 : 30 }
+    /// The solution's drift, in its tree.
+    private var bannerHeight: CGFloat { mode == .solution && !(solution?.drift.isEmpty ?? true) ? 26 : 0 }
+    private var listTop: CGFloat { switchHeight + bannerHeight + (filter == nil ? 4 : 40) }
     private static let footer: CGFloat = 36
 
     // MARK: Reading the tree
 
-    /// Reads git's status and ignored files again, and the tree.
+    /// Reads git's status and ignored files again, the solution, and the tree.
     func refresh() {
         let root = root
         Task.detached {
@@ -70,7 +108,49 @@ final class ExplorerView: NSView, ToolContent {
                 self?.rebuild()
             }
         }
+        readSolution()
         rebuild()
+    }
+
+    /// The folder's .slnx (the first, by name), read with its drift off the main thread. The first time one is found
+    /// the explorer shows the solution's tree.
+    func readSolution() {
+        let root = root
+        Task { [weak self] in
+            let read = await Task.detached(priority: .utility) { () -> (String, Slnx, [Slnx.Drift])? in
+                let names = (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []
+                guard let name = names.sorted().first(where: { $0.hasSuffix(".slnx") }) else { return nil }
+                let path = (root as NSString).appendingPathComponent(name)
+                guard let text = try? String(contentsOfFile: path, encoding: .utf8),
+                      let slnx = try? Slnx(text: text) else { return nil }
+                return (path, slnx, slnx.drift(in: root))
+            }.value
+            guard let self else { return }
+            let first = solution == nil && read != nil
+            solution = read.map { (path: $0.0, slnx: $0.1, drift: $0.2) }
+            if first { mode = .solution }
+            if solution == nil { mode = .files }
+            if let read { onSolutionRead?(read.0, read.1, read.2) }
+            rebuild()
+        }
+    }
+
+    /// Selects a row (the self-check's way to point at one).
+    func select(_ index: Int) {
+        guard rows.indices.contains(index) else { return }
+        selected = index
+        needsDisplay = true
+    }
+
+    func show(_ mode: Mode) {
+        guard mode != self.mode, mode == .files || solution != nil else { return }
+        self.mode = mode
+        selected = 0
+        rebuild { [weak self] in
+            guard let self, !currentFile.isEmpty, let index = rows.firstIndex(where: { $0.path == currentFile })
+            else { return }
+            selected = index
+        }
     }
 
     /// The current file, highlighted and revealed.
@@ -85,6 +165,23 @@ final class ExplorerView: NSView, ToolContent {
         while folder.count > root.count {
             expanded.insert(folder)
             folder = (folder as NSString).deletingLastPathComponent
+        }
+        // A nested file: the file it nests under open too (by the rules; a parent that is not there opens nothing).
+        if let parent = FileNesting.rule((path as NSString).lastPathComponent) {
+            expanded.insert(((path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(parent))
+        }
+        // In the solution's tree: the folders down to the project holding it, or to the folder listing it.
+        if let slnx = solution?.slnx {
+            let relativePath = relative(path)
+            let holder = slnx.listed.filter { entry in
+                entry.isProject ? relativePath.hasPrefix((entry.path as NSString).deletingLastPathComponent + "/") :
+                    entry.path == relativePath
+            }.max { $0.path.count < $1.path.count }
+            // `/src/tooling/`: `/src/` and `/src/tooling/` open.
+            let segments = (holder?.folder ?? "").split(separator: "/")
+            for count in segments.indices {
+                expanded.insert(Reading.folderKey("/" + segments[...count].joined(separator: "/") + "/"))
+            }
         }
         rebuild { [weak self] in
             guard let self, let index = rows.firstIndex(where: { $0.path == path }) else { return }
@@ -103,6 +200,8 @@ final class ExplorerView: NSView, ToolContent {
         var filter: String?
         var ignored: Set<String>
         var showIgnored: Bool
+        var mode: Mode
+        var solution: Slnx?
 
         func relative(_ path: String) -> String {
             path == root ? "" : String(path.dropFirst(root.count + 1))
@@ -124,29 +223,34 @@ final class ExplorerView: NSView, ToolContent {
             }
         }
 
-        /// The rows: the open folders read from disk (all of them under a filter), and the ignored names at the top.
-        func rows() -> (rows: [Row], hidden: [String]) {
-            var rows: [Row] = [Row(
-                path: root, name: (root as NSString).lastPathComponent, depth: 0, isDirectory: true, ignored: false
-            )]
-            let filtering = filter.map { !$0.isEmpty } ?? false
-            func walk(_ folder: String, depth: Int) {
-                let sorted = entries(folder).sorted { lhs, rhs in
-                    lhs.isDirectory != rhs.isDirectory ? lhs.isDirectory : (lhs.path as NSString).lastPathComponent
-                        .localizedStandardCompare((rhs.path as NSString).lastPathComponent) == .orderedAscending
-                }
-                for (path, isDirectory) in sorted {
-                    let ignored = isIgnored(path, directory: isDirectory)
-                    if ignored, !showIgnored { continue }
-                    let name = (path as NSString).lastPathComponent
-                    if let filter, filtering, !isDirectory, !name.localizedCaseInsensitiveContains(filter) { continue }
-                    rows.append(Row(path: path, name: name, depth: depth, isDirectory: isDirectory, ignored: ignored))
-                    if isDirectory, expanded.contains(path) || filtering && !ignored {
-                        walk(path, depth: depth + 1)
-                    }
-                }
+        /// The project file in a folder, read; nil when there is none.
+        private func projectFile(in folder: String, names: [String]? = nil) -> ProjectFile? {
+            let names = names ?? ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? [])
+            guard let name = names.sorted().first(where: { $0.hasSuffix(".csproj") || $0.hasSuffix(".fsproj") }) else {
+                return nil
             }
-            if expanded.contains(root) { walk(root, depth: 1) }
+            let path = (folder as NSString).appendingPathComponent(name)
+            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+            return ProjectFile(path: path, text: text)
+        }
+
+        /// The rows: the open folders read from disk (all of them under a filter), or the solution's tree; and the
+        /// ignored names at the top.
+        func rows() -> (rows: [Row], hidden: [String]) {
+            let filtering = filter.map { !$0.isEmpty } ?? false
+            var rows: [Row] = []
+            if mode == .solution, let solution, !filtering {
+                rows = solutionRows(solution)
+            } else {
+                rows = [Row(
+                    path: root,
+                    name: (root as NSString).lastPathComponent,
+                    depth: 0,
+                    isDirectory: true,
+                    ignored: false
+                )]
+                if expanded.contains(root) { walk(root, depth: 1, project: projectFile(in: root), into: &rows) }
+            }
             if filtering {
                 // Folders with nothing that matches go.
                 rows = rows.enumerated().filter { index, row in
@@ -156,12 +260,159 @@ final class ExplorerView: NSView, ToolContent {
             }
             let hidden = entries(root)
                 .filter { ($0.path as NSString).lastPathComponent != ".git" && isIgnored(
-                    $0.path,
-                    directory: $0.isDirectory
+                    $0.path, directory: $0.isDirectory
                 ) }
                 .map { ($0.path as NSString).lastPathComponent }.sorted()
             return (rows, hidden)
         }
+
+        /// A folder's rows: folders first, a project's folder marked with it; files nested under the file they belong
+        /// to (shown when that one is open, or holds the current file), and those its project removes dimmed.
+        private func walk(_ folder: String, depth: Int, project: ProjectFile?, into rows: inout [Row]) {
+            let filtering = filter.map { !$0.isEmpty } ?? false
+            let listed = entries(folder).filter { entry in
+                showIgnored || !isIgnored(entry.path, directory: entry.isDirectory)
+            }
+            let folders = listed.filter(\.isDirectory).map(\.path).sorted {
+                ($0 as NSString).lastPathComponent
+                    .localizedStandardCompare(($1 as NSString).lastPathComponent) == .orderedAscending
+            }
+            for path in folders {
+                let name = (path as NSString).lastPathComponent
+                let inside = projectFile(in: path)
+                var row = Row(
+                    path: path,
+                    name: name,
+                    depth: depth,
+                    isDirectory: true,
+                    ignored: isIgnored(path, directory: true)
+                )
+                row.project = inside.map { ($0.name, $0.kind) }
+                row.excluded = project?.removes(path + "/") ?? false
+                rows.append(row)
+                if expanded.contains(path) || filtering && !row.ignored {
+                    walk(path, depth: depth + 1, project: inside ?? project, into: &rows)
+                }
+            }
+            var files = listed.filter { !$0.isDirectory }.map { ($0.path as NSString).lastPathComponent }
+            if let filter, filtering { files = files.filter { $0.localizedCaseInsensitiveContains(filter) } }
+            files.sort { $0.localizedStandardCompare($1) == .orderedAscending }
+            // The project's DependentUpon for this folder, by file name.
+            var explicit: [String: String] = [:]
+            if let project, folder == project.directory || folder.hasPrefix(project.directory + "/") {
+                let here = folder == project.directory ? "" : String(folder.dropFirst(project.directory.count + 1))
+                for (item, parent) in project.dependentUpon
+                    where (item as NSString).deletingLastPathComponent == here
+                {
+                    explicit[(item as NSString).lastPathComponent] = parent
+                }
+            }
+            let parents = filtering ? [:] : FileNesting.parents(of: files, explicit: explicit)
+            var children: [String: [String]] = [:]
+            for (child, parent) in parents {
+                children[parent, default: []].append(child)
+            }
+            func emit(_ name: String, _ depth: Int) {
+                let path = (folder as NSString).appendingPathComponent(name)
+                let nested = (children[name] ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+                var row = Row(
+                    path: path,
+                    name: name,
+                    depth: depth,
+                    isDirectory: false,
+                    ignored: isIgnored(path, directory: false)
+                )
+                row.nested = nested.count
+                row.excluded = project?.removes(path) ?? false
+                rows.append(row)
+                if !nested.isEmpty, expanded.contains(path) {
+                    for child in nested {
+                        emit(child, depth + 1)
+                    }
+                }
+            }
+            for name in files where parents[name] == nil {
+                emit(name, depth)
+            }
+        }
+
+        /// The solution's tree: its folders (as the .slnx names them), their projects (open to their files) and the
+        /// files it lists.
+        private func solutionRows(_ solution: Slnx) -> [Row] {
+            var rows: [Row] = [Row(
+                path: root,
+                name: (root as NSString).lastPathComponent,
+                depth: 0,
+                isDirectory: true,
+                ignored: false
+            )]
+            let listed = solution.listed
+            let folders = solution.folders
+            func emitItems(in folder: String?, depth: Int) {
+                let items = listed.filter { $0.folder?.lowercased() == folder?.lowercased() }
+                for item in items where item.isProject {
+                    let path = (root as NSString).appendingPathComponent(item.path)
+                    let directory = (path as NSString).deletingLastPathComponent
+                    let project = (try? String(contentsOfFile: path, encoding: .utf8)).map {
+                        ProjectFile(path: path, text: $0)
+                    }
+                    var row = Row(
+                        path: directory,
+                        name: project?.name ?? (item.path as NSString).lastPathComponent,
+                        depth: depth,
+                        isDirectory: true,
+                        ignored: false
+                    )
+                    row.project = project.map { ($0.name, $0.kind) }
+                    row.missing = project == nil
+                    rows.append(row)
+                    if expanded.contains(directory) { walk(directory, depth: depth + 1, project: project, into: &rows) }
+                }
+                for item in items where !item.isProject {
+                    let path = (root as NSString).appendingPathComponent(item.path)
+                    var row = Row(
+                        path: path,
+                        name: (item.path as NSString).lastPathComponent,
+                        depth: depth,
+                        isDirectory: false,
+                        ignored: false
+                    )
+                    row.missing = !FileManager.default.fileExists(atPath: path)
+                    rows.append(row)
+                }
+            }
+            func emitFolders(under parent: String, depth: Int) {
+                let inside = folders.filter { name in
+                    let trimmed = String(name.dropFirst(parent.count))
+                    return name.lowercased().hasPrefix(parent.lowercased()) && trimmed.hasSuffix("/") &&
+                        trimmed.dropLast().split(separator: "/").count == 1
+                }.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+                for name in inside {
+                    let key = Self.folderKey(name)
+                    var row = Row(
+                        path: key,
+                        name: String(name.dropLast().split(separator: "/").last ?? ""),
+                        depth: depth,
+                        isDirectory: true,
+                        ignored: false
+                    )
+                    row.solutionFolder = name
+                    rows.append(row)
+                    if expanded.contains(key) {
+                        emitFolders(under: name, depth: depth + 1)
+                        emitItems(in: name, depth: depth + 1)
+                    }
+                }
+            }
+            if expanded.contains(root) {
+                emitFolders(under: "/", depth: 1)
+                emitItems(in: nil, depth: 1)
+            }
+            return rows
+        }
+
+        /// A solution folder's key in `expanded`.
+        static func folderKey(_ name: String) -> String { "slnx:" + name.lowercased() }
     }
 
     /// Reads the tree again off the main thread (a filter reads all of it, which takes a while in a large repo), then
@@ -170,11 +421,8 @@ final class ExplorerView: NSView, ToolContent {
         generation += 1
         let number = generation
         let reading = Reading(
-            root: root,
-            expanded: expanded,
-            filter: filter,
-            ignored: ignored,
-            showIgnored: showIgnored
+            root: root, expanded: expanded, filter: filter, ignored: ignored, showIgnored: showIgnored, mode: mode,
+            solution: solution?.slnx
         )
         Task { [weak self] in
             let (rows, hidden) = await Task.detached(priority: .userInitiated) { reading.rows() }.value
@@ -189,6 +437,7 @@ final class ExplorerView: NSView, ToolContent {
 
     /// git's mark for a row: its own change, or for a folder whether anything under it changed.
     private func mark(_ row: Row) -> (String, NSColor)? {
+        guard row.solutionFolder == nil, row.path.hasPrefix(root) else { return nil }
         let path = relative(row.path)
         if !row.isDirectory, let code = status[path] {
             let color = code == "??" || code.contains("A") ? Design.accent : code.contains("D") ? Design.error :
@@ -206,8 +455,20 @@ final class ExplorerView: NSView, ToolContent {
     override func draw(_: NSRect) {
         Design.chrome.setFill()
         bounds.fill()
+        drawSwitch()
+        if bannerHeight > 0, let drift = solution?.drift {
+            let text = NSAttributedString(
+                string: "\(drift.count) difference\(drift.count == 1 ? "" : "s") from the folders on disk · " +
+                    ":SillSlnx sync",
+                attributes: [.font: Design.ui(11), .foregroundColor: Design.modified]
+            )
+            text.draw(
+                with: NSRect(x: 14, y: switchHeight + 5, width: bounds.width - 28, height: 16),
+                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
+            )
+        }
         if let filter {
-            let box = NSRect(x: 12, y: 6, width: bounds.width - 24, height: 28)
+            let box = NSRect(x: 12, y: switchHeight + bannerHeight + 6, width: bounds.width - 24, height: 28)
             Design.editor.setFill()
             NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
             Design.accent.setStroke()
@@ -216,6 +477,33 @@ final class ExplorerView: NSView, ToolContent {
                 .font: Design.ui(12), .foregroundColor: filter.isEmpty ? Design.textFaint : Design.text,
             ]).draw(at: NSPoint(x: box.minX + 10, y: box.minY + 6))
         }
+        drawRows()
+    }
+
+    /// Files | Solution, at the top when the folder has a .slnx.
+    private func drawSwitch() {
+        modeFrames = []
+        guard solution != nil else { return }
+        var x: CGFloat = 14
+        for (mode, title) in [(Mode.files, "Files"), (Mode.solution, "Solution")] {
+            let active = mode == self.mode
+            let label = NSAttributedString(string: title, attributes: [
+                .font: Design.ui(12, weight: active ? .semibold : .regular),
+                .foregroundColor: active ? Design.text : Design.textMuted,
+            ])
+            label.draw(at: NSPoint(x: x, y: (switchHeight - label.size().height) / 2))
+            if active {
+                Design.accent.setFill()
+                NSRect(x: x, y: switchHeight - 3, width: label.size().width, height: 2).fill()
+            }
+            modeFrames.append((mode, NSRect(x: x - 6, y: 0, width: label.size().width + 12, height: switchHeight)))
+            x += label.size().width + 18
+        }
+        Design.border.setFill()
+        NSRect(x: 0, y: switchHeight - 1, width: bounds.width, height: 1).fill()
+    }
+
+    private func drawRows() {
         let footer = bounds.height - Self.footer
         let visible = max(Int((footer - listTop) / rowHeight), 1)
         if selected < top { top = selected }
@@ -235,23 +523,29 @@ final class ExplorerView: NSView, ToolContent {
                 }
             }
             var x = 12 + CGFloat(row.depth) * 14
-            if row.isDirectory {
+            if row.opens {
                 let chevron = expanded.contains(row.path) ? "chevron.down" : "chevron.right"
                 symbol(chevron, size: 9, color: Design.textFaint, at: NSPoint(x: x, y: rect.midY))
             }
             x += 14
-            symbol(
-                row.isDirectory ? "folder" : Self.icon(row.name),
-                size: 12,
-                color: row.isDirectory ? Design.textMuted : Self.tint(row.name),
-                at: NSPoint(x: x, y: rect.midY)
-            )
+            let icon = row.project != nil ? "cube" : row.isDirectory ? "folder" : Self.icon(row.name)
+            let tint = row.project != nil ? Design.insert : row.solutionFolder != nil ? Design.textFaint :
+                row.isDirectory ? Design.textMuted : Self.tint(row.name)
+            symbol(icon, size: 12, color: tint, at: NSPoint(x: x, y: rect.midY))
             x += 20
             let mark = mark(row)
-            let color = row.ignored ? Design.textFaint : mark?.0 == "M" ? Design.modified : Design.text
-            let name = NSAttributedString(string: row.name, attributes: [
+            let color = row.missing ? Design.error : row.ignored || row.excluded ? Design.textFaint :
+                mark?.0 == "M" ? Design.modified : Design.text
+            var attributes: [NSAttributedString.Key: Any] = [
                 .font: Design.ui(13, weight: row.depth == 0 ? .semibold : .regular), .foregroundColor: color,
-            ])
+            ]
+            if row.missing { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            let name = NSMutableAttributedString(string: row.name, attributes: attributes)
+            if let project = row.project, row.depth > 0 {
+                name.append(NSAttributedString(string: "  " + project.kind.rawValue, attributes: [
+                    .font: Design.ui(11), .foregroundColor: Design.textFaint,
+                ]))
+            }
             name.draw(
                 with: NSRect(
                     x: x,
@@ -344,15 +638,23 @@ final class ExplorerView: NSView, ToolContent {
 
     // MARK: Acting
 
+    /// Return: a folder, solution folder or project opens or closes; a file opens in the editor.
     private func activate(_ index: Int) {
         guard rows.indices.contains(index) else { return }
         let row = rows[index]
         if row.isDirectory {
-            if expanded.contains(row.path) { expanded.remove(row.path) } else { expanded.insert(row.path) }
-            rebuild()
-        } else {
+            toggle(index)
+        } else if !row.missing {
             Nvim.lua(channel, "require'sill'.open(...)", [.string(row.path)])
         }
+    }
+
+    /// Opens or closes a row that opens: what is under it shown or hidden.
+    private func toggle(_ index: Int) {
+        guard rows.indices.contains(index), rows[index].opens else { return }
+        let key = rows[index].path
+        if expanded.contains(key) { expanded.remove(key) } else { expanded.insert(key) }
+        rebuild()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -362,10 +664,20 @@ final class ExplorerView: NSView, ToolContent {
             rebuild()
             return
         }
+        if let mode = modeFrames.first(where: { $0.1.contains(point) })?.0 {
+            show(mode)
+            return
+        }
         let index = top + Int((point.y - listTop) / rowHeight)
         guard point.y >= listTop, rows.indices.contains(index) else { return }
         selected = index
-        activate(index)
+        // The chevron of a file with nested files opens it; the rest of the row opens the file.
+        let chevron = 12 + CGFloat(rows[index].depth) * 14
+        if !rows[index].isDirectory, rows[index].nested > 0, point.x < chevron + 12 {
+            toggle(index)
+        } else {
+            activate(index)
+        }
         needsDisplay = true
     }
 
@@ -402,19 +714,23 @@ final class ExplorerView: NSView, ToolContent {
         case "G": selected = max(rows.count - 1, 0)
         case "\r", "o": activate(selected)
         case "l", right:
-            if rows.indices.contains(selected), rows[selected].isDirectory, !expanded.contains(rows[selected].path) {
-                activate(selected)
-            } else if rows.indices.contains(selected), !rows[selected].isDirectory {
+            guard rows.indices.contains(selected) else { return true }
+            let row = rows[selected]
+            if row.opens, !expanded.contains(row.path) {
+                toggle(selected)
+            } else if !row.isDirectory {
                 activate(selected)
             }
         case "h", left:
             guard rows.indices.contains(selected) else { return true }
             let row = rows[selected]
-            if row.isDirectory, expanded.contains(row.path), row.depth > 0 {
-                activate(selected)
+            if row.opens, expanded.contains(row.path), row.depth > 0 {
+                toggle(selected)
             } else if let parent = rows[..<selected].lastIndex(where: { $0.depth < row.depth }) {
                 selected = parent
             }
+        case "s":
+            show(mode == .files ? .solution : .files)
         case "I":
             showIgnored.toggle()
             rebuild()

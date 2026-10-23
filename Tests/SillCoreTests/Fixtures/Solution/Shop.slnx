@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/root/">
+    <File Path="README.MD" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Web/Web.csproj" />
+    <Project Path="src/tooling/Cli/Cli.csproj" />
+    <File Path="config/settings.yml" />
+  </Folder>
+</Solution>

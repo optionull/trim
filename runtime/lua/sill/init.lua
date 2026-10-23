@@ -379,6 +379,26 @@ function M.build_result(list)
   end
 end
 
+--- How the .slnx differs from the folders on disk, as diagnostics on it in the namespace 'sill.slnx' (warnings, so
+--- Problems lists them): `list` is { line, message } each.
+function M.slnx_result(path, list)
+  local ns = vim.api.nvim_create_namespace('sill.slnx')
+  vim.diagnostic.reset(ns)
+  if #list == 0 then
+    return
+  end
+  local buf = vim.fn.bufadd(path)
+  vim.bo[buf].buflisted = true
+  local items = {}
+  for _, d in ipairs(list) do
+    table.insert(items, {
+      lnum = math.max(d.line - 1, 0), col = 0, severity = vim.diagnostic.severity.WARN, code = 'slnx',
+      message = d.message, source = 'sill',
+    })
+  end
+  vim.diagnostic.set(ns, buf, items)
+end
+
 --- The window showing the pane of `kind` in this tab page, if there is one.
 function M.pane_window(kind)
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
@@ -517,6 +537,15 @@ function M.setup()
   vim.api.nvim_create_user_command('SillMergeBase', function()
     require('sill.merge').toggle_base()
   end, { desc = 'Show or hide the base of a merge' })
+  -- The .slnx and the folders on disk (owner, 2026-10-23): sync shows the solution rewritten so its folders follow the
+  -- disk, as a diff; apply writes it.
+  vim.api.nvim_create_user_command('SillSlnx', function(opts)
+    notify('sill_slnx', opts.args ~= '' and opts.args or 'sync')
+  end, {
+    nargs = '?',
+    complete = function() return { 'sync', 'apply' } end,
+    desc = 'The .slnx following the folders on disk: sync shows the change, apply writes it',
+  })
   vim.api.nvim_create_user_command('SillDiffFiles', function(opts)
     if #opts.fargs ~= 2 then
       vim.notify(':SillDiffFiles takes two files', vim.log.levels.ERROR)

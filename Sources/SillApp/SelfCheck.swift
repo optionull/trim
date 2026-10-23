@@ -44,6 +44,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "solution" {
+                try await solutionSteps()
+                print("sill check (solution): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "project" {
                 try await projectSteps()
                 print("sill check (project): passed")
@@ -242,6 +248,103 @@ final class SelfCheck {
         try shot(of: root, to: path, cursor: true)
         print("sill showcase: saved \(path)")
         fflush(stdout)
+    }
+
+    /// The explorer and the .slnx (`SILL_CHECK=solution`, run in a copy of Tests/SillCoreTests/Fixtures/Solution): the
+    /// solution's tree and how it differs from the disk (also in Problems); the files, nested as Visual Studio nests
+    /// them, with a project's kind and the files it removes; a nested file revealed; `:SillSlnx sync` as a diff and
+    /// `apply` writing it. `SILL_CHECK_SHOT` saves the solution's tree; with `-files`, the files.
+    private func solutionSteps() async throws {
+        let app = try require(app, "the app")
+        let explorer = try require(app.tools?.sidebar.explorer, "the explorer")
+        let environment = ProcessInfo.processInfo.environment
+        let root = app.workingDirectory
+        let slnx = root + "/Shop.slnx"
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        let drift = try await waitFor("the solution read", timeout: .seconds(10)) { explorer.solution?.drift }
+        try expect(explorer.mode == .solution, "a folder with a .slnx opens on the solution")
+        try expect(drift.count == 3, "three differences: \(drift.map(\.message))")
+        let problems = try await wait("the drift in Problems", timeout: .seconds(10)) { screen in
+            screen.diagnostics.count(where: { $0.code == "slnx" }) == 3
+        }.diagnostics.filter { $0.code == "slnx" }
+        try expect(problems.allSatisfy { $0.path == slnx }, "on the .slnx")
+        try expect(problems.contains { $0.message.contains("README.MD is README.md on disk") }, "the case")
+        step("the solution's tree; three differences from the disk, on the .slnx in Problems: " +
+            drift.map(\.message).joined(separator: "; "))
+
+        // The tree: /src/ holds Web; Cli, misplaced in /src/, is there too, a project marked by its kind.
+        func row(_ name: String) -> ExplorerView.Row? { explorer.rows.first { $0.name == name } }
+        _ = try explorer.handleKey(key("l", on: explorer, selecting: "src"))
+        let web = try await waitFor("Web in /src/") { row("Web") }
+        try expect(web.project?.kind == .web, "Web is a web project")
+        try expect(row("Cli")?.project?.kind == .app, "Cli is an app")
+        if let shot = environment["SILL_CHECK_SHOT"] {
+            _ = try explorer.handleKey(key("l", on: explorer, selecting: "Web"))
+            _ = try await waitFor("Web open") { row("Components") }
+            try await Task.sleep(for: .milliseconds(200))
+            try self.shot(to: shot)
+            step("saved \(shot)")
+        }
+        step("solution folders, projects marked by kind (web, app)")
+
+        // The files: nesting, and what a project removes.
+        explorer.show(.files)
+        let counter = root + "/src/Web/Components/Pages/Counter.razor.cs"
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(counter)])
+        try await wait("Counter.razor.cs open") { $0.buffer.name == "Counter.razor.cs" }
+        let nested = try await waitFor("Counter.razor.cs revealed under Counter.razor", timeout: .seconds(5)) {
+            explorer.rows.first { $0.name == "Counter.razor.cs" }
+        }
+        let parent = try require(row("Counter.razor"), "Counter.razor")
+        try expect(parent.nested == 2 && nested.depth == parent.depth + 1, "nested under it, with the .css")
+        try expect(explorer.rows[explorer.selected].name == "Counter.razor.cs", "and selected")
+        try expect(
+            row("appsettings.json")?.nested == 1 && row("appsettings.Development.json") == nil,
+            "appsettings.Development.json nested, closed"
+        )
+        _ = try explorer.handleKey(key("l", on: explorer, selecting: "Legacy"))
+        let old = try await waitFor("Legacy open") { row("Old.cs") }
+        try expect(old.excluded, "Old.cs is removed from Web's items, so dimmed")
+        try expect(row("Web")?.project?.kind == .web, "the project's folder marked in the files too")
+        if let shot = environment["SILL_CHECK_SHOT"] {
+            try await Task.sleep(for: .milliseconds(200))
+            let files = (shot as NSString).deletingPathExtension + "-files.png"
+            try self.shot(to: files)
+            step("saved \(files)")
+        }
+        step("files nested as Visual Studio nests them, revealed when open; what Web removes dimmed")
+
+        // :SillSlnx sync shows it rewritten, apply writes it.
+        let before = try String(contentsOfFile: slnx, encoding: .utf8)
+        _ = try await session.channel.lua("vim.cmd('SillSlnx sync')")
+        let proposal = try await waitFor("the proposal", timeout: .seconds(10)) { app.solutions.lastProposal }
+        try await wait("the diff", timeout: .seconds(10)) { $0.tabs.count > 1 }
+        let proposed = try String(contentsOfFile: proposal, encoding: .utf8)
+        try expect(try String(contentsOfFile: slnx, encoding: .utf8) == before, "sync writes nothing")
+        try expect(try proposed == Slnx(text: before).synced(in: root).text, "the proposal is the synced solution")
+        _ = try await session.channel.lua("vim.cmd('tabclose')")
+        _ = try await session.channel.lua("vim.cmd('SillSlnx apply')")
+        _ = try await waitFor("the .slnx written", timeout: .seconds(10)) {
+            (try? String(contentsOfFile: slnx, encoding: .utf8)) == proposed ? true : nil
+        }
+        _ = try await waitFor("no drift left", timeout: .seconds(10)) {
+            explorer.solution?.drift.isEmpty == true ? true : nil
+        }
+        try await wait("Problems clear of it", timeout: .seconds(10)) { screen in
+            !screen.diagnostics.contains { $0.code == "slnx" }
+        }
+        try expect(proposed.contains("<Folder Name=\"/src/tooling/\">"), "Cli in /src/tooling/")
+        try expect(proposed.contains("<File Path=\"README.md\" />"), "README.md in the disk's case")
+        step(":SillSlnx sync shows the rewrite as a diff and writes nothing; apply writes it, and the drift is gone")
+    }
+
+    /// A key for the explorer, with `name`'s row selected first.
+    private func key(_ key: String, on explorer: ExplorerView, selecting name: String) throws -> NSEvent {
+        if let index = explorer.rows.firstIndex(where: { $0.name == name }) { explorer.select(index) }
+        return try require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            characters: key, charactersIgnoringModifiers: key, isARepeat: false, keyCode: 0
+        ), "a key")
     }
 
     /// A real project (`SILL_CHECK=project`, `SILL_CWD` its folder; docs-builder is the one it was written against):

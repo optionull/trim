@@ -43,6 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         agents.start()
         profiler = Profiler(app: self, channel: session.channel, directory: workingDirectory)
         tools.onProfileMade = { [weak self] view in self?.profiler.attach(view) }
+        solutions = Solutions(app: self, channel: session.channel, directory: workingDirectory)
+        tools.sidebar.explorer.onSolutionRead = { [weak self] path, slnx, drift in
+            self?.solutions.read(path, slnx, drift)
+        }
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered,
@@ -152,6 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var builds: BuildRunner!
     private(set) var agents: AgentBridge!
     private(set) var profiler: Profiler!
+    private(set) var solutions: Solutions!
     /// Roslyn's provisioning: what the status bar says while it downloads.
     private(set) var roslynStatus: String?
     private(set) var roslyn: RoslynServer?
@@ -171,6 +176,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         splitTabs.update(screen)
         if screen.buffer.kind.isEmpty, !screen.buffer.path.isEmpty { tools.sidebar.explorer.reveal(screen.buffer.path) }
         updateFrame(screen)
+        if let ask = screen.slnxAsk, ask.serial != slnxAskSeen {
+            slnxAskSeen = ask.serial
+            solutions.answer(ask.action)
+        }
         if let ask = screen.profileAsk, ask.serial != profileAskSeen {
             profileAskSeen = ask.serial
             profiler.answer(ask.action)
@@ -184,6 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private var agentAskSeen = 0
     private var profileAskSeen = 0
+    private var slnxAskSeen = 0
 
     /// `:SillAgent next|send|list`.
     private func answerAgentAsk(_ action: String) {

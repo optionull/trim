@@ -14,7 +14,7 @@ var targets: [Target] = [
     .target(name: "SillNvim", dependencies: [messagePack]),
     // What the UI draws, built from redraw events: grids, their placement, and which windows are terminal panes.
     .target(name: "SillCore", dependencies: ["SillNvim", messagePack]),
-    .testTarget(name: "SillCoreTests", dependencies: ["SillCore", "SillNvim", messagePack]),
+    .testTarget(name: "SillCoreTests", dependencies: ["SillCore", "SillNvim", messagePack], exclude: ["Fixtures"]),
     // AppKit input in nvim's terms: key notation, mouse and IME.
     .target(name: "SillInput"),
     .testTarget(name: "SillInputTests", dependencies: ["SillInput"]),

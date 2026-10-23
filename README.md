@@ -53,6 +53,18 @@ git config difftool.sill.cmd '"/Applications/Sill.app/Contents/MacOS/Sill" diff 
 In a merge, `]x` and `[x` walk the conflicts and `\o`, `\t` and `\b` take ours, theirs or both (`<localleader>`);
 `:w` saves the result and `:qa` ends the merge.
 
+## Files and the solution
+
+The explorer shows the folders on disk, informed by the project files: a project's folder says what kind of project it
+is, files nest as Visual Studio nests them (`Counter.razor.cs` under `Counter.razor`), and files a project removes are
+dimmed. In a folder with a .slnx it opens on the solution's tree (`s`, or Files | Solution, switches) and says where the
+.slnx differs from the folders on disk; `:SillSlnx sync` shows the .slnx rewritten so its folders follow the disk, and
+`:SillSlnx apply` writes it.
+
+![The solution's tree: solution folders, projects marked web and app, and where the .slnx differs from the disk in Problems](docs/showcase-solution-2026-10-23.png)
+
+![The files: Counter.razor.cs nested under Counter.razor, a removed folder dimmed](docs/showcase-files-2026-10-23.png)
+
 ## C# and Razor
 
 In a .NET folder sill downloads Roslyn's language server (nuget.org's `roslyn-language-server`, into

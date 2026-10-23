@@ -351,6 +351,22 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     (2 s pauses, and 2.8 s to quit): Roslyn is no longer offered file watching and watches the solution itself.
   - App Nap: in the background macOS naps sill and its run loop waits seconds through a build; in front it never
     does, and the check holds App Nap off as being in front does (`SILL_CHECK_NAP=1` lets it nap).
+- The explorer and the solution (owner's decisions, 2026-10-23): one explorer with a Files | Solution switch, light
+  parsing (no MSBuild), .slnx only. Exit test `SILL_CHECK=solution` in Tests/SillCoreTests/Fixtures/Solution.
+  - Files, informed by the project files: a folder holding a project is marked with its kind (app, web, test,
+    library); files nest as Visual Studio nests them (`X.razor.cs` and `.css` under `X.razor`,
+    `appsettings.*.json` under `appsettings.json`, `X.Designer.cs`, `X.g.cs`, `X.min.js`, `package-lock.json`, and
+    a project's `DependentUpon`), opening the nest of a file that is opened; files a project removes are dimmed.
+  - Solution: the .slnx's own tree (solution folders, projects open to their files, listed files), and how it
+    differs from the disk, as a banner and as warnings on the .slnx in Problems: a listed file not there or in
+    another case, a project or file in another folder than the rule's.
+  - The rule: a project in the solution folder of its directory's parent (`src/tooling/docs-builder/…csproj` in
+    `/src/tooling/`), a listed file in its directory's (`config/navigation.yml` in `/config/`), a root file in
+    `/root/`. `:SillSlnx sync` shows the .slnx rewritten to it as a diff (its own tab page) and writes nothing;
+    `:SillSlnx apply` writes it. It changes as little as it can: case fixed in place, a misplaced entry moved to
+    its folder's end, a needed folder added after its parent, an emptied one gone, nothing added. On
+    elastic/docs-builder (which follows the rule by hand) it changes CONTRIBUTING.MD's case, and re-indents the few
+    lines indented with tabs.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
