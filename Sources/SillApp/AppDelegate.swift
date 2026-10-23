@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let session = EditorSession()
     private var editor: EditorView!
     private var panes: TerminalPanes!
+    private(set) var externalUI: ExternalUI!
+    private(set) var root: RootView!
     private var check: SelfCheck?
     /// The .NET sidecar, started at launch; nil until it is ready, and after it failed to start.
     private(set) var sidecar: Sidecar?
@@ -32,7 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false
         )
         window.title = "sill"
-        window.contentView = editor
+        externalUI = ExternalUI(editor: editor)
+        root = RootView(editor: editor, overlay: externalUI.overlay)
+        window.contentView = root
         window.delegate = self
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -42,6 +46,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let session = session
         editor.onResize = { cols, rows in Task { await session.resize(cols: cols, rows: rows) } }
         editor.onFocus = { [weak self] in self?.panes.focusEditor() }
+        editor.onKey = { [weak self] in self?.externalUI.keyPressed() }
+        let channel = session.channel
+        root.tabBar.onSelect = { handle in
+            Task { _ = await channel.request("nvim_set_current_tabpage", params: [.int(Int64(handle))]) }
+        }
 
         let environment = ProcessInfo.processInfo.environment
         if environment["SILL_CHECK"] == "1" || environment["SILL_SHOWCASE"] != nil {
@@ -52,6 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Task { [weak self] in
             for await update in updates {
                 self?.editor.show(update.screen)
+                self?.externalUI.update(update.screen)
+                self?.root.tabBar.show(update.screen.tabs, current: update.screen.currentTab)
+                self?.root.showTabs(update.screen.tabs.count > 1)
                 if let window = self?.window, !update.screen.title.isEmpty, window.title != update.screen.title {
                     window.title = update.screen.title
                 }

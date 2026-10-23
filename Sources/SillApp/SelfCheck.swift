@@ -67,6 +67,7 @@ final class SelfCheck {
         try await day3()
         try await day4()
         try await day5()
+        try await m2Protocol()
 
         let size = editor.gridSize
         try await wait("nvim's screen to fill the view, \(size.cols)x\(size.rows)") {
@@ -317,6 +318,74 @@ final class SelfCheck {
             "a ping round trip in \(Bench.format(roundTrip)) ms")
     }
 
+    /// M2, step 1: the command line, messages, completion and tabs are sill's views, not nvim's grid.
+    private func m2Protocol() async throws {
+        let ui = try require(app?.externalUI, "the external UI")
+        let root = try require(app?.root, "the root view")
+        type(":echo 'from the command line'")
+        try await wait("the command line") { $0.commandLine?.text == "echo 'from the command line'" }
+        try await waitFor("the command line panel") { ui.commandLineView.isHidden ? nil : true }
+        let panel = ui.commandLineView.frame
+        try expect(
+            panel.minY < ui.overlay.bounds.height / 2 && abs(panel.midX - ui.overlay.bounds.midX) < 2,
+            "the command line panel centred in the top half, at \(panel)"
+        )
+        press("\r", keyCode: 36)
+        try await waitFor("a notification") {
+            ui.toastViews.contains { ($0 as? ToastView)?.message?.text == "from the command line" } ? true : nil
+        }
+        try expect(ui.commandLineView.isHidden, "the command line panel gone after Return")
+        step("the command line is a panel of sill's, and :echo a notification")
+
+        type(":call nosuchfunction()")
+        press("\r", keyCode: 36)
+        try await waitFor("an error notification") {
+            ui.toastViews.contains { ($0 as? ToastView)?.message?.isError == true } ? true : nil
+        }
+        step("an error is an error notification")
+
+        type(":ls")
+        press("\r", keyCode: 36)
+        try await waitFor("the output panel") { ui.outputView.isHidden ? nil : true }
+        try expect(ui.outputView.frame.maxY == ui.overlay.bounds.maxY, "the output panel along the bottom")
+        press("\u{1B}", keyCode: 53)
+        try await waitFor("the output panel dismissed") { ui.outputView.isHidden ? true : nil }
+        step(":ls opens the output panel, and a key closes it")
+
+        type(":call setline(1, ['alpha', 'alphabet', 'alpine', ''])")
+        press("\r", keyCode: 36)
+        type("Goal")
+        chord("n", keyCode: 45)
+        let menu = try await wait("the completion popup") { $0.popupMenu != nil }
+        try await waitFor("the popup view") { ui.popupView.isHidden ? nil : true }
+        let anchor = try require(menu.popupMenu, "a popup")
+        let placement = try require(menu.placements[anchor.grid], "the popup's grid")
+        let cell = editor.rect(row: placement.row + anchor.row, col: placement.col + anchor.col, width: 1, height: 1)
+        try expect(
+            ui.popupView.frame.minY >= cell.maxY || ui.popupView.frame.maxY <= cell.minY,
+            "the popup beside the word's row, not over it"
+        )
+        if let shotPath = ProcessInfo.processInfo.environment["SILL_CHECK_POPUP_SHOT"] {
+            try shot(to: shotPath)
+            step("saved \(shotPath)")
+        }
+        press("\u{1B}", keyCode: 53)
+        try await waitFor("the popup gone") { ui.popupView.isHidden ? true : nil }
+        step("completion is a popup of sill's under the word")
+
+        type(":tabnew")
+        press("\r", keyCode: 36)
+        try await waitFor("the tab strip") { root.tabBar.isHidden ? nil : true }
+        try expect(editor.frame.minY == TabBarView.height, "the editor below the tab strip")
+        type(":tabclose")
+        press("\r", keyCode: 36)
+        try await waitFor("the tab strip gone") { root.tabBar.isHidden ? true : nil }
+        try expect(editor.frame.minY == 0, "the editor back at the top")
+        step("tab pages are a strip of sill's above the grid")
+        type(":enew!")
+        press("\r", keyCode: 36)
+    }
+
     private func click(row: Int, col: Int) {
         let point = editor.convert(
             NSPoint(x: (CGFloat(col) + 0.5) * editor.metrics.width, y: (CGFloat(row) + 0.5) * editor.metrics.height),
@@ -450,52 +519,82 @@ final class SelfCheck {
             device: device, font: editor.metrics.regular, cellSize: editor.metrics.cellSize, scale: scale,
             pixelFormat: .bgra8Unorm
         )
-        let size = CGSize(width: CGFloat(cols) * editor.metrics.width, height: CGFloat(rows) * editor.metrics.height)
+        let grid = CGSize(width: CGFloat(cols) * editor.metrics.width, height: CGFloat(rows) * editor.metrics.height)
+        // The tab strip above the grid, when it shows.
+        let tabs: CGFloat = app?.root.tabBar.isHidden == false ? TabBarView.height : 0
+        let size = CGSize(width: grid.width, height: grid.height + tabs)
         let (width, height) = (Int(size.width * scale), Int(size.height * scale))
-        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false
-        )
-        descriptor.usage = [.renderTarget, .shaderRead]
-        descriptor.storageMode = .shared
-        let texture = try require(device.makeTexture(descriptor: descriptor), "a texture for the shot")
         var frame = editor.currentFrame
         if cursor, frame.cursor == nil, let style = frame.screen.cursorStyle, style.cursorShape == .block {
             frame.cursor = Frame.Cursor(shape: .block, highlight: style.attrId)
         }
-        let commands = try require(renderer.render(frame, to: texture), "a command buffer")
+        let gridDescriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm, width: Int(grid.width * scale), height: Int(grid.height * scale), mipmapped: false
+        )
+        gridDescriptor.usage = [.renderTarget, .shaderRead]
+        gridDescriptor.storageMode = .shared
+        let gridTexture = try require(device.makeTexture(descriptor: gridDescriptor), "a texture for the grid")
+        let commands = try require(renderer.render(frame, to: gridTexture), "a command buffer")
         commands.waitUntilCompleted()
         let rep = try require(NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
             hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: width * 4, bitsPerPixel: 32
         ), "a bitmap for the shot")
         let pixels = try require(rep.bitmapData, "the shot's pixels")
-        texture.getBytes(pixels, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
+        let top = Int(tabs * scale)
+        let gridWidth = gridTexture.width, gridHeight = gridTexture.height
+        gridTexture.getBytes(
+            pixels + top * width * 4, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, gridWidth, gridHeight),
+            mipmapLevel: 0
+        )
         // The texture is BGRA; the bitmap is RGBA.
-        for index in stride(from: 0, to: width * height * 4, by: 4) {
+        for index in stride(from: top * width * 4, to: width * height * 4, by: 4) {
             (pixels[index], pixels[index + 2]) = (pixels[index + 2], pixels[index])
         }
         rep.size = size
+        // Over the grid, the views that are not Metal: the tab strip, each terminal's text as read back from Ghostty
+        // (a Metal surface a snapshot cannot capture), and the overlays. The bitmap's context is not flipped.
+        let context = try require(NSGraphicsContext(bitmapImageRep: rep), "a context on the shot")
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        /// The view alone, into a clear bitmap: a rounded panel keeps its transparent corners.
+        func paint(_ view: NSView, at frame: NSRect) {
+            let pixels = view.convertToBacking(view.bounds).size
+            guard let cached = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(pixels.width), pixelsHigh: Int(pixels.height),
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                bytesPerRow: 0, bitsPerPixel: 0
+            ) else { return }
+            // In points before the context is made, so the view draws at the backing scale.
+            cached.size = view.bounds.size
+            guard let viewContext = NSGraphicsContext(bitmapImageRep: cached) else { return }
+            view.displayIgnoringOpacity(view.bounds, in: viewContext)
+            cached.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+        }
+        /// A rect in the editor's coordinates (flipped, below the tab strip), in the bitmap's.
+        func bitmap(_ rect: NSRect) -> NSRect {
+            NSRect(x: rect.minX, y: size.height - tabs - rect.maxY, width: rect.width, height: rect.height)
+        }
+        if tabs > 0, let tabBar = app?.root.tabBar {
+            paint(tabBar, at: NSRect(x: 0, y: size.height - tabs, width: size.width, height: tabs))
+        }
         #if SILL_GHOSTTY
-            // Over each surface, its text as read back from Ghostty. The bitmap's context is not flipped.
-            let context = try require(NSGraphicsContext(bitmapImageRep: rep), "a context on the shot")
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = context
             for case let surface as GhosttySurfaceView in editor.subviews where !surface.isHidden {
-                let frame = NSRect(
-                    x: surface.frame.minX, y: size.height - surface.frame.maxY,
-                    width: surface.frame.width, height: surface.frame.height
-                )
-                NSColor(srgbRed: 0.08, green: 0.09, blue: 0.10, alpha: 1).setFill()
+                let frame = bitmap(surface.frame)
+                Design.terminal.setFill()
                 frame.fill()
                 let text = (surface.visibleText() ?? "") as NSString
                 text.draw(
                     in: frame.insetBy(dx: 14, dy: 10),
-                    withAttributes: [.font: editor.metrics.regular, .foregroundColor: NSColor.lightGray]
+                    withAttributes: [.font: editor.metrics.regular, .foregroundColor: Design.text]
                 )
             }
-            context.flushGraphics()
-            NSGraphicsContext.restoreGraphicsState()
         #endif
+        for view in app?.externalUI.overlay.subviews ?? [] where !view.isHidden {
+            paint(view, at: bitmap(view.frame))
+        }
+        context.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
         let data = try require(rep.representation(using: .png, properties: [:]), "PNG data")
         try data.write(to: URL(fileURLWithPath: path))
     }

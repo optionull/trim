@@ -94,3 +94,90 @@ struct HitTests {
         #expect(screen.hit(row: 23, col: 5) == (1, 23, 5), "the command line is grid 1")
     }
 }
+
+@Suite("messages")
+struct MessageTests {
+    private func chunk(_ text: String) -> [StyledChunk] { [StyledChunk(text: text)] }
+
+    @Test("replace_last replaces, append appends, an id replaces its message, empty clears")
+    func showing() {
+        var screen = Screen()
+        screen.apply(.msgShow(
+            kind: "echo",
+            content: chunk("one"),
+            replaceLast: false,
+            history: false,
+            append: false,
+            id: ""
+        ))
+        screen.apply(.msgShow(
+            kind: "echo",
+            content: chunk("two"),
+            replaceLast: false,
+            history: false,
+            append: false,
+            id: ""
+        ))
+        #expect(screen.messages.map(\.text) == ["one", "two"])
+        screen.apply(.msgShow(
+            kind: "echo",
+            content: chunk("2"),
+            replaceLast: true,
+            history: false,
+            append: false,
+            id: ""
+        ))
+        #expect(screen.messages.map(\.text) == ["one", "2"])
+        screen.apply(.msgShow(
+            kind: "echo",
+            content: chunk("+"),
+            replaceLast: false,
+            history: false,
+            append: true,
+            id: ""
+        ))
+        #expect(screen.messages.map(\.text) == ["one", "2+"])
+        screen.apply(.msgShow(
+            kind: "progress",
+            content: chunk("10%"),
+            replaceLast: false,
+            history: false,
+            append: false,
+            id: "lsp"
+        ))
+        screen.apply(.msgShow(
+            kind: "progress",
+            content: chunk("90%"),
+            replaceLast: false,
+            history: false,
+            append: false,
+            id: "lsp"
+        ))
+        #expect(screen.messages.map(\.text) == ["one", "2+", "90%"])
+        screen.apply(.msgShow(kind: "empty", content: [], replaceLast: false, history: false, append: false, id: ""))
+        #expect(screen.messages.isEmpty)
+    }
+
+    @Test("every shown message gets a new serial")
+    func serials() {
+        var screen = Screen()
+        screen.apply(.msgShow(
+            kind: "echo",
+            content: chunk("a"),
+            replaceLast: false,
+            history: false,
+            append: false,
+            id: ""
+        ))
+        let first = screen.messages[0].serial
+        screen.apply(.msgShow(
+            kind: "echo",
+            content: chunk("b"),
+            replaceLast: true,
+            history: false,
+            append: false,
+            id: ""
+        ))
+        #expect(screen.messages[0].serial > first)
+    }
+}

@@ -18,7 +18,7 @@ struct EmbedTests {
         #expect(screen.grids[1]?.line(0).hasPrefix("hello, sill") != true)
     }
 
-    @Test("one window fills the screen above the command line")
+    @Test("one window fills the screen above its status line; the command line takes no rows")
     func singleWindowLayout() async throws {
         let nvim = try await Harness.start(cols: 100, rows: 30)
         defer { Task { await nvim.stop() } }
@@ -27,8 +27,9 @@ struct EmbedTests {
         let window = try #require(screen.windows.first?.placement)
         #expect(window.row == 0 && window.col == 0)
         #expect(window.width == 100)
-        // Below the window: its status line (laststatus=2 is the default) and the command line, both on grid 1.
-        #expect(window.height == 28)
+        // Below the window only its status line (laststatus=2), on grid 1: with ext_messages the command line and
+        // messages are sill's, and 'cmdheight' is 0.
+        #expect(window.height == 29)
         #expect(screen.grids[1]?.rows == 30)
     }
 

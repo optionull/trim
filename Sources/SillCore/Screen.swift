@@ -60,6 +60,59 @@ public struct Highlight: Sendable, Equatable {
     public init() {}
 }
 
+/// The command line, as `ext_cmdline` describes it.
+public struct Cmdline: Sendable, Equatable {
+    public var content: [StyledChunk]
+    /// The cursor, as a byte offset into `text`.
+    public var pos: Int
+    /// `:`, `/`, `?`, or empty for a prompt.
+    public var firstc: String
+    /// An `input()` prompt.
+    public var prompt: String
+    public var indent: Int
+    public var level: Int
+    /// A pending special character (after <C-v>, say), shown at the cursor.
+    public var special: String?
+
+    public var text: String { content.map(\.text).joined() }
+
+    /// The cursor as a character index into `text`.
+    public var cursorIndex: Int {
+        let bytes = Array(text.utf8)
+        return String(decoding: bytes.prefix(min(max(pos, 0), bytes.count)), as: UTF8.self).count
+    }
+}
+
+/// A message on screen (`msg_show`).
+public struct Message: Sendable, Equatable {
+    public var kind: String
+    public var content: [StyledChunk]
+    public var id: String
+    /// Grows with every message shown, so a view can tell a new message from one it already has.
+    public var serial: Int
+
+    public var text: String { content.map(\.text).joined() }
+
+    /// Errors and warnings stay longer and are coloured.
+    public var isError: Bool { ["emsg", "echoerr", "lua_error", "rpc_error", "shell_err"].contains(kind) }
+    public var isWarning: Bool { kind == "wmsg" }
+    /// Listings and command output read as a block, not a notification.
+    public var isOutput: Bool {
+        ["list_cmd", "shell_out", "shell_err", "shell_ret", "wildlist", "verbose"].contains(kind) ||
+            text.split(separator: "\n", omittingEmptySubsequences: false).count > 3
+    }
+}
+
+/// The completion popup (`ext_popupmenu`).
+public struct PopupMenu: Sendable, Equatable {
+    public var items: [PopupItem]
+    public var selected: Int
+    /// Where the completed word starts: a cell of `grid`, or with `grid` -1 a byte offset into the command line.
+    public var row: Int
+    public var col: Int
+    public var grid: Int
+}
+
 /// Everything the UI draws, built by applying redraw events in order. A value: the session hands a copy to the UI at
 /// every `flush`, and nothing the UI holds changes under it.
 public struct Screen: Sendable {
@@ -78,6 +131,20 @@ public struct Screen: Sendable {
     /// nvim is busy (`busy_start`): the cursor is hidden.
     public private(set) var busy = false
     public private(set) var title = ""
+    /// Command lines by nesting level; the deepest is the one being edited.
+    public private(set) var commandLines: [Int: Cmdline] = [:]
+    /// Context shown above the command line (a `:function` being typed, say).
+    public private(set) var commandLineBlock: [[StyledChunk]] = []
+    public private(set) var messages: [Message] = []
+    /// The history `:messages` asked for, shown until dismissed.
+    public private(set) var messageHistory: [Message]?
+    public private(set) var showmode: [StyledChunk] = []
+    public private(set) var showcmd: [StyledChunk] = []
+    public private(set) var ruler: [StyledChunk] = []
+    public private(set) var popupMenu: PopupMenu?
+    public private(set) var tabs: [TabpageInfo] = []
+    public private(set) var currentTab = 0
+    private var messageSerial = 0
     /// Terminal panes by the handle of the placeholder window backing them, as sill's runtime last reported.
     public private(set) var panes: [Int: Int] = [:]
 
@@ -137,6 +204,49 @@ public struct Screen: Sendable {
             busy = false
         case let .setTitle(title):
             self.title = title
+        case let .cmdlineShow(content, pos, firstc, prompt, indent, level):
+            commandLines[level] = Cmdline(
+                content: content, pos: pos, firstc: firstc, prompt: prompt, indent: indent, level: level
+            )
+        case let .cmdlinePos(pos, level):
+            commandLines[level]?.pos = pos
+        case let .cmdlineSpecialChar(char, _, level):
+            commandLines[level]?.special = char
+        case let .cmdlineHide(level, _):
+            commandLines[level] = nil
+            if commandLines.isEmpty { commandLineBlock = [] }
+        case let .cmdlineBlockShow(lines):
+            commandLineBlock = lines
+        case let .cmdlineBlockAppend(line):
+            commandLineBlock.append(line)
+        case .cmdlineBlockHide:
+            commandLineBlock = []
+        case let .msgShow(kind, content, replaceLast, _, append, id):
+            show(kind: kind, content: content, replaceLast: replaceLast, append: append, id: id)
+        case .msgClear:
+            messages = []
+        case let .msgShowmode(content):
+            showmode = content
+        case let .msgShowcmd(content):
+            showcmd = content
+        case let .msgRuler(content):
+            ruler = content
+        case let .msgHistoryShow(entries):
+            messageHistory = entries.map { entry in
+                messageSerial += 1
+                return Message(kind: entry.kind, content: entry.content, id: "", serial: messageSerial)
+            }
+        case .msgHistoryClear:
+            messageHistory = nil
+        case let .popupmenuShow(items, selected, row, col, grid):
+            popupMenu = PopupMenu(items: items, selected: selected, row: row, col: col, grid: grid)
+        case let .popupmenuSelect(selected):
+            popupMenu?.selected = selected
+        case .popupmenuHide:
+            popupMenu = nil
+        case let .tablineUpdate(current, tabs):
+            currentTab = current
+            self.tabs = tabs
         case let .notification(method, args) where method == "sill_panes":
             panes = Self.panes(args)
         default:
@@ -150,6 +260,42 @@ public struct Screen: Sendable {
     public var cursorWindow: Int? {
         guard let placement = placements[cursorGrid], placement.kind == .window else { return nil }
         return placement.win
+    }
+
+    /// The command line being edited, if any: the deepest level shown.
+    public var commandLine: Cmdline? {
+        commandLines.max { $0.key < $1.key }?.value
+    }
+
+    /// The history `:messages` showed has been read; it goes until asked for again.
+    public mutating func dismissMessageHistory() {
+        messageHistory = nil
+    }
+
+    /// The highlight of a chunk: its own attributes (the command line), else its attribute id's.
+    public func highlight(of chunk: StyledChunk) -> Highlight {
+        if let attrs = chunk.attrs { return Self.highlight(attrs) }
+        return highlights[chunk.attrId] ?? Highlight()
+    }
+
+    private mutating func show(kind: String, content: [StyledChunk], replaceLast: Bool, append: Bool, id: String) {
+        if kind == "empty", content.allSatisfy(\.text.isEmpty) {
+            messages = []
+            return
+        }
+        messageSerial += 1
+        let message = Message(kind: kind, content: content, id: id, serial: messageSerial)
+        if !id.isEmpty, let index = messages.firstIndex(where: { $0.id == id }) {
+            messages[index] = message
+        } else if append, var last = messages.popLast() {
+            last.content += content
+            last.serial = messageSerial
+            messages.append(last)
+        } else if replaceLast, !messages.isEmpty {
+            messages[messages.count - 1] = message
+        } else {
+            messages.append(message)
+        }
     }
 
     /// How the cursor looks in the current mode; nil when nvim hides it (busy).

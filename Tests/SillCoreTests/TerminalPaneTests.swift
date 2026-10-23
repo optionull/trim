@@ -106,10 +106,10 @@ struct TerminalPaneTests {
         try await nvim.screen("the pane hidden") { $0.paneRects.isEmpty && $0.panes.count == 1 }
         try await nvim.command("tabprevious")
         let back = try await nvim.screen("the pane back") { $0.paneRects.count == 1 }
-        // The tab line now takes the top row, so the pane is one row lower and one shorter.
+        // With ext_tabline the tabs are sill's to draw, outside the grid, so the pane is back at the same cells.
         let pane = try #require(back.paneRects.first)
-        #expect((pane.pane, pane.col, pane.width) == (before.pane, before.col, before.width))
-        #expect(pane.row == before.row + 1 && pane.height == before.height - 1)
+        #expect(pane == before)
+        #expect(back.tabs.count == 2)
     }
 
     @Test("two panes are told apart")

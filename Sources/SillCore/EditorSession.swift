@@ -28,7 +28,10 @@ public actor EditorSession {
     }
 
     /// The UI options sill attaches with.
-    public static let uiOptions = ["ext_linegrid": true, "ext_multigrid": true]
+    public static let uiOptions = [
+        "ext_linegrid": true, "ext_multigrid": true, "ext_cmdline": true, "ext_messages": true,
+        "ext_popupmenu": true, "ext_tabline": true,
+    ]
 
     /// Starts nvim and attaches. `runtime` is sill's runtime directory (the `plugin/` that defines terminal panes);
     /// `extraArgs` go to nvim after it, e.g. `--clean` in tests.

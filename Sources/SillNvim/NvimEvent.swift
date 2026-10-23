@@ -19,6 +19,40 @@ public struct GridCellData: Equatable, Sendable {
 public struct TabpageInfo: Equatable, Sendable {
     public var handle: Int
     public var name: String
+
+    public init(handle: Int, name: String) {
+        self.handle = handle
+        self.name = name
+    }
+}
+
+/// A run of text in one highlight, as the command line and messages send it. The highlight is an attribute id
+/// (messages) or the attributes themselves (the command line).
+public struct StyledChunk: Equatable, Sendable {
+    public var text: String
+    public var attrId: Int
+    public var attrs: [String: MessagePackValue]?
+
+    public init(text: String, attrId: Int = 0, attrs: [String: MessagePackValue]? = nil) {
+        self.text = text
+        self.attrId = attrId
+        self.attrs = attrs
+    }
+}
+
+/// An item of the completion popup: `[word, kind, menu, info]`.
+public struct PopupItem: Equatable, Sendable {
+    public var word: String
+    public var kind: String
+    public var menu: String
+    public var info: String
+
+    public init(word: String, kind: String = "", menu: String = "", info: String = "") {
+        self.word = word
+        self.kind = kind
+        self.menu = menu
+        self.info = info
+    }
 }
 
 public struct ModeInfo: Equatable, Sendable {
@@ -78,6 +112,26 @@ public enum NvimEvent: Sendable {
     case gridDestroy(grid: Int)
     case msgSetPos(grid: Int, row: Int, scrolled: Bool, zindex: Int, compindex: Int)
     case winViewport(grid: Int, win: Int, topline: Int, botline: Int, curline: Int, curcol: Int, lineCount: Int)
+    // The command line (`ext_cmdline`). `pos` is a byte offset into the content's text.
+    case cmdlineShow(content: [StyledChunk], pos: Int, firstc: String, prompt: String, indent: Int, level: Int)
+    case cmdlinePos(pos: Int, level: Int)
+    case cmdlineSpecialChar(char: String, shift: Bool, level: Int)
+    case cmdlineHide(level: Int, abort: Bool)
+    case cmdlineBlockShow(lines: [[StyledChunk]])
+    case cmdlineBlockAppend(line: [StyledChunk])
+    case cmdlineBlockHide
+    // Messages (`ext_messages`).
+    case msgShow(kind: String, content: [StyledChunk], replaceLast: Bool, history: Bool, append: Bool, id: String)
+    case msgClear
+    case msgShowmode(content: [StyledChunk])
+    case msgShowcmd(content: [StyledChunk])
+    case msgRuler(content: [StyledChunk])
+    case msgHistoryShow(entries: [(kind: String, content: [StyledChunk])])
+    case msgHistoryClear
+    // Completion (`ext_popupmenu`). `grid` is -1 when the popup belongs to the command line.
+    case popupmenuShow(items: [PopupItem], selected: Int, row: Int, col: Int, grid: Int)
+    case popupmenuSelect(selected: Int)
+    case popupmenuHide
     /// An `rpcnotify` from sill's runtime (anything but `redraw`), delivered in order with the redraw batches.
     case notification(method: String, args: [MessagePackValue])
 
@@ -149,6 +203,99 @@ public enum NvimEvent: Sendable {
                             cols: a[6].intValue
                         ))
                 }
+            case "cmdline_show":
+                for args in eventArgs {
+                    guard let a = args.arrayValue, a.count >= 6 else { continue }
+                    events.append(.cmdlineShow(
+                        content: chunks(a[0]), pos: a[1].intValue, firstc: a[2].stringValue ?? "",
+                        prompt: a[3].stringValue ?? "", indent: a[4].intValue, level: a[5].intValue
+                    ))
+                }
+            case "cmdline_pos":
+                for args in eventArgs {
+                    guard let a = args.arrayValue, a.count >= 2 else { continue }
+                    events.append(.cmdlinePos(pos: a[0].intValue, level: a[1].intValue))
+                }
+            case "cmdline_special_char":
+                for args in eventArgs {
+                    guard let a = args.arrayValue, a.count >= 3 else { continue }
+                    events.append(.cmdlineSpecialChar(
+                        char: a[0].stringValue ?? "", shift: a[1].boolValue ?? false, level: a[2].intValue
+                    ))
+                }
+            case "cmdline_hide":
+                for args in eventArgs {
+                    let a = args.arrayValue ?? []
+                    events.append(.cmdlineHide(
+                        level: a.first?.intValue ?? 1, abort: a.count > 1 ? a[1].boolValue ?? false : false
+                    ))
+                }
+            case "cmdline_block_show":
+                for args in eventArgs {
+                    guard let a = args.arrayValue, let lines = a.first?.arrayValue else { continue }
+                    events.append(.cmdlineBlockShow(lines: lines.map(chunks)))
+                }
+            case "cmdline_block_append":
+                for args in eventArgs {
+                    guard let a = args.arrayValue, let line = a.first else { continue }
+                    events.append(.cmdlineBlockAppend(line: chunks(line)))
+                }
+            case "cmdline_block_hide":
+                events.append(.cmdlineBlockHide)
+            case "msg_show":
+                for args in eventArgs {
+                    guard let a = args.arrayValue, a.count >= 3 else { continue }
+                    let id: String = a.count > 6 ? (a[6].stringValue ?? String(a[6].intValue)) : ""
+                    events.append(.msgShow(
+                        kind: a[0].stringValue ?? "", content: chunks(a[1]), replaceLast: a[2].boolValue ?? false,
+                        history: a.count > 3 ? a[3].boolValue ?? false : false,
+                        append: a.count > 4 ? a[4].boolValue ?? false : false, id: id
+                    ))
+                }
+            case "msg_clear":
+                events.append(.msgClear)
+            case "msg_showmode":
+                for args in eventArgs {
+                    events.append(.msgShowmode(content: chunks(args.arrayValue?.first ?? .nil)))
+                }
+            case "msg_showcmd":
+                for args in eventArgs {
+                    events.append(.msgShowcmd(content: chunks(args.arrayValue?.first ?? .nil)))
+                }
+            case "msg_ruler":
+                for args in eventArgs {
+                    events.append(.msgRuler(content: chunks(args.arrayValue?.first ?? .nil)))
+                }
+            case "msg_history_show":
+                for args in eventArgs {
+                    guard let a = args.arrayValue, let entries = a.first?.arrayValue else { continue }
+                    events.append(.msgHistoryShow(entries: entries.compactMap { entry in
+                        guard let e = entry.arrayValue, e.count >= 2 else { return nil }
+                        return (kind: e[0].stringValue ?? "", content: chunks(e[1]))
+                    }))
+                }
+            case "msg_history_clear":
+                events.append(.msgHistoryClear)
+            case "popupmenu_show":
+                for args in eventArgs {
+                    guard let a = args.arrayValue, a.count >= 4, let items = a[0].arrayValue else { continue }
+                    events.append(.popupmenuShow(
+                        items: items.map { item in
+                            let fields = (item.arrayValue ?? []).map { $0.stringValue ?? "" }
+                            func field(_ index: Int) -> String { index < fields.count ? fields[index] : "" }
+                            return PopupItem(word: field(0), kind: field(1), menu: field(2), info: field(3))
+                        },
+                        selected: a[1].intValue, row: a[2].intValue, col: a[3].intValue,
+                        grid: a.count > 4 ? a[4].intValue : 1
+                    ))
+                }
+            case "popupmenu_select":
+                for args in eventArgs {
+                    guard let a = args.arrayValue, let selected = a.first else { continue }
+                    events.append(.popupmenuSelect(selected: selected.intValue))
+                }
+            case "popupmenu_hide":
+                events.append(.popupmenuHide)
             case "win_pos":
                 for args in eventArgs {
                     guard let a = args.arrayValue, a.count >= 6 else { continue }
@@ -283,6 +430,21 @@ public enum NvimEvent: Sendable {
     }
 
     // MARK: - Private helpers
+
+    /// Chunks as the command line (`[attrs, text, hl_id]`) and messages (`[attr_id, text, hl_id]`) send them.
+    private nonisolated static func chunks(_ value: MessagePackValue) -> [StyledChunk] {
+        (value.arrayValue ?? []).compactMap { chunk in
+            guard let c = chunk.arrayValue, c.count >= 2, let text = c[1].stringValue else { return nil }
+            if let map = c[0].dictionaryValue {
+                var attrs: [String: MessagePackValue] = [:]
+                for (key, value) in map {
+                    if let key = key.stringValue { attrs[key] = value }
+                }
+                return StyledChunk(text: text, attrs: attrs)
+            }
+            return StyledChunk(text: text, attrId: c[0].intValue)
+        }
+    }
 
     private nonisolated static func parseGridLineCells(_ rawCells: [MessagePackValue])
         -> [GridCellData]
