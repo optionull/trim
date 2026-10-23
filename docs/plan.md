@@ -137,6 +137,26 @@ this over nvim drawing it); signing and notarizing wait until the owner wants th
 5. Tabs per split (board 1's tab strips): what they list is to be settled when it is built.
 6. Design tokens from the boards (dark first, mint accent, Inter and JetBrains Mono) used by everything above.
 
+Where M2 stands (2026-10-23): steps 1, 3, 4, 5 and 6 are done; step 2, smooth scrolling, is not.
+
+- The command line, messages, completion and tabs are sill's views (step 1).
+- The frame (step 3): a title bar (project and branch, Run), the activity bar, and a status bar (mode, branch,
+  pending keys, the sidecar, file type, line and column) in place of nvim's status lines, which `:SillChrome` turns
+  into rules, with the board's colours for what nvim still draws.
+- Tool views (step 4): the sidebar and the bottom panel are placeholder windows, like terminal panes, so `<C-w>`
+  reaches them; their views take the keys they use (j/k, Return, h/l, `/`) and pass the rest to nvim. The activity
+  bar switches the sidebar: the explorer (tree, git marks, ignored files behind a toggle, `/` filter), source
+  control (git's changes; Return opens a modified file beside its version at HEAD with `:SillDiff`), and empty
+  states naming the board and milestone for agents, packages and the profiler. The panel's Problems tab lists nvim's
+  diagnostics; Tests and Output wait for M3. Send all to agent says it comes with the heed bridge.
+- Tabs per split (step 5), settled as editor groups: each editor window keeps the files opened in it, drawn as a
+  strip over its winbar row (one cell high, lower than the board's).
+- Run guesses the project's command (`swift run`, `dotnet run`, `cargo run`, `npm start`) and runs it in a terminal
+  pane at the bottom.
+- Tokens (step 6) are sampled from board 1 into `Sources/SillApp/Design.swift`. Inter is used when installed, else
+  the system font; JetBrains Mono likewise.
+- `SILL_CHECK=chrome` checks all of it in the app; `SILL_CHECK=1` still runs days 1 to 5 without the chrome.
+
 ## 9. Packaging
 
 - Build, signing and release match heed exactly: same Developer ID, hardened runtime and notarization

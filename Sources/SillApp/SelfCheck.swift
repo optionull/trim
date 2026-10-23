@@ -253,6 +253,13 @@ final class SelfCheck {
         )
         step("each editor window has a strip of its tabs on its winbar row")
 
+        root.activityBar.onSelect?(.sourceControl)
+        let changes = Git.status(in: app.workingDirectory).count
+        try await waitFor("the source control view") {
+            tools.sidebar.activity == .sourceControl && tools.sidebar.sourceControl.entries
+                .count == changes ? true : nil
+        }
+        step("source control lists git's \(changes) changes")
         root.activityBar.onSelect?(.packages)
         try await waitFor("the packages view") { tools.sidebar.activity == .packages ? true : nil }
         try expect(root.activityBar.selected == .packages, "packages selected")

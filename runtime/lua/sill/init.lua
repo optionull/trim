@@ -256,6 +256,40 @@ function M.goto(buf, line, col)
   end
 end
 
+--- Compares the current file with its version at `ref` (HEAD by default), in nvim's diff mode: the old version
+--- read-only on the left. The bones of boards 4 to 6; ]c and [c move between changes, do and dp take them.
+function M.diff(ref)
+  ref = (ref and ref ~= '') and ref or 'HEAD'
+  local path = vim.api.nvim_buf_get_name(0)
+  if path == '' then
+    vim.notify('SillDiff: this buffer is not a file', vim.log.levels.WARN)
+    return
+  end
+  local dir = vim.fn.fnamemodify(path, ':h')
+  local root = vim.fn.systemlist({ 'git', '-C', dir, 'rev-parse', '--show-toplevel' })[1]
+  if vim.v.shell_error ~= 0 or not root then
+    vim.notify('SillDiff: ' .. path .. ' is not in a git repository', vim.log.levels.WARN)
+    return
+  end
+  local relative = path:sub(#root + 2)
+  local old = vim.fn.systemlist({ 'git', '-C', root, 'show', ref .. ':' .. relative })
+  if vim.v.shell_error ~= 0 then
+    old = {}
+  end
+  local filetype = vim.bo.filetype
+  vim.cmd('diffthis')
+  vim.cmd('leftabove vnew')
+  local buf = vim.api.nvim_get_current_buf()
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, old)
+  vim.bo[buf].buftype = 'nofile'
+  vim.bo[buf].bufhidden = 'wipe'
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].filetype = filetype
+  pcall(vim.api.nvim_buf_set_name, buf, relative .. ' @ ' .. ref)
+  vim.cmd('diffthis')
+  vim.cmd('wincmd p')
+end
+
 --- The window showing the pane of `kind` in this tab page, if there is one.
 function M.pane_window(kind)
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
@@ -344,6 +378,9 @@ function M.setup()
   end
   vim.g.loaded_sill = true
   vim.api.nvim_create_user_command('SillChrome', M.chrome, { desc = "sill's window: sidebar, panel, colours" })
+  vim.api.nvim_create_user_command('SillDiff', function(opts)
+    M.diff(opts.args)
+  end, { nargs = '?', desc = 'Compare the file with its version at a ref (HEAD)' })
   local group = vim.api.nvim_create_augroup('sill', {})
   vim.api.nvim_create_autocmd({ 'WinNew', 'WinClosed', 'BufWinEnter', 'BufWipeout', 'TabEnter', 'TabClosed',
     'BufEnter', 'FileType', 'BufModifiedSet', 'BufWritePost' }, { group = group, callback = report_soon })

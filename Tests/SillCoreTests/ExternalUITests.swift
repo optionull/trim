@@ -212,3 +212,49 @@ struct SplitTabsTests {
         screen = try await nvim.screen("no tabs left") { $0.windowTabs[left.win]?.tabs.isEmpty == true }
     }
 }
+
+@Suite("compare with a ref", .serialized)
+struct DiffTests {
+    @Test(":SillDiff puts the file's version at HEAD beside it, in diff mode")
+    func diff() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("sill-diff-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        func git(_ arguments: String...) throws {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.arguments = [
+                "-C",
+                directory.path,
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "-c",
+                "commit.gpgsign=false",
+            ] + arguments
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            process.waitUntilExit()
+        }
+        let file = directory.appendingPathComponent("a.txt")
+        try "old line\n".write(to: file, atomically: true, encoding: .utf8)
+        try git("init", "-q")
+        try git("add", ".")
+        try git("commit", "-q", "-m", "first")
+        try "new line\n".write(to: file, atomically: true, encoding: .utf8)
+
+        let nvim = try await Harness.start(cols: 120, rows: 30)
+        defer { Task { await nvim.stop() } }
+        try await nvim.command("edit \(file.path)")
+        try await nvim.command("SillDiff")
+        let screen = try await nvim.screen("two windows") { $0.windows.count == 2 }
+        let (left, right) = (screen.windows[0], screen.windows[1])
+        #expect(screen.grids[left.grid]?.line(0).contains("old line") == true)
+        #expect(screen.grids[right.grid]?.line(0).contains("new line") == true)
+        let diffOn = try await nvim.session.channel.lua(
+            "return vim.tbl_map(function(w) return vim.wo[w].diff end, vim.api.nvim_list_wins())"
+        )
+        #expect(diffOn.arrayValue?.allSatisfy { $0.boolValue == true } == true)
+    }
+}

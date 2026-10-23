@@ -73,6 +73,7 @@ final class SidebarView: NSView {
     private(set) var activity: Activity = .explorer
     private let channel: NvimChannel
     let explorer: ExplorerView
+    let sourceControl: SourceControlView
     private var content: NSView & ToolContent
     var focused = false {
         didSet { if focused != oldValue { needsDisplay = true; content.needsDisplay = true } }
@@ -81,6 +82,7 @@ final class SidebarView: NSView {
     init(channel: NvimChannel, directory: String, metrics: CellMetrics) {
         self.channel = channel
         explorer = ExplorerView(channel: channel, root: directory, metrics: metrics)
+        sourceControl = SourceControlView(channel: channel, root: directory)
         content = explorer
         super.init(frame: .zero)
         addSubview(content)
@@ -97,10 +99,7 @@ final class SidebarView: NSView {
         content.removeFromSuperview()
         content = switch activity {
         case .explorer: explorer
-        case .sourceControl: EmptyStateView(
-                symbol: "arrow.triangle.branch", title: "Source Control",
-                body: "Changed files, staging and compare with any branch, tag or commit (boards 4 to 6) come here."
-            )
+        case .sourceControl: sourceControl
         case .agents: EmptyStateView(
                 symbol: "sparkles", title: "Agents",
                 body: "heed's sessions show here once heed has its control socket (M5). Until then, run an agent in a " +
@@ -115,6 +114,7 @@ final class SidebarView: NSView {
                 body: "CPU and memory profiles of a run: flame graph, call tree, heap diff (boards 7 and 8, M6)."
             )
         }
+        if activity == .sourceControl { sourceControl.refresh() }
         addSubview(content)
         needsLayout = true
         needsDisplay = true

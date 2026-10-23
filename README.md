@@ -20,9 +20,9 @@ mise run test      # the Swift Testing suite; the nvim tests start a real `nvim 
 mise run lint
 ```
 
-![sill on 2026-10-23: a Lua file beside a terminal pane](docs/showcase-2026-10-23.png)
+![sill on 2026-10-23: the explorer, a Lua file with its tab, a terminal pane, the Problems panel and the status bar](docs/showcase-2026-10-23.png)
 
-`SILL_SHOWCASE=<file.png>` renders a picture like that one (nvim at 150x46, a file beside a terminal pane running
+`SILL_SHOWCASE=<file.png>` renders a picture like that one (the window at 1440x900, off screen: a file beside a terminal pane running
 `git log`; `SILL_SHOWCASE_FILE` picks the file). `SILL_CHECK=1 build/Sill.app/Contents/MacOS/Sill` plays the first week in the real app, with key events sent through
 the window, and exits non-zero on the first failing step; it also measures idle frames and key-to-screen latency.
 `SILL_CHECK_SHOT=<file.png>` saves the window with a pane open. `mise run bench` measures the Metal grid at 4K on a
@@ -32,7 +32,7 @@ release build. `SILL_FONTS=<dir>` uses the fonts in a directory without installi
 
 `:SillTerminal` opens one (to the right; `:belowright SillTerminal` and other modifiers place it as they place
 `:new`). The pane is an nvim window like any other: `<C-w>hjkl` moves across it, `:resize` and `<C-w>=` size it,
-`:only` and `:q` close it. As with nvim's own `:terminal`, `i` hands the keyboard to the terminal and `<C-\><C-n>`
+`:only` and `:q` close it. The sidebar and the bottom panel are panes too (`:SillChrome` opens them, as the app does). As with nvim's own `:terminal`, `i` hands the keyboard to the terminal and `<C-\><C-n>`
 hands it back; a click on the pane or on the editor does the same.
 
 ## Layout
@@ -44,7 +44,7 @@ hands it back; a click on the pane or on the editor does the same.
 | `Sources/SillInput` | AppKit input in nvim's terms: key notation, mouse modifiers, wheel steps |
 | `Sources/SillRender` | the Metal grid: glyph atlas, instanced passes, render thread; the flame graph's level of detail |
 | `Sources/SillTerminal` | the Ghostty surface, from heed |
-| `Sources/SillApp` | the AppKit app |
+| `Sources/SillApp` | the AppKit app: the frame, the sidebar (explorer, source control), the panel, tabs per split |
 | `runtime/` | sill's nvim runtime (`:SillTerminal`, the placeholder buffers) |
 
 Third-party code and licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
