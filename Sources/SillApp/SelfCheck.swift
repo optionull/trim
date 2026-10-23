@@ -227,6 +227,17 @@ final class SelfCheck {
             "the project in the title"
         )
         step("the frame: title bar, activity bar, status bar; the sidebar and the panel on their windows")
+        let swap = try await session.channel.lua("return vim.o.updatecount")
+        try expect(swap.intValue == 0, "no swap files ('updatecount' \(swap.intValue))")
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sill-unsaved-\(UUID().uuidString).txt")
+        try "saved\n".write(to: file, atomically: true, encoding: .utf8)
+        try await session.channel.command("edit \(file.path)")
+        _ = try await session.channel.lua("vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'changed' })")
+        let unsaved = await app.unsavedFiles()
+        try expect(unsaved == [file.lastPathComponent], "the unsaved file found for the quit question: \(unsaved)")
+        try await session.channel.command("edit! | bwipeout")
+        step("no swap files; quitting knows which files are unsaved")
 
         try await waitFor("the status bar's cursor") { root.statusBar.state.position != nil ? true : nil }
         type("i")

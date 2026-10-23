@@ -275,6 +275,8 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   tab line.
 - Still placeholders: sessions and the handoff (boards 2 and 9, heed's control socket and M5) and packages (board
   3, M3's .NET work).
+- No swap files (owner, 2026-10-23): sill always starts nvim with `-n`, whatever a config sets. Quitting (⌘Q or
+  closing the window) with unsaved changes asks: Save All, Don't Save, or Cancel.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

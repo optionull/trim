@@ -93,12 +93,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let merging = tool.first == "merge" && tool.count == 5,
                     diffing = tool.first == "diff" && tool.count == 3
                 if merging || diffing { arguments = [] }
-                // The self-check and the showcase run sill alone (no user config) and leave no swap files behind, even
-                // when stopped half-way. SILL_NVIM_CONFIG=0 asks for sill alone too.
+                // The self-check and the showcase run sill alone (no user config). SILL_NVIM_CONFIG=0 asks for sill
+                // alone too.
                 let environment = NvimProcess.cachedEnv.merging(ProcessInfo.processInfo.environment) { _, own in own }
                 let showcaseAlone = environment["SILL_SHOWCASE"] != nil && environment["SILL_SHOWCASE_USER"] != "1"
                 let alone = environment["SILL_CHECK"] != nil || showcaseAlone || environment["SILL_NVIM_CONFIG"] == "0"
-                if alone { arguments.insert("-n", at: 0) }
+                // No swap files, ever (-n), whatever a config sets: a swap file left by a stopped nvim only brings a
+                // prompt the next time the file opens. Unsaved changes are guarded at quit instead.
+                arguments.insert("-n", at: 0)
                 let startup = EditorSession.startup(environment: environment, own: alone)
                 // Days 1 to 5's check runs nvim as they had it: no base settings either.
                 let base = environment["SILL_CHECK"] == "1" ? [] : startup.arguments
@@ -249,6 +251,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
+
+    /// Quitting (⌘Q, or closing the window) with files nvim has unsaved changes in asks first: save them all, throw
+    /// them away, or stay. Without swap files nothing would be left to recover them from.
+    func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
+        guard check == nil, !quitting else { return .terminateNow }
+        Task { [weak self] in
+            guard let self else { return }
+            await confirmQuit(unsavedFiles())
+        }
+        return .terminateLater
+    }
+
+    /// The files nvim has unsaved changes in, by name; none when nvim is gone.
+    func unsavedFiles() async -> [String] {
+        let result = try? await session.channel.lua("""
+        return vim.tbl_map(function(b) local n = vim.api.nvim_buf_get_name(b)
+          return n ~= '' and vim.fn.fnamemodify(n, ':t') or '[No Name]' end,
+          vim.tbl_filter(function(b) return vim.bo[b].modified and vim.bo[b].buflisted end, vim.api.nvim_list_bufs()))
+        """)
+        return result?.arrayValue?.compactMap(\.stringValue) ?? []
+    }
+
+    private var quitting = false
+
+    private func confirmQuit(_ modified: [String]) {
+        guard !modified.isEmpty else {
+            NSApp.reply(toApplicationShouldTerminate: true)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = modified.count == 1 ? "\(modified[0]) has unsaved changes" :
+            "\(modified.count) files have unsaved changes"
+        alert.informativeText = modified.count == 1 ? "Save it before quitting?" :
+            modified.prefix(8).joined(separator: ", ") + (modified.count > 8 ? ", …" : "")
+        alert.addButton(withTitle: modified.count == 1 ? "Save" : "Save All")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Don't Save")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            let channel = session.channel
+            Task {
+                // :wall stops at a file it cannot write; then quitting waits, and nvim says why.
+                let saved = await (try? channel.command("wall")) != nil
+                NSApp.reply(toApplicationShouldTerminate: saved)
+            }
+        case .alertThirdButtonReturn:
+            quitting = true
+            NSApp.reply(toApplicationShouldTerminate: true)
+        default:
+            NSApp.reply(toApplicationShouldTerminate: false)
+        }
+    }
+
+    /// Closing the window quits, through the same question.
+    func windowShouldClose(_: NSWindow) -> Bool {
+        guard check == nil else { return true }
+        NSApp.terminate(nil)
+        return false
+    }
 
     func applicationWillTerminate(_: Notification) {
         let session = session, sidecar = sidecar
