@@ -72,6 +72,9 @@ public sealed class Server(TextWriter protocol)
                     typeof(Server).Assembly.GetName().Version?.ToString() ?? "0"),
                 Methods.Count => await CountTo(request.Id, Read<CountParams>(request), cancel.Token),
                 Methods.Cancel => Cancel(Read<CancelParams>(request)),
+                Methods.Roslyn => await Sidecar.Roslyn.Ensure(Read<RoslynParams>(request), progress =>
+                    Write(new Reply { Id = request.Id, Partial = JsonSerializer.SerializeToElement(progress, Json.Options) }),
+                    cancel.Token),
                 _ => throw new InvalidOperationException($"the sidecar has no method {request.Method}"),
             };
             Write(new Reply { Id = request.Id, Result = JsonSerializer.SerializeToElement(result, result.GetType(), Json.Options) });

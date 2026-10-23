@@ -307,3 +307,51 @@ struct SidecarRequest<Params: Encodable>: Encodable {
     var method: String
     var params: Params
 }
+
+/// Roslyn's language server on this machine, as the sidecar provisioned it.
+public struct RoslynServer: Decodable, Sendable, Equatable {
+    public var dll: String
+    public var version: String
+    public var downloaded: Bool
+}
+
+/// How far a download is.
+public struct RoslynProgress: Decodable, Sendable, Equatable {
+    public var stage: String
+    public var bytes: Int64
+    public var total: Int64
+}
+
+public extension Sidecar {
+    /// This Mac's runtime identifier, as NuGet packages name it.
+    static var rid: String {
+        #if arch(arm64)
+            "osx-arm64"
+        #else
+            "osx-x64"
+        #endif
+    }
+
+    /// Where provisioned language servers are kept.
+    static var cache: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("sill/roslyn")
+    }
+
+    /// Roslyn's language server: the newest version on the feed, downloaded into `cache` if it is not there yet;
+    /// offline, the newest cached. `feed` is for tests (a local folder laid out as a NuGet flat container).
+    func roslyn(
+        cache: URL = Sidecar.cache, feed: String? = nil, progress: (@Sendable (RoslynProgress) -> Void)? = nil
+    ) async throws -> RoslynServer {
+        struct Params: Encodable {
+            var cacheDirectory: String
+            var rid: String
+            var feed: String?
+        }
+        return try await request(
+            "roslyn", Params(cacheDirectory: cache.path, rid: Sidecar.rid, feed: feed), as: RoslynServer.self
+        ) { data in
+            if let update = try? JSONDecoder().decode(RoslynProgress.self, from: data) { progress?(update) }
+        }
+    }
+}

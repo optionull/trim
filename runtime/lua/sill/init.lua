@@ -349,6 +349,25 @@ function M.blame()
   vim.notify(string.format('%s  %s, %s: %s', fields.commit, fields.author or '?', when, fields.summary or ''))
 end
 
+--- A build's diagnostics, in the namespace 'sill.build': each file gets a buffer (not opened) so the diagnostics show
+--- in Problems, as signs, and in the file when it opens. `list` is {path, line, col, severity, code, message}.
+function M.build_result(list)
+  local ns = vim.api.nvim_create_namespace('sill.build')
+  vim.diagnostic.reset(ns)
+  local by_buffer = {}
+  for _, d in ipairs(list) do
+    local buf = vim.fn.bufadd(d.path)
+    by_buffer[buf] = by_buffer[buf] or {}
+    table.insert(by_buffer[buf], {
+      lnum = d.line - 1, col = d.col - 1, severity = d.severity, code = d.code, message = d.message, source = 'build',
+    })
+  end
+  for buf, items in pairs(by_buffer) do
+    vim.bo[buf].buflisted = true
+    vim.diagnostic.set(ns, buf, items)
+  end
+end
+
 --- The window showing the pane of `kind` in this tab page, if there is one.
 function M.pane_window(kind)
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do

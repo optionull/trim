@@ -33,6 +33,10 @@ public static class Methods
     /// <summary><see cref="CountParams"/>: a <see cref="Count"/> partial per number, then the last: for streaming.</summary>
     public const string Count = "count";
 
+    /// <summary><see cref="RoslynParams"/>: <see cref="RoslynProgress"/> partials while downloading, then
+    /// <see cref="RoslynServer"/>: Roslyn's language server on this machine, the newest version, downloaded if needed.</summary>
+    public const string Roslyn = "roslyn";
+
     /// <summary><see cref="CancelParams"/>: ends a running request; true if one was running.</summary>
     public const string Cancel = "cancel";
 }
@@ -59,3 +63,9 @@ public sealed record CountParams(int To, int DelayMilliseconds);
 public sealed record Count(int Number);
 
 public sealed record CancelParams(int Request);
+
+public sealed record RoslynParams(string CacheDirectory, string Rid, string? Feed);
+
+public sealed record RoslynProgress(string Stage, long Bytes, long Total);
+
+public sealed record RoslynServer(string Dll, string Version, bool Downloaded);

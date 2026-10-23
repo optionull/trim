@@ -282,11 +282,10 @@ final class StatusBarView: NSView {
         if let position = state.position { place("Ln \(position.line), Col \(position.column)") }
         place(Self.displayName(state.filetype))
         for service in state.services.reversed() {
-            place(
-                service.name + (service.ready ? " ready" : " starting"),
-                dot: service.ready ? Design.accent : Design.textFaint,
-                hollow: !service.ready
-            )
+            // "X ready" when it is; else the name says its state ("Roslyn downloading 40%"), or "starting".
+            let label = service.ready ? service.name + " ready" :
+                service.name.contains(" ") ? service.name : service.name + " starting"
+            place(label, dot: service.ready ? Design.accent : Design.textFaint, hollow: !service.ready)
         }
         if state.modified { place("●", color: Design.modified) }
     }

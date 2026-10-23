@@ -43,6 +43,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "m3" {
+                try await m3Steps()
+                print("sill check (M3): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "chrome" {
                 try await chromeSteps()
                 print("sill check (chrome): passed")
@@ -197,6 +203,69 @@ final class SelfCheck {
         try shot(of: root, to: path, cursor: true)
         print("sill showcase: saved \(path)")
         fflush(stdout)
+    }
+
+    /// M3's exit (`SILL_CHECK=m3`, run in a .NET solution with an error): Roslyn provisioned and reporting it, a build
+    /// capturing it into Problems, and Return there going to it; fixed, the build passes and the problems go.
+    private func m3Steps() async throws {
+        let app = try require(app, "the app")
+        let tools = app.tools!, root = app.root!
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        let program = try require(
+            FileManager.default.enumerator(atPath: app.workingDirectory)?.compactMap { $0 as? String }
+                .first { $0.hasSuffix("Program.cs") && !$0.contains("/obj/") },
+            "Program.cs in the solution"
+        )
+        let path = (app.workingDirectory as NSString).appendingPathComponent(program)
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(path)])
+        try await wait("Program.cs open") { $0.buffer.name == "Program.cs" }
+
+        // Roslyn: provisioned (downloaded the first time), started for the C# file, and reporting the error.
+        let started = CACurrentMediaTime()
+        try await wait("Roslyn ready", timeout: .seconds(240)) { $0.languageServers["Roslyn"] == "ready" }
+        let server = try require(app.roslyn, "the provisioned server")
+        step("Roslyn \(server.version) ready in \(Bench.format(CACurrentMediaTime() - started)) s" +
+            (server.downloaded ? " (downloaded)" : " (cached)"))
+        let fromRoslyn = try await wait("Roslyn's CS1061", timeout: .seconds(90)) { screen in
+            screen.diagnostics.contains { $0.code == "CS1061" && $0.source != "build" }
+        }
+        let roslynError = try require(fromRoslyn.diagnostics.first { $0.code == "CS1061" && $0.source != "build" }, "")
+        try await waitFor("Roslyn in the status bar") {
+            root.statusBar.state.services.contains { $0.name == "Roslyn" && $0.ready } ? true : nil
+        }
+        step("Roslyn reports CS1061 at line \(roslynError.line), as the file is edited")
+
+        // Build: captured into Problems, at the same place.
+        app.builds.build()
+        let built = try await waitFor("the build", timeout: .seconds(120)) { app.builds.last }
+        try expect(!built.succeeded, "the build fails")
+        let buildError = try require(built.diagnostics.first { $0.code == "CS1061" }, "the build's CS1061")
+        try expect(buildError.line == roslynError.line && buildError.path == path, "the build's error at the same line")
+        try await wait("the build's error in Problems") { screen in
+            screen.diagnostics.contains { $0.code == "CS1061" && $0.source == "build" }
+        }
+        try expect(tools.panel.tab == .problems, "the panel shows Problems after a failed build")
+        try expect(tools.panel.output.contains { $0.contains("error CS1061") }, "the build's log in Output")
+        step("Build (⌘B) captures CS1061 into Problems and the log into Output")
+
+        // Jump: from the panel, Return goes to the error.
+        _ = try await session.channel.lua("vim.cmd('normal! gg')")
+        _ = try await session.channel.lua("require'sill'.focus('panel')")
+        try await wait("the panel current") { $0.currentPaneKind == "panel" }
+        press("\r", keyCode: 36)
+        try await wait("the error's line") { $0.currentPane == nil && $0.cursorPosition?.line == buildError.line }
+        step("Return in Problems goes to \(program):\(buildError.line)")
+
+        // Fixed, the build passes and its problems go.
+        _ = try await session.channel.lua("""
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'var order = 1;', 'Console.WriteLine(order);' })
+        """)
+        app.builds.build()
+        try await waitFor("the second build", timeout: .seconds(120)) {
+            app.builds.running == nil && app.builds.last?.succeeded == true ? true : nil
+        }
+        try await wait("the build's problems gone") { !$0.diagnostics.contains { $0.source == "build" } }
+        step("fixed and saved, the build passes and its problems go")
     }
 
     /// M2's chrome (`SILL_CHECK=chrome`): the frame, the sidebar and its activities, the explorer, the panel's

@@ -221,7 +221,9 @@ final class BottomPanelView: NSView {
     private(set) var selected = 0
     private var tabFrames: [(Tab, NSRect)] = []
     private let send = PillButton(title: "Send all to agent")
-    private let empty = EmptyStateView(symbol: "", title: "", body: "")
+    /// The Output tab: the last build's log.
+    private(set) var output: [String] = []
+    private var outputCommand = ""
     var focused = false {
         didSet { if focused != oldValue { needsDisplay = true } }
     }
@@ -324,9 +326,45 @@ final class BottomPanelView: NSView {
         case .problems:
             drawProblems(in: list)
         case .tests:
-            drawEmpty("No test run yet", "Test results come with build capture (M3).", in: list)
+            drawEmpty("No test run yet", "Test results come with a test runner, after M3.", in: list)
+        case .output where output.isEmpty:
+            drawEmpty("No output", "Build (⌘B) and its output shows here.", in: list)
         case .output:
-            drawEmpty("No output", "Build and run output appears here (M3).", in: list)
+            drawOutput(in: list)
+        }
+    }
+
+    func startOutput(_ command: String) {
+        outputCommand = command
+        output = ["$ " + command]
+        needsDisplay = true
+    }
+
+    func appendOutput(_ text: String) {
+        var lines = text.components(separatedBy: "\n")
+        if let first = lines.first, !output.isEmpty, !(output.last ?? "").isEmpty, output.count > 1 || first.isEmpty {
+            output[output.count - 1] += first
+            lines.removeFirst()
+        }
+        output.append(contentsOf: lines)
+        if output.count > 5000 { output.removeFirst(output.count - 5000) }
+        needsDisplay = true
+    }
+
+    /// The newest lines that fit.
+    private func drawOutput(in rect: NSRect) {
+        let height = metrics.height
+        let fit = max(Int((rect.height - 8) / height), 1)
+        var y = rect.minY + 4
+        for line in output.suffix(fit) {
+            let color = line.contains(": error") ? Design.error : line.contains(": warning") ? Design.modified :
+                line.hasPrefix("$ ") ? Design.accent : Design.textMuted
+            NSAttributedString(string: line, attributes: [.font: metrics.regular, .foregroundColor: color])
+                .draw(
+                    with: NSRect(x: 16, y: y, width: rect.width - 32, height: height),
+                    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
+                )
+            y += height
         }
     }
 

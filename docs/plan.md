@@ -114,7 +114,7 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 | M0 | Spikes, in order: placeholder Ghostty pane under multigrid with `<C-w>` across it; Veil RPC lift; instanced Metal grid; sidecar handshake | Each spike has a go/no-go note |
 | M1 | Metal grid on a single nvim window | Daily-drivable text editing, 120 fps scroll |
 | M2 | Full UI protocol and the app's chrome (see M2 below); signing and notarizing wait for the owner | sill looks like board 1, problems panel aside, and every nvim message, command line and completion is native |
-| M3 | LSP, C# sidecar, build capture, problems | Open a .NET solution, build, jump to errors |
+| M3 (done) | LSP, C# sidecar, build capture, problems | Open a .NET solution, build, jump to errors |
 | M4 | MCP server, editor-only agent loop | Agent fixes a build error end to end |
 | M5 | heed bridge (needs heed's control socket) | Send to heed and see the session in the editor |
 | M6 | .NET profiler in sidecar, Razor | CPU and heap diff on a sample app |
@@ -277,6 +277,16 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   3, M3's .NET work).
 - No swap files (owner, 2026-10-23): sill always starts nvim with `-n`, whatever a config sets. Quitting (⌘Q or
   closing the window) with unsaved changes asks: Save All, Don't Save, or Cancel.
+- M3 (done 2026-10-23): build capture, Roslyn, Problems. Exit test `SILL_CHECK=m3` in a scratch solution: Roslyn
+  5.4.0-2.26179.14 downloaded and ready in 20 s, reporting CS1061; Build (⌘B) captures it into Problems (the log in
+  Output); Return goes to it; fixed, the build passes and its problems go.
+  - Build capture (`SillCore/BuildCapture`) parses dotnet/MSBuild, Swift, Cargo and tsc into one `Diagnostic`
+    shape and gives them to nvim as diagnostics (namespace `sill.build`), so Problems, signs and jumps are nvim's.
+  - Roslyn: the sidecar downloads the newest server from Microsoft's vs-impl feed into
+    `~/Library/Caches/sill/roslyn/<version>` (never in the app, §5), offline using the newest cached. Changed from
+    §5's broker: nvim's own LSP client talks to the server directly, as roslyn.nvim does (solution/open, project
+    load, pull diagnostics); a broker in the sidecar waits for Razor (M6), which needs it. A config that already
+    runs a C# server keeps its own.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

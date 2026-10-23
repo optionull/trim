@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panes = TerminalPanes(editor: editor, channel: session.channel, directory: workingDirectory)
         tools = ToolPanes(editor: editor, channel: session.channel, directory: workingDirectory)
         splitTabs = SplitTabs(editor: editor, channel: session.channel)
+        builds = BuildRunner(directory: workingDirectory, channel: session.channel, panel: tools.panel)
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered,
@@ -139,6 +140,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var chrome = true
     private(set) var tools: ToolPanes!
     private(set) var splitTabs: SplitTabs!
+    private(set) var builds: BuildRunner!
+    /// Roslyn's provisioning: what the status bar says while it downloads.
+    private(set) var roslynStatus: String?
+    private(set) var roslyn: RoslynServer?
     private var branch = ""
     private var branchFor = ""
 
@@ -183,6 +188,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         state.branch = branch
         state.pending = (screen.showmode + screen.showcmd).map(\.text).joined().trimmingCharacters(in: .whitespaces)
         state.services = [(".NET sidecar", sidecarReady != nil)]
+        if let roslynStatus {
+            state.services.append((roslynStatus, false))
+        } else if let status = screen.languageServers["Roslyn"] {
+            state.services.append(("Roslyn" + (status == "ready" ? "" : " " + status), status == "ready"))
+        }
         state.filetype = screen.buffer.filetype
         state.position = screen.buffer.kind.isEmpty ? screen.cursorPosition : nil
         state.modified = screen.buffer.modified
@@ -243,12 +253,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let ready = try await sidecar.start(dll: SidecarFiles.dll)
                 self?.sidecar = sidecar
                 self?.sidecarReady = (ready, CACurrentMediaTime() - started)
+                await self?.provisionRoslyn(sidecar)
             } catch {
                 self?.sidecarProblem = "\(error)"
                 NSLog("sill: the .NET sidecar did not start: \(error)")
             }
         }
     }
+
+    /// C#: Roslyn's language server for a folder with .NET projects, downloaded by the sidecar the first time.
+    private func provisionRoslyn(_ sidecar: Sidecar) async {
+        guard BuildCapture.command(in: workingDirectory)?.hasPrefix("dotnet") == true,
+              ProcessInfo.processInfo.environment["SILL_ROSLYN"] != "0" else { return }
+        roslynStatus = "Roslyn"
+        do {
+            let server = try await sidecar.roslyn { [weak self] progress in
+                let text = progress.stage == "downloading" && progress.total > 0 ?
+                    "Roslyn downloading \(progress.bytes * 100 / progress.total)%" : "Roslyn \(progress.stage)"
+                Task { @MainActor in
+                    self?.roslynStatus = text
+                    if let self { self.updateFrame(self.tools.screen) }
+                }
+            }
+            roslyn = server
+            roslynStatus = nil
+            let logs = Sidecar.cache.deletingLastPathComponent().appendingPathComponent("logs").path
+            _ = try await session.channel.lua("require('sill.roslyn').setup(...)", args: [
+                .string(server.dll), .string(logs),
+            ])
+        } catch {
+            roslynStatus = nil
+            NSLog("sill: Roslyn did not start: \(error)")
+            Nvim.lua(
+                session.channel,
+                "vim.notify(...)",
+                [.string("Roslyn's language server is not available: \(error)")]
+            )
+        }
+        updateFrame(tools.screen)
+    }
+
+    @objc func buildProject(_: Any?) { builds.build() }
 
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
 
@@ -348,6 +393,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editItem.submenu = editMenu
+        let projectItem = NSMenuItem()
+        menu.addItem(projectItem)
+        let projectMenu = NSMenu(title: "Project")
+        projectMenu.addItem(withTitle: "Build", action: #selector(buildProject(_:)), keyEquivalent: "b")
+        projectItem.submenu = projectMenu
         NSApp.mainMenu = menu
     }
 }

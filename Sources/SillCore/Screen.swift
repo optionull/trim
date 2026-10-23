@@ -55,6 +55,19 @@ public struct Diagnostic: Sendable, Equatable {
     public var buffer: Int
     public var line: Int
     public var col: Int
+
+    public init(
+        severity: Int, message: String, source: String, code: String, path: String, buffer: Int, line: Int, col: Int
+    ) {
+        self.severity = severity
+        self.message = message
+        self.source = source
+        self.code = code
+        self.path = path
+        self.buffer = buffer
+        self.line = line
+        self.col = col
+    }
 }
 
 /// An editor window's tabs: the files opened in it, and which it shows.
@@ -198,6 +211,8 @@ public struct Screen: Sendable {
     public private(set) var paneKinds: [Int: String] = [:]
     public private(set) var buffer = BufferInfo()
     public private(set) var diagnostics: [Diagnostic] = []
+    /// Language servers sill starts, by name: `starting`, `ready` or `stopped`.
+    public private(set) var languageServers: [String: String] = [:]
     /// A merge in progress (`:SillMerge`): conflicts left in the result, the one under the cursor (1-based, 0 for
     /// none), and the file.
     public private(set) var merge: (left: Int, current: Int, file: String)?
@@ -313,6 +328,11 @@ public struct Screen: Sendable {
             (panes, paneKinds) = Self.panes(args)
         case let .notification(method, args) where method == "sill_buffer":
             buffer = Self.buffer(args)
+        case let .notification(method, args) where method == "sill_lsp":
+            let fields = args.first?.dictionaryValue ?? [:]
+            if let name = fields[.string("name")]?.stringValue {
+                languageServers[name] = fields[.string("status")]?.stringValue ?? ""
+            }
         case let .notification(method, args) where method == "sill_merge":
             var left = 0, current = 0, file = ""
             for (key, value) in args.first?.dictionaryValue ?? [:] {
