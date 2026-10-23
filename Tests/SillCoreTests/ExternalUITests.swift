@@ -98,3 +98,66 @@ struct ExternalUITests {
         #expect(screen.currentTab == screen.tabs[1].handle)
     }
 }
+
+@Suite("the status bar's facts", .serialized)
+struct StatusFactsTests {
+    @Test("the cursor position is the current window's, as it moves between windows")
+    func position() async throws {
+        let nvim = try await Harness.start()
+        defer { Task { await nvim.stop() } }
+        try await nvim.command("call setline(1, map(range(40), 'v:val'))")
+        try await nvim.command("vsplit")
+        try await nvim.command("call cursor(30, 1)")
+        try await nvim.screen("line 30 in the right window") { $0.cursorPosition?.line == 30 }
+        await nvim.keys("<C-w>l")
+        try await nvim.screen("line 1 in the other window") { $0.cursorPosition?.line == 1 }
+        await nvim.keys("<C-w>h")
+        try await nvim.screen("line 30 again") { $0.cursorPosition?.line == 30 }
+    }
+
+    @Test("the current buffer: name, file type, modified")
+    func buffer() async throws {
+        let nvim = try await Harness.start()
+        defer { Task { await nvim.stop() } }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("sill-status-\(UUID().uuidString).lua")
+        try "return 1\n".write(to: file, atomically: true, encoding: .utf8)
+        try await nvim.command("edit \(file.path)")
+        var screen = try await nvim.screen("the file") { $0.buffer.filetype == "lua" }
+        #expect(screen.buffer.name == file.lastPathComponent && !screen.buffer.modified && screen.buffer.kind.isEmpty)
+        await nvim.keys("x")
+        screen = try await nvim.screen("modified") { $0.buffer.modified }
+    }
+
+    @Test("diagnostics reach the screen")
+    func diagnostics() async throws {
+        let nvim = try await Harness.start()
+        defer { Task { await nvim.stop() } }
+        _ = try await nvim.session.channel.lua("""
+        vim.diagnostic.set(vim.api.nvim_create_namespace('t'), 0, {
+          { lnum = 2, col = 1, severity = 1, message = 'broken', source = 'test', code = 'E1' } })
+        """)
+        let screen = try await nvim.screen("a diagnostic") { !$0.diagnostics.isEmpty }
+        let problem = try #require(screen.diagnostics.first)
+        #expect(problem.message == "broken" && problem.line == 3 && problem.col == 2 && problem.severity == 1)
+        #expect(problem.code == "E1")
+    }
+
+    @Test(":SillChrome opens the sidebar on the left and the panel under the editor")
+    func chrome() async throws {
+        let nvim = try await Harness.start(cols: 120, rows: 40)
+        defer { Task { await nvim.stop() } }
+        try await nvim.command("SillChrome")
+        let screen = try await nvim.screen("the sidebar and the panel") { screen in
+            screen.paneRects.contains { $0.kind == "sidebar" } && screen.paneRects.contains { $0.kind == "panel" }
+        }
+        let sidebar = try #require(screen.paneRects.first { $0.kind == "sidebar" })
+        let panel = try #require(screen.paneRects.first { $0.kind == "panel" })
+        #expect(sidebar.col == 0 && sidebar.row == 0 && sidebar.width == 32)
+        #expect(panel.col == sidebar.width + 1 && panel.row + panel.height >= 39)
+        #expect(screen.currentPane == nil, "the editor window is current")
+        try await nvim.command("lua require'sill'.toggle('sidebar')")
+        try await nvim.screen("the sidebar hidden") { !$0.paneRects.contains { $0.kind == "sidebar" } }
+        try await nvim.command("lua require'sill'.focus('sidebar')")
+        try await nvim.screen("the sidebar back and current") { $0.currentPaneKind == "sidebar" }
+    }
+}

@@ -24,6 +24,11 @@ enum Design {
     static let accent = NSColor(hex: 0x6EE7B7)
     static let modified = NSColor(hex: 0xFFC857)
     static let error = NSColor(hex: 0xFF6B6B)
+    /// Text on the mint accent (board 1's NORMAL badge and Run).
+    static let onAccent = NSColor(hex: 0x0C2A1F)
+    // Mode badges besides NORMAL's mint.
+    static let insert = NSColor(hex: 0x8AB4F8)
+    static let visual = NSColor(hex: 0xC4A7F5)
 
     static let radius: CGFloat = 8
 

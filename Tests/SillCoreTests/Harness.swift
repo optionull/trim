@@ -25,7 +25,7 @@ actor Harness {
         await harness.collect()
         await beforeAttach(harness.session)
         try await harness.session.start(
-            runtime: runtimeDirectory, cols: cols, rows: rows, appName: "sill-tests", extraArgs: ["--clean"]
+            runtime: runtimeDirectory, cols: cols, rows: rows, appName: "sill-tests", extraArgs: ["--clean", "-n"]
         )
         return harness
     }

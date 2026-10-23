@@ -484,18 +484,26 @@ final class TabBarView: NSView {
     }
 }
 
-/// The window's content: the tab strip (when there are tabs), the editor, and the overlay over the editor.
+/// The window's content: the title bar, the activity bar, the status bar, and between them the tab strip (when there
+/// are tabs), the editor, and the overlay over the editor.
 final class RootView: NSView {
+    let titleBar = TitleBarView()
+    let activityBar = ActivityBarView()
+    let statusBar = StatusBarView()
     let tabBar = TabBarView()
     let editor: EditorView
     let overlay: OverlayLayer
+    /// Without the frame (the self-check's first part runs as days 1 to 5 had it).
+    var bare = false {
+        didSet { needsLayout = true }
+    }
 
     init(editor: EditorView, overlay: OverlayLayer) {
         self.editor = editor
         self.overlay = overlay
         super.init(frame: editor.frame)
         tabBar.isHidden = true
-        for view in [tabBar, editor, overlay] {
+        for view in [titleBar, activityBar, statusBar, tabBar, editor, overlay] as [NSView] {
             addSubview(view)
         }
     }
@@ -520,9 +528,28 @@ final class RootView: NSView {
 
     override func layout() {
         super.layout()
-        let top = tabBar.isHidden ? 0 : TabBarView.height
-        tabBar.frame = NSRect(x: 0, y: 0, width: bounds.width, height: TabBarView.height)
-        editor.frame = NSRect(x: 0, y: top, width: bounds.width, height: bounds.height - top)
+        for view in [titleBar, activityBar, statusBar] as [NSView] {
+            view.isHidden = bare
+        }
+        let top = bare ? 0 : TitleBarView.height
+        let bottom = bare ? 0 : StatusBarView.height
+        let left = bare ? 0 : ActivityBarView.width
+        titleBar.frame = NSRect(x: 0, y: 0, width: bounds.width, height: TitleBarView.height)
+        statusBar.frame = NSRect(
+            x: 0,
+            y: bounds.height - StatusBarView.height,
+            width: bounds.width,
+            height: StatusBarView.height
+        )
+        activityBar.frame = NSRect(x: 0, y: top, width: ActivityBarView.width, height: bounds.height - top - bottom)
+        let tabs = tabBar.isHidden ? 0 : TabBarView.height
+        tabBar.frame = NSRect(x: left, y: top, width: bounds.width - left, height: TabBarView.height)
+        editor.frame = NSRect(
+            x: left,
+            y: top + tabs,
+            width: bounds.width - left,
+            height: bounds.height - top - tabs - bottom
+        )
         overlay.frame = editor.frame
     }
 }

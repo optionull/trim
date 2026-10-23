@@ -33,12 +33,40 @@ public struct Placement: Sendable, Equatable {
 /// A terminal pane's place on screen: the cells of the placeholder window that backs it.
 public struct PaneRect: Sendable, Equatable {
     public var pane: Int
+    /// `terminal`, `sidebar` or `panel`.
+    public var kind: String = "terminal"
     public var win: Int
     public var grid: Int
     public var row: Int
     public var col: Int
     public var width: Int
     public var height: Int
+}
+
+/// A diagnostic, as `vim.diagnostic` has it: what the Problems panel lists.
+public struct Diagnostic: Sendable, Equatable {
+    /// 1 error, 2 warning, 3 information, 4 hint.
+    public var severity: Int
+    public var message: String
+    public var source: String
+    public var code: String
+    public var path: String
+    /// The buffer it is in: a problem in a buffer with no file has no path.
+    public var buffer: Int
+    public var line: Int
+    public var col: Int
+}
+
+/// The current buffer, as sill's runtime reports it: what the status bar shows.
+public struct BufferInfo: Sendable, Equatable {
+    public var path = ""
+    public var name = ""
+    public var filetype = ""
+    public var modified = false
+    /// The pane kind when the buffer is a pane's placeholder; empty for a file.
+    public var kind = ""
+
+    public init() {}
 }
 
 public struct Highlight: Sendable, Equatable {
@@ -147,6 +175,10 @@ public struct Screen: Sendable {
     private var messageSerial = 0
     /// Terminal panes by the handle of the placeholder window backing them, as sill's runtime last reported.
     public private(set) var panes: [Int: Int] = [:]
+    /// Each pane's kind: `terminal`, `sidebar` or `panel`.
+    public private(set) var paneKinds: [Int: String] = [:]
+    public private(set) var buffer = BufferInfo()
+    public private(set) var diagnostics: [Diagnostic] = []
 
     public init() {}
 
@@ -193,6 +225,8 @@ public struct Screen: Sendable {
         case let .defaultColorsSet(rgbFg, rgbBg, _, _, _):
             if rgbFg >= 0 { defaultForeground = rgbFg }
             if rgbBg >= 0 { defaultBackground = rgbBg }
+        case let .winViewport(grid, _, _, _, curline, curcol, _):
+            viewportCursors[grid] = (curline, curcol)
         case let .modeChange(mode, index):
             self.mode = mode
             modeIndex = index
@@ -248,7 +282,11 @@ public struct Screen: Sendable {
             currentTab = current
             self.tabs = tabs
         case let .notification(method, args) where method == "sill_panes":
-            panes = Self.panes(args)
+            (panes, paneKinds) = Self.panes(args)
+        case let .notification(method, args) where method == "sill_buffer":
+            buffer = Self.buffer(args)
+        case let .notification(method, args) where method == "sill_diagnostics":
+            diagnostics = (args.first?.arrayValue ?? []).compactMap(Self.diagnostic)
         default:
             break
         }
@@ -315,7 +353,8 @@ public struct Screen: Sendable {
         placements.compactMap { grid, placement in
             guard placement.kind == .window, !placement.hidden, let pane = panes[placement.win] else { return nil }
             return PaneRect(
-                pane: pane, win: placement.win, grid: grid, row: placement.row, col: placement.col,
+                pane: pane, kind: paneKinds[pane] ?? "terminal", win: placement.win, grid: grid, row: placement.row,
+                col: placement.col,
                 width: placement.width, height: placement.height
             )
         }
@@ -347,14 +386,59 @@ public struct Screen: Sendable {
 
     // MARK: Parsing
 
-    /// `sill_panes`: one argument, a list of `[win, pane]` pairs.
-    static func panes(_ args: [MessagePackValue]) -> [Int: Int] {
-        var result: [Int: Int] = [:]
-        for pair in args.first?.arrayValue ?? [] {
-            guard let pair = pair.arrayValue, pair.count == 2 else { continue }
-            result[pair[0].intValue] = pair[1].intValue
+    /// `sill_panes`: one argument, a list of `[win, pane, kind]`.
+    static func panes(_ args: [MessagePackValue]) -> (panes: [Int: Int], kinds: [Int: String]) {
+        var panes: [Int: Int] = [:], kinds: [Int: String] = [:]
+        for entry in args.first?.arrayValue ?? [] {
+            guard let entry = entry.arrayValue, entry.count >= 2 else { continue }
+            panes[entry[0].intValue] = entry[1].intValue
+            kinds[entry[1].intValue] = entry.count > 2 ? entry[2].stringValue ?? "terminal" : "terminal"
         }
-        return result
+        return (panes, kinds)
+    }
+
+    /// `sill_buffer`: one argument, a map of the buffer's path, name, file type, modified and kind.
+    static func buffer(_ args: [MessagePackValue]) -> BufferInfo {
+        var info = BufferInfo()
+        for (key, value) in args.first?.dictionaryValue ?? [:] {
+            switch key.stringValue {
+            case "path": info.path = value.stringValue ?? ""
+            case "name": info.name = value.stringValue ?? ""
+            case "filetype": info.filetype = value.stringValue ?? ""
+            case "modified": info.modified = value.boolValue ?? false
+            case "kind": info.kind = value.stringValue ?? ""
+            default: break
+            }
+        }
+        return info
+    }
+
+    static func diagnostic(_ value: MessagePackValue) -> Diagnostic? {
+        guard let map = value.dictionaryValue else { return nil }
+        var fields: [String: MessagePackValue] = [:]
+        for (key, value) in map {
+            if let key = key.stringValue { fields[key] = value }
+        }
+        return Diagnostic(
+            severity: fields["severity"]?.intValue ?? 1, message: fields["message"]?.stringValue ?? "",
+            source: fields["source"]?.stringValue ?? "", code: fields["code"]?.stringValue ?? "",
+            path: fields["path"]?.stringValue ?? "", buffer: fields["buffer"]?.intValue ?? 0,
+            line: fields["line"]?.intValue ?? 1,
+            col: fields["col"]?.intValue ?? 1
+        )
+    }
+
+    /// The kind of the pane whose window is current, if one is.
+    public var currentPaneKind: String? {
+        currentPane.flatMap { paneKinds[$0] }
+    }
+
+    /// Each window grid's cursor, from `win_viewport`: line and column, zero-based.
+    public private(set) var viewportCursors: [Int: (line: Int, column: Int)] = [:]
+
+    /// The cursor in the current window, one-based, as a status bar shows it.
+    public var cursorPosition: (line: Int, column: Int)? {
+        viewportCursors[cursorGrid].map { ($0.line + 1, $0.column + 1) }
     }
 
     static func highlight(_ attrs: [String: MessagePackValue]) -> Highlight {

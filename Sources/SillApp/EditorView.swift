@@ -19,6 +19,8 @@ final class EditorView: NSView {
     var onFocus: (() -> Void)?
     /// Called for every key the editor gets, before nvim does.
     var onKey: (() -> Void)?
+    /// Sees keys before nvim, after `onKey`; true when it took the key (a tool view whose window is current).
+    var keyInterceptor: ((NSEvent) -> Bool)?
     /// Grids not to draw: those under a terminal pane.
     var coveredGrids: Set<Int> = [] {
         didSet { if coveredGrids != oldValue { submit() } }
@@ -147,6 +149,7 @@ final class EditorView: NSView {
 
     override func keyDown(with event: NSEvent) {
         onKey?()
+        if markedText.isEmpty, keyInterceptor?(event) == true { return }
         // While composing, every key is the input method's: Backspace shortens, Return commits, Escape cancels.
         if !markedText.isEmpty {
             inputContext?.handleEvent(event)

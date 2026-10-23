@@ -18,6 +18,10 @@ final class TerminalPanes {
     private var views: [Int: NSView] = [:]
     /// The pane that has the keyboard.
     private(set) var focused: Int?
+    /// The grids terminal surfaces cover.
+    private(set) var covered: Set<Int> = []
+    /// Typed into the next terminal opened (Run's command).
+    var nextInput: String?
     private var lastCurrentPane: Int?
     /// <C-\> typed in the terminal and held back: the next key decides whether it starts <C-\><C-n>.
     private var pendingEscape: NSEvent?
@@ -39,7 +43,9 @@ final class TerminalPanes {
         // A window can be split, showing one pane twice; one surface can only be in one place, so it goes to the
         // current window, else to the first.
         var placed: [Int: PaneRect] = [:]
-        for rect in screen.paneRects where placed[rect.pane] == nil || rect.win == screen.cursorWindow {
+        for rect in screen.paneRects where rect.kind == "terminal" &&
+            (placed[rect.pane] == nil || rect.win == screen.cursorWindow)
+        {
             placed[rect.pane] = rect
         }
         for (pane, rect) in placed {
@@ -47,7 +53,7 @@ final class TerminalPanes {
             view.frame = editor.rect(row: rect.row, col: rect.col, width: rect.width, height: rect.height)
             view.isHidden = false
         }
-        let open = Set(screen.panes.values)
+        let open = Set(screen.panes.values.filter { screen.paneKinds[$0] == "terminal" })
         for (pane, view) in views where placed[pane] == nil {
             if open.contains(pane) {
                 view.isHidden = true // On another tab page: the shell keeps running.
@@ -57,7 +63,7 @@ final class TerminalPanes {
                 if focused == pane { focusEditor() }
             }
         }
-        editor.coveredGrids = Set(placed.values.map(\.grid))
+        covered = Set(placed.values.map(\.grid))
 
         if let pane = update.focusPane {
             focus(pane)
@@ -84,8 +90,9 @@ final class TerminalPanes {
     private func open(_ pane: Int) -> NSView {
         #if SILL_GHOSTTY
             let surface = GhosttySurfaceView(launch: TerminalLaunch(
-                directory: directory, environment: ["SILL_PANE": String(pane)]
+                directory: directory, initialInput: nextInput, environment: ["SILL_PANE": String(pane)]
             ))
+            nextInput = nil
             surface.keyFilter = { [weak self] event in self?.filter(event, pane: pane) ?? false }
             surface.onClick = { [weak self] in self?.clicked(pane) }
             let view: NSView = surface

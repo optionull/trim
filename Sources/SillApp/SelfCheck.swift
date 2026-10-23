@@ -43,6 +43,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "chrome" {
+                try await chromeSteps()
+                print("sill check (chrome): passed")
+                fflush(stdout)
+                exit(0)
+            }
             try await steps()
             print("sill check: passed")
             fflush(stdout)
@@ -135,15 +141,31 @@ final class SelfCheck {
     /// frame is rendered offscreen at that size.
     private func showcase(to path: String) async throws {
         try await wait("nvim's first screen") { $0.placements.values.contains { $0.kind == .window } }
-        await session.resize(cols: 150, rows: 46)
-        try await wait("a 150x46 screen") { $0.grids[1]?.cols == 150 && $0.grids[1]?.rows == 46 }
+        let root = try require(app?.root, "the root view")
+        if app?.chrome == true {
+            try await wait("the sidebar and the panel") { screen in
+                screen.paneRects.contains { $0.kind == "sidebar" } && screen.paneRects.contains { $0.kind == "panel" }
+            }
+        }
         let file = ProcessInfo.processInfo.environment["SILL_SHOWCASE_FILE"] ??
-            Runtime.directory.appendingPathComponent("plugin/sill.lua").path
+            Runtime.directory.appendingPathComponent("lua/sill/init.lua").path
         try await session.channel.command("edit \(file.replacingOccurrences(of: " ", with: "\\ "))")
         try await session.channel.command("set number cursorline")
         try await session.channel.command("call cursor(32, 5)")
+        // A problem for the panel, as a language server would report one.
+        _ = try await session.channel.lua("""
+        local ns = vim.api.nvim_create_namespace('showcase')
+        vim.diagnostic.set(ns, 0, {
+          { lnum = 31, col = 4, severity = vim.diagnostic.severity.ERROR, source = 'lua_ls', code = 'undefined-global',
+            message = "Undefined global `notifyy`." },
+          { lnum = 12, col = 0, severity = vim.diagnostic.severity.WARN, source = 'lua_ls', code = 'unused-local',
+            message = "Unused local `next_pane`." },
+        })
+        """)
         try await session.channel.command("SillTerminal")
-        let pane = try await waitFor("the pane's surface") { self.panes.view(for: 1) }
+        let pane = try await waitFor("the pane's surface") {
+            self.panes.view(for: self.latest?.paneRects.first { $0.kind == "terminal" }?.pane ?? -1)
+        }
         #if SILL_GHOSTTY
             if let surface = pane as? GhosttySurfaceView {
                 try await Task.sleep(for: .seconds(1.5)) // The shell's prompt.
@@ -155,11 +177,111 @@ final class SelfCheck {
         #endif
         session.channel.send(keys: "<C-w>h")
         try await wait("the editor window current") { $0.currentPane == nil && $0.cursorWindow != nil }
-        try await Task.sleep(for: .milliseconds(300))
-        let screen = try require(latest, "a screen")
-        try shot(to: path, cols: screen.grids[1]?.cols ?? 150, rows: screen.grids[1]?.rows ?? 46, cursor: true)
+        try await Task.sleep(for: .milliseconds(500))
+        try shot(of: root, to: path, cursor: true)
         print("sill showcase: saved \(path)")
         fflush(stdout)
+    }
+
+    /// M2's chrome (`SILL_CHECK=chrome`): the frame, the sidebar and its activities, the explorer, the panel's
+    /// problems, Run, and the status bar following nvim.
+    private func chromeSteps() async throws {
+        let app = try require(app, "the app")
+        let root = app.root!, tools = app.tools!
+        try await wait("the sidebar and the panel") { screen in
+            screen.paneRects.contains { $0.kind == "sidebar" } && screen.paneRects.contains { $0.kind == "panel" }
+        }
+        try expect(!root.titleBar.isHidden && root.titleBar.frame.height == TitleBarView.height, "the title bar")
+        try expect(
+            editor.frame.minX == ActivityBarView.width && editor.frame.minY == TitleBarView.height,
+            "the editor right of the activity bar and under the title bar, at \(editor.frame.origin)"
+        )
+        try expect(root.statusBar.frame.maxY == root.bounds.maxY, "the status bar along the bottom")
+        let sidebarRect = try require(latest?.paneRects.first { $0.kind == "sidebar" }, "the sidebar's window")
+        try await waitFor("the sidebar on its window") {
+            tools.sidebar.frame == self.editor.rect(
+                row: sidebarRect.row,
+                col: sidebarRect.col,
+                width: sidebarRect.width,
+                height: sidebarRect.height
+            ) && !tools.sidebar.isHidden ? true : nil
+        }
+        try expect(
+            root.titleBar.title.hasPrefix((app.workingDirectory as NSString).lastPathComponent),
+            "the project in the title"
+        )
+        step("the frame: title bar, activity bar, status bar; the sidebar and the panel on their windows")
+
+        try await waitFor("the status bar's cursor") { root.statusBar.state.position != nil ? true : nil }
+        type("i")
+        try await waitFor("INSERT in the status bar") { root.statusBar.state.mode.hasPrefix("insert") ? true : nil }
+        press("\u{1B}", keyCode: 53)
+        try await waitFor("NORMAL again") { root.statusBar.state.mode == "normal" ? true : nil }
+        try expect(StatusBarView.badge("insert").text == "INSERT", "the badge")
+        step("the status bar follows the mode and the cursor")
+
+        // The explorer: focus it from the activity bar, walk it with the keyboard, open a file.
+        let explorer = tools.sidebar.explorer
+        try await waitFor("the explorer's rows") { explorer.rows.count > 3 ? true : nil }
+        root.activityBar.onSelect?(.explorer) // Selected and showing: hides the sidebar.
+        try await wait("the sidebar hidden") { !$0.paneRects.contains { $0.kind == "sidebar" } }
+        try expect(root.activityBar.selected == nil, "no activity selected while the sidebar is hidden")
+        root.activityBar.onSelect?(.explorer)
+        try await wait("the explorer current") { $0.currentPaneKind == "sidebar" }
+        let target = try require(
+            explorer.rows.firstIndex { $0.name == "Package.swift" },
+            "Package.swift in the explorer"
+        )
+        type("g")
+        for _ in 0 ..< target {
+            type("j")
+        }
+        try expect(explorer.selected == target, "j walks down to Package.swift (\(explorer.selected), \(target))")
+        press("\r", keyCode: 36)
+        try await wait("Package.swift open") { $0.buffer.name == "Package.swift" && $0.currentPane == nil }
+        try await waitFor("the status bar's file type") { root.statusBar.state.filetype == "swift" ? true : nil }
+        step("the explorer: j/k and Return open a file in the editor; the activity bar hides and shows it")
+
+        root.activityBar.onSelect?(.packages)
+        try await waitFor("the packages view") { tools.sidebar.activity == .packages ? true : nil }
+        try expect(root.activityBar.selected == .packages, "packages selected")
+        root.activityBar.onSelect?(.explorer)
+        try await waitFor("the explorer again") { tools.sidebar.activity == .explorer ? true : nil }
+        step("the activity bar switches the sidebar between its views")
+
+        // Problems: a diagnostic in the panel, opened from it.
+        _ = try await session.channel.lua("""
+        local buf = vim.api.nvim_win_get_buf(require'sill'.editor_window())
+        vim.diagnostic.set(vim.api.nvim_create_namespace('check'), buf, {
+          { lnum = 9, col = 2, severity = 1, message = 'a check problem', source = 'check' } })
+        """)
+        try await waitFor("the problem in the panel") { tools.panel.problems.count == 1 ? true : nil }
+        _ = try await session.channel.lua("vim.cmd('normal! gg')")
+        _ = try await session.channel.lua("require'sill'.focus('panel')")
+        try await wait("the panel current") { $0.currentPaneKind == "panel" }
+        press("\r", keyCode: 36)
+        try await wait("the problem's line") { $0.currentPane == nil && $0.cursorPosition?.line == 10 }
+        step("the panel lists nvim's diagnostics, and Return goes to one")
+
+        tools.panel.onSendToAgent?(tools.panel.problems)
+        try await wait("the heed notice") { $0.messages.contains { $0.text.contains("heed bridge") } }
+        step("Send all to agent says it comes with the heed bridge")
+
+        try expect(RunCommand.guess(in: app.workingDirectory) == "swift run", "Run guesses swift run for a package")
+        app.run(command: "echo sill-run-check")
+        let runPane = try await wait("Run's terminal") { $0.paneRects.contains { $0.kind == "terminal" } }
+        let pane = try require(runPane.paneRects.first { $0.kind == "terminal" }, "the terminal")
+        #if SILL_GHOSTTY
+            let surface = try await waitFor("Run's surface") { self.panes.view(for: pane.pane) as? GhosttySurfaceView }
+            _ = try await waitFor("Run's command run", timeout: .seconds(15)) {
+                (surface.visibleText() ?? "").components(separatedBy: "sill-run-check").count > 2 ? true : nil
+            }
+        #endif
+        step("Run opens a terminal at the bottom running the project's command")
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try shot(to: path)
+            step("saved \(path)")
+        }
     }
 
     /// Day 3 on screen: the Metal grid draws nothing while idle, and how long a key takes to reach the display.
@@ -502,65 +624,39 @@ final class SelfCheck {
         fflush(stdout)
     }
 
-    /// Renders the editor's current frame offscreen with a renderer of its own (the render thread's is not shared),
-    /// then draws each terminal's text where its surface is.
+    /// The whole window as it stands, composited: the frame views and tool views drawn as they draw themselves, the
+    /// grid rendered by a renderer of its own (the render thread's is not shared), each terminal's text read back
+    /// from Ghostty (a Metal surface no snapshot captures), and the overlays.
     private func shot(to path: String) throws {
-        try shot(
-            to: path, cols: Int(editor.bounds.width / editor.metrics.width),
-            rows: Int(editor.bounds.height / editor.metrics.height), cursor: false
-        )
+        let root = try require(app?.root, "the root view")
+        try shot(of: root, to: path, cursor: false)
     }
 
-    /// Renders `cols` x `rows` cells of the current screen, with the editor's cursor if `cursor`.
-    private func shot(to path: String, cols: Int, rows: Int, cursor: Bool) throws {
+    private func shot(of root: RootView, to path: String, cursor: Bool) throws {
         let scale = window.backingScaleFactor
-        let device = try require(MTLCreateSystemDefaultDevice(), "a Metal device")
-        let renderer = try GridRenderer(
-            device: device, font: editor.metrics.regular, cellSize: editor.metrics.cellSize, scale: scale,
-            pixelFormat: .bgra8Unorm
-        )
-        let grid = CGSize(width: CGFloat(cols) * editor.metrics.width, height: CGFloat(rows) * editor.metrics.height)
-        // The tab strip above the grid, when it shows.
-        let tabs: CGFloat = app?.root.tabBar.isHidden == false ? TabBarView.height : 0
-        let size = CGSize(width: grid.width, height: grid.height + tabs)
+        let size = root.bounds.size
         let (width, height) = (Int(size.width * scale), Int(size.height * scale))
-        var frame = editor.currentFrame
-        if cursor, frame.cursor == nil, let style = frame.screen.cursorStyle, style.cursorShape == .block {
-            frame.cursor = Frame.Cursor(shape: .block, highlight: style.attrId)
-        }
-        let gridDescriptor = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .bgra8Unorm, width: Int(grid.width * scale), height: Int(grid.height * scale), mipmapped: false
-        )
-        gridDescriptor.usage = [.renderTarget, .shaderRead]
-        gridDescriptor.storageMode = .shared
-        let gridTexture = try require(device.makeTexture(descriptor: gridDescriptor), "a texture for the grid")
-        let commands = try require(renderer.render(frame, to: gridTexture), "a command buffer")
-        commands.waitUntilCompleted()
         let rep = try require(NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
             hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: width * 4, bitsPerPixel: 32
         ), "a bitmap for the shot")
-        let pixels = try require(rep.bitmapData, "the shot's pixels")
-        let top = Int(tabs * scale)
-        let gridWidth = gridTexture.width, gridHeight = gridTexture.height
-        gridTexture.getBytes(
-            pixels + top * width * 4, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, gridWidth, gridHeight),
-            mipmapLevel: 0
-        )
-        // The texture is BGRA; the bitmap is RGBA.
-        for index in stride(from: top * width * 4, to: width * height * 4, by: 4) {
-            (pixels[index], pixels[index + 2]) = (pixels[index + 2], pixels[index])
-        }
         rep.size = size
-        // Over the grid, the views that are not Metal: the tab strip, each terminal's text as read back from Ghostty
-        // (a Metal surface a snapshot cannot capture), and the overlays. The bitmap's context is not flipped.
         let context = try require(NSGraphicsContext(bitmapImageRep: rep), "a context on the shot")
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
-        /// The view alone, into a clear bitmap: a rounded panel keeps its transparent corners.
-        func paint(_ view: NSView, at frame: NSRect) {
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        Design.chrome.setFill()
+        NSRect(origin: .zero, size: size).fill()
+
+        /// A rect in the root's (flipped) coordinates, in the bitmap's.
+        func bitmap(_ rect: NSRect, in view: NSView) -> NSRect {
+            let rect = root.convert(rect, from: view)
+            return NSRect(x: rect.minX, y: size.height - rect.maxY, width: rect.width, height: rect.height)
+        }
+        /// A view alone, into a clear bitmap, so a rounded panel keeps its transparent corners.
+        func paint(_ view: NSView) {
             let pixels = view.convertToBacking(view.bounds).size
-            guard let cached = NSBitmapImageRep(
+            guard pixels.width >= 1, pixels.height >= 1, let cached = NSBitmapImageRep(
                 bitmapDataPlanes: nil, pixelsWide: Int(pixels.width), pixelsHigh: Int(pixels.height),
                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                 bytesPerRow: 0, bitsPerPixel: 0
@@ -569,32 +665,78 @@ final class SelfCheck {
             cached.size = view.bounds.size
             guard let viewContext = NSGraphicsContext(bitmapImageRep: cached) else { return }
             view.displayIgnoringOpacity(view.bounds, in: viewContext)
-            cached.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+            cached.draw(
+                in: bitmap(view.bounds, in: view),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: false,
+                hints: nil
+            )
         }
-        /// A rect in the editor's coordinates (flipped, below the tab strip), in the bitmap's.
-        func bitmap(_ rect: NSRect) -> NSRect {
-            NSRect(x: rect.minX, y: size.height - tabs - rect.maxY, width: rect.width, height: rect.height)
+
+        for view in [root.titleBar, root.activityBar, root.statusBar, root.tabBar] as [NSView] where !view.isHidden {
+            paint(view)
         }
-        if tabs > 0, let tabBar = app?.root.tabBar {
-            paint(tabBar, at: NSRect(x: 0, y: size.height - tabs, width: size.width, height: tabs))
+
+        // The grid.
+        let device = try require(MTLCreateSystemDefaultDevice(), "a Metal device")
+        let renderer = try GridRenderer(
+            device: device, font: editor.metrics.regular, cellSize: editor.metrics.cellSize, scale: scale,
+            pixelFormat: .bgra8Unorm
+        )
+        let grid = editor.bounds.size
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm, width: Int(grid.width * scale), height: Int(grid.height * scale), mipmapped: false
+        )
+        descriptor.usage = [.renderTarget, .shaderRead]
+        descriptor.storageMode = .shared
+        let texture = try require(device.makeTexture(descriptor: descriptor), "a texture for the grid")
+        var frame = editor.currentFrame
+        if cursor, frame.cursor == nil, let style = frame.screen.cursorStyle, style.cursorShape == .block {
+            frame.cursor = Frame.Cursor(shape: .block, highlight: style.attrId)
         }
-        #if SILL_GHOSTTY
-            for case let surface as GhosttySurfaceView in editor.subviews where !surface.isHidden {
-                let frame = bitmap(surface.frame)
-                Design.terminal.setFill()
-                frame.fill()
-                let text = (surface.visibleText() ?? "") as NSString
-                text.draw(
-                    in: frame.insetBy(dx: 14, dy: 10),
-                    withAttributes: [.font: editor.metrics.regular, .foregroundColor: Design.text]
-                )
-            }
-        #endif
+        let commands = try require(renderer.render(frame, to: texture), "a command buffer")
+        commands.waitUntilCompleted()
+        let gridRep = try require(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: texture.width, pixelsHigh: texture.height, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+            bytesPerRow: texture.width * 4, bitsPerPixel: 32
+        ), "a bitmap for the grid")
+        let pixels = try require(gridRep.bitmapData, "the grid's pixels")
+        texture.getBytes(
+            pixels,
+            bytesPerRow: texture.width * 4,
+            from: MTLRegionMake2D(0, 0, texture.width, texture.height),
+            mipmapLevel: 0
+        )
+        // The texture is BGRA; the bitmap is RGBA.
+        for index in stride(from: 0, to: texture.width * texture.height * 4, by: 4) {
+            (pixels[index], pixels[index + 2]) = (pixels[index + 2], pixels[index])
+        }
+        gridRep.size = grid
+        gridRep.draw(in: bitmap(editor.bounds, in: editor))
+
+        // What sits over the grid: terminals, tool views, overlays.
+        for view in editor.subviews where !view.isHidden {
+            #if SILL_GHOSTTY
+                if let surface = view as? GhosttySurfaceView {
+                    let rect = bitmap(surface.bounds, in: surface)
+                    Design.terminal.setFill()
+                    rect.fill()
+                    ((surface.visibleText() ?? "") as NSString).draw(
+                        in: rect.insetBy(dx: 14, dy: 10),
+                        withAttributes: [.font: editor.metrics.regular, .foregroundColor: Design.text]
+                    )
+                    continue
+                }
+            #endif
+            paint(view)
+        }
         for view in app?.externalUI.overlay.subviews ?? [] where !view.isHidden {
-            paint(view, at: bitmap(view.frame))
+            paint(view)
         }
         context.flushGraphics()
-        NSGraphicsContext.restoreGraphicsState()
         let data = try require(rep.representation(using: .png, properties: [:]), "PNG data")
         try data.write(to: URL(fileURLWithPath: path))
     }

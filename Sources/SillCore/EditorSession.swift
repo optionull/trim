@@ -87,7 +87,7 @@ public actor EditorSession {
             if case let .notification(method, args) = event {
                 if method == "sill_terminal" {
                     continuation.yield(ScreenUpdate(screen: flushed, focusPane: args.first?.intValue))
-                } else if method == "sill_panes" {
+                } else if method.hasPrefix("sill_") {
                     screen.apply(event)
                     flushed.apply(event)
                     continuation.yield(ScreenUpdate(screen: flushed, focusPane: nil))

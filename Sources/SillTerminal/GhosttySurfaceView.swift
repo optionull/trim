@@ -8,11 +8,16 @@ public struct TerminalLaunch: Sendable {
     /// Command to run instead of the login shell, in sh words (Ghostty runs it with `bash -c 'exec -l …'`). Nil runs
     /// the user's shell.
     public var command: String?
+    /// Typed into the shell once it starts.
+    public var initialInput: String?
     public var environment: [String: String]
 
-    public init(directory: String, command: String? = nil, environment: [String: String]) {
+    public init(
+        directory: String, command: String? = nil, initialInput: String? = nil, environment: [String: String]
+    ) {
         self.directory = directory
         self.command = command
+        self.initialInput = initialInput
         self.environment = environment
     }
 }
@@ -64,6 +69,8 @@ public final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient
 
         config.working_directory = UnsafePointer(c(launch.directory))
         if let command = launch.command { config.command = UnsafePointer(c(command)) }
+        // Typed into the shell once it is up (Ghostty waits for it), as Run types the project's run command.
+        if let input = launch.initialInput { config.initial_input = UnsafePointer(c(input)) }
         var env = launch.environment.map { ghostty_env_var_s(key: c($0.key), value: c($0.value)) }
         surface = env.withUnsafeMutableBufferPointer { buffer in
             config.env_vars = buffer.baseAddress
