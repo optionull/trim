@@ -242,6 +242,17 @@ final class SelfCheck {
         try await waitFor("the status bar's file type") { root.statusBar.state.filetype == "swift" ? true : nil }
         step("the explorer: j/k and Return open a file in the editor; the activity bar hides and shows it")
 
+        let splitTabs = try require(app.splitTabs, "the tab strips")
+        let strip = try await waitFor("a tab strip with Package.swift") {
+            splitTabs.strips.values.first { $0.tabs.tabs.contains { $0.name == "Package.swift" } }
+        }
+        let window = try require(latest?.placements.first { $0.value.win == strip.tabs.win }?.value, "its window")
+        try expect(
+            strip.frame == editor.rect(row: window.row, col: window.col, width: window.width, height: 1),
+            "the strip on the window's winbar row"
+        )
+        step("each editor window has a strip of its tabs on its winbar row")
+
         root.activityBar.onSelect?(.packages)
         try await waitFor("the packages view") { tools.sidebar.activity == .packages ? true : nil }
         try expect(root.activityBar.selected == .packages, "packages selected")

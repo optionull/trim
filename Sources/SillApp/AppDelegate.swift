@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editor = EditorView(channel: session.channel, metrics: CellMetrics())
         panes = TerminalPanes(editor: editor, channel: session.channel, directory: workingDirectory)
         tools = ToolPanes(editor: editor, channel: session.channel, directory: workingDirectory)
+        splitTabs = SplitTabs(editor: editor, channel: session.channel)
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered,
@@ -102,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var workingDirectory = NSHomeDirectory()
     private(set) var chrome = true
     private(set) var tools: ToolPanes!
+    private(set) var splitTabs: SplitTabs!
     private var branch = ""
     private var branchFor = ""
 
@@ -115,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panes.update(update)
         tools.update(screen)
         editor.coveredGrids = panes.covered.union(tools.covered)
+        splitTabs.update(screen)
         if screen.buffer.kind.isEmpty, !screen.buffer.path.isEmpty { tools.sidebar.explorer.reveal(screen.buffer.path) }
         updateFrame(screen)
         check?.observe(update)

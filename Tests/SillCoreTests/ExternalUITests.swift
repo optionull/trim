@@ -161,3 +161,54 @@ struct StatusFactsTests {
         try await nvim.screen("the sidebar back and current") { $0.currentPaneKind == "sidebar" }
     }
 }
+
+@Suite("tabs per split", .serialized)
+struct SplitTabsTests {
+    private func files(_ names: [String]) throws -> [URL] {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("sill-tabs-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return try names.map { name in
+            let file = directory.appendingPathComponent(name)
+            try "\(name)\n".write(to: file, atomically: true, encoding: .utf8)
+            return file
+        }
+    }
+
+    @Test("files opened in a window are its tabs; a split has its own; closing one shows its neighbour")
+    func tabs() async throws {
+        let nvim = try await Harness.start(cols: 140, rows: 40)
+        defer { Task { await nvim.stop() } }
+        let paths = try files(["one.txt", "two.txt", "three.txt"])
+        try await nvim.command("SillChrome")
+        try await nvim.command("edit \(paths[0].path)")
+        try await nvim.command("edit \(paths[1].path)")
+        var screen = try await nvim.screen("two tabs") { $0.windowTabs.values.contains { $0.tabs.count == 2 } }
+        let left = try #require(screen.windowTabs.values.first { $0.tabs.count == 2 })
+        #expect(left.tabs.map(\.name) == ["one.txt", "two.txt"])
+        #expect(left.tabs.first { $0.buffer == left.current }?.name == "two.txt")
+
+        try await nvim.command("vsplit \(paths[2].path)")
+        screen = try await nvim.screen("a second window with its own tab") { screen in
+            screen.windowTabs.values.contains { $0.tabs.map(\.name).contains("three.txt") && $0.win != left.win }
+        }
+        let right = try #require(screen.windowTabs.values.first { $0.win != left.win })
+        #expect(!right.tabs.map(\.name).contains("one.txt"), "the split starts its own tabs: \(right.tabs.map(\.name))")
+
+        let two = try #require(left.tabs.first { $0.name == "two.txt" })
+        _ = try await nvim.session.channel.lua(
+            "require'sill'.close_tab(...)",
+            args: [.int(Int64(left.win)), .int(Int64(two.buffer))]
+        )
+        screen = try await nvim.screen("two.txt closed in the left window") { screen in
+            screen.windowTabs[left.win]?.tabs.map(\.name) == ["one.txt"]
+        }
+        let one = try #require(screen.windowTabs[left.win]?.tabs.first)
+        #expect(screen.windowTabs[left.win]?.current == one.buffer, "the neighbour shows")
+
+        _ = try await nvim.session.channel.lua(
+            "require'sill'.close_tab(...)",
+            args: [.int(Int64(left.win)), .int(Int64(one.buffer))]
+        )
+        screen = try await nvim.screen("no tabs left") { $0.windowTabs[left.win]?.tabs.isEmpty == true }
+    }
+}

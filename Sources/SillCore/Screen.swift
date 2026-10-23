@@ -57,6 +57,25 @@ public struct Diagnostic: Sendable, Equatable {
     public var col: Int
 }
 
+/// An editor window's tabs: the files opened in it, and which it shows.
+public struct WindowTabs: Sendable, Equatable {
+    public struct Tab: Sendable, Equatable {
+        public var buffer: Int
+        public var name: String
+        public var modified: Bool
+    }
+
+    public var win: Int
+    public var current: Int
+    public var tabs: [Tab]
+
+    public init(win: Int, current: Int, tabs: [Tab]) {
+        self.win = win
+        self.current = current
+        self.tabs = tabs
+    }
+}
+
 /// The current buffer, as sill's runtime reports it: what the status bar shows.
 public struct BufferInfo: Sendable, Equatable {
     public var path = ""
@@ -179,6 +198,8 @@ public struct Screen: Sendable {
     public private(set) var paneKinds: [Int: String] = [:]
     public private(set) var buffer = BufferInfo()
     public private(set) var diagnostics: [Diagnostic] = []
+    /// Each editor window's tabs, by window handle.
+    public private(set) var windowTabs: [Int: WindowTabs] = [:]
 
     public init() {}
 
@@ -285,6 +306,8 @@ public struct Screen: Sendable {
             (panes, paneKinds) = Self.panes(args)
         case let .notification(method, args) where method == "sill_buffer":
             buffer = Self.buffer(args)
+        case let .notification(method, args) where method == "sill_tabs":
+            windowTabs = Self.windowTabs(args)
         case let .notification(method, args) where method == "sill_diagnostics":
             diagnostics = (args.first?.arrayValue ?? []).compactMap(Self.diagnostic)
         default:
@@ -411,6 +434,24 @@ public struct Screen: Sendable {
             }
         }
         return info
+    }
+
+    /// `sill_tabs`: one argument, a list of `[win, current buffer, [[buffer, name, modified], ...]]`.
+    static func windowTabs(_ args: [MessagePackValue]) -> [Int: WindowTabs] {
+        var result: [Int: WindowTabs] = [:]
+        for entry in args.first?.arrayValue ?? [] {
+            guard let entry = entry.arrayValue, entry.count >= 3 else { continue }
+            let tabs = (entry[2].arrayValue ?? []).compactMap { tab -> WindowTabs.Tab? in
+                guard let t = tab.arrayValue, t.count >= 3 else { return nil }
+                return WindowTabs.Tab(
+                    buffer: t[0].intValue,
+                    name: t[1].stringValue ?? "",
+                    modified: t[2].boolValue ?? false
+                )
+            }
+            result[entry[0].intValue] = WindowTabs(win: entry[0].intValue, current: entry[1].intValue, tabs: tabs)
+        }
+        return result
     }
 
     static func diagnostic(_ value: MessagePackValue) -> Diagnostic? {

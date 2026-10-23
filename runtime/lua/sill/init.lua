@@ -56,6 +56,100 @@ local function report_diagnostics()
   notify('sill_diagnostics', list)
 end
 
+-- Tabs per split: each editor window keeps the files opened in it, as an editor group does, and sill draws them as
+-- a strip over the window's winbar row.
+local function is_file_buffer(buf)
+  return vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buflisted and vim.bo[buf].buftype == ''
+    and not vim.b[buf].sill_pane
+end
+
+local function editor_windows()
+  local wins = {}
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if not vim.b[vim.api.nvim_win_get_buf(win)].sill_pane and vim.api.nvim_win_get_config(win).relative == '' then
+      table.insert(wins, win)
+    end
+  end
+  return wins
+end
+
+--- Adds the buffer a window shows to its tabs, and gives the window a winbar row for sill's strip.
+local function track(win)
+  local buf = vim.api.nvim_win_get_buf(win)
+  if not vim.g.sill_chrome or vim.b[buf].sill_pane or vim.api.nvim_win_get_config(win).relative ~= '' then
+    return
+  end
+  if vim.wo[win].winbar == '' then
+    vim.wo[win].winbar = ' '
+  end
+  if not is_file_buffer(buf) or (vim.api.nvim_buf_get_name(buf) == '' and not vim.bo[buf].modified) then
+    return
+  end
+  local tabs = vim.w[win].sill_tabs or {}
+  if not vim.tbl_contains(tabs, buf) then
+    table.insert(tabs, buf)
+    vim.w[win].sill_tabs = tabs
+  end
+end
+
+--- Each editor window's tabs: {window, current buffer, {{buffer, name, modified}, ...}}.
+local function report_tabs()
+  local result = {}
+  for _, win in ipairs(editor_windows()) do
+    local tabs = {}
+    -- An unnamed buffer is a tab once something is typed into it; an empty one (after the last tab closed) is not.
+    local shown = vim.api.nvim_win_get_buf(win)
+    if is_file_buffer(shown) and vim.api.nvim_buf_get_name(shown) == '' and vim.bo[shown].modified then
+      track(win)
+    end
+    for _, buf in ipairs(vim.w[win].sill_tabs or {}) do
+      if is_file_buffer(buf) and (vim.api.nvim_buf_get_name(buf) ~= '' or vim.bo[buf].modified) then
+        local path = vim.api.nvim_buf_get_name(buf)
+        table.insert(tabs, { buf, path ~= '' and vim.fn.fnamemodify(path, ':t') or '[No Name]', vim.bo[buf].modified })
+      end
+    end
+    table.insert(result, { win, vim.api.nvim_win_get_buf(win), tabs })
+  end
+  notify('sill_tabs', result)
+end
+
+--- Shows tab `buf` in window `win`.
+function M.select_tab(win, buf)
+  if vim.api.nvim_win_is_valid(win) and vim.api.nvim_buf_is_valid(buf) then
+    vim.api.nvim_set_current_win(win)
+    vim.api.nvim_win_set_buf(win, buf)
+  end
+end
+
+--- Closes tab `buf` in window `win`: the window shows the tab beside it, or an empty buffer if it was the last. The
+--- buffer stays loaded (another window may show it); unsaved changes are kept.
+function M.close_tab(win, buf)
+  if not vim.api.nvim_win_is_valid(win) then
+    return
+  end
+  local tabs = vim.w[win].sill_tabs or {}
+  local index
+  for i, b in ipairs(tabs) do
+    if b == buf then
+      index = i
+    end
+  end
+  if not index then
+    return
+  end
+  table.remove(tabs, index)
+  vim.w[win].sill_tabs = tabs
+  if vim.api.nvim_win_get_buf(win) == buf then
+    local next = tabs[math.min(index, #tabs)]
+    if next then
+      vim.api.nvim_win_set_buf(win, next)
+    else
+      vim.api.nvim_win_call(win, function() vim.cmd('enew') end)
+    end
+  end
+  report_tabs()
+end
+
 local scheduled = false
 local function report_soon()
   if scheduled then
@@ -66,6 +160,7 @@ local function report_soon()
     scheduled = false
     report()
     report_buffer()
+    report_tabs()
   end)
 end
 
@@ -221,6 +316,7 @@ end
 --- sill's window: its status bar replaces nvim's status lines, its colours, the sidebar on the left and the panel
 --- under the editor.
 function M.chrome()
+  vim.g.sill_chrome = true
   vim.o.laststatus = 0
   vim.o.statusline = "%{v:lua.require'sill'.rule()}"
   vim.o.ruler = false
@@ -236,6 +332,10 @@ function M.chrome()
   vim.api.nvim_set_current_win(editor)
   M.toggle('sidebar')
   vim.api.nvim_set_current_win(editor)
+  for _, win in ipairs(editor_windows()) do
+    track(win)
+  end
+  report_tabs()
 end
 
 function M.setup()
@@ -247,6 +347,24 @@ function M.setup()
   local group = vim.api.nvim_create_augroup('sill', {})
   vim.api.nvim_create_autocmd({ 'WinNew', 'WinClosed', 'BufWinEnter', 'BufWipeout', 'TabEnter', 'TabClosed',
     'BufEnter', 'FileType', 'BufModifiedSet', 'BufWritePost' }, { group = group, callback = report_soon })
+  vim.api.nvim_create_autocmd({ 'BufWinEnter', 'WinNew' }, {
+    group = group,
+    callback = function()
+      track(vim.api.nvim_get_current_win())
+    end,
+  })
+  vim.api.nvim_create_autocmd({ 'BufDelete', 'BufWipeout' }, {
+    group = group,
+    callback = function(args)
+      for _, win in ipairs(vim.api.nvim_list_wins()) do
+        local tabs = vim.w[win].sill_tabs
+        if tabs then
+          vim.w[win].sill_tabs = vim.tbl_filter(function(b) return b ~= args.buf end, tabs)
+        end
+      end
+      report_soon()
+    end,
+  })
   vim.api.nvim_create_autocmd('DiagnosticChanged', { group = group, callback = vim.schedule_wrap(report_diagnostics) })
   vim.api.nvim_create_autocmd('WinEnter', {
     group = group,
