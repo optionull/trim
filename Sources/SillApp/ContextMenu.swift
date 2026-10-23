@@ -24,11 +24,11 @@ enum ContextMenu {
             "--format=%(refname:short)",
             "refs/tags",
         ], in: directory)?.split(separator: "\n").map(String.init) ?? []
-        let commits = Git.run(["log", "-5", "--format=%h%x09%s"], in: directory)?.split(separator: "\n").compactMap {
-            line -> (String, String)? in
+        let log = Git.run(["log", "-5", "--format=%h%x09%s"], in: directory) ?? ""
+        let commits = log.split(separator: "\n").compactMap { (line: Substring) -> (String, String)? in
             let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
             return parts.count == 2 ? (parts[0], parts[1]) : nil
-        } ?? []
+        }
         return (branches, tags, commits)
     }
 

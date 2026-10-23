@@ -121,8 +121,10 @@ public final nonisolated class NvimProcess: @unchecked Sendable {
         captureShellEnvironment(shellArgs: ["-l", "-i"])
     }
 
-    private static func captureShellEnvironment(shellArgs: [String]) -> [String: String] {
-        let shellPath = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    static func captureShellEnvironment(
+        shellArgs: [String], shell: String = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    ) -> [String: String] {
+        let shellPath = shell
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shellPath)
         let marker = UUID().uuidString
@@ -141,21 +143,24 @@ public final nonisolated class NvimProcess: @unchecked Sendable {
         } catch {
             return ProcessInfo.processInfo.environment
         }
-        // Bound the wait. The shell's interactive startup can hang
-        // indefinitely in some spawn contexts (notably CLI cold-start, where
-        // the inherited controlling terminal trips zsh's job-control
-        // initialization); a 5 s ceiling at least gets the user a
-        // "Neovim not found" error instead of a permanently frozen window.
+        // Bounded, both ways. The shell's interactive startup can hang (zsh's job control on a CLI cold start), and a
+        // process the shell's profile starts can keep its output open after the shell is gone, so reading to the end
+        // would never return (sill: seen hanging a test run for minutes). The output is gathered as it comes; after
+        // 5 s the shell is killed and whatever arrived is used.
+        let output = OutputBuffer()
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            output.append(handle.availableData)
+        }
         let done = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            process.waitUntilExit()
-            done.signal()
-        }
+        process.terminationHandler = { _ in done.signal() }
         if done.wait(timeout: .now() + 5) == .timedOut {
-            if process.isRunning { process.terminate() }
-            done.wait()
+            kill(process.processIdentifier, SIGKILL)
+            _ = done.wait(timeout: .now() + 1)
         }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        // What the shell wrote just before it exited may still be in the pipe.
+        Thread.sleep(forTimeInterval: 0.05)
+        pipe.fileHandleForReading.readabilityHandler = nil
+        let data = output.data
         guard let output = String(data: data, encoding: .utf8),
               let markerRange = output.range(of: marker)
         else {
@@ -261,4 +266,16 @@ public nonisolated enum NvimProcessError: Error, LocalizedError {
             """
         }
     }
+}
+
+/// Bytes gathered from a pipe's readability handler, on any thread.
+private final class OutputBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var bytes = Data()
+
+    func append(_ data: Data) {
+        lock.withLock { bytes.append(data) }
+    }
+
+    var data: Data { lock.withLock { bytes } }
 }
