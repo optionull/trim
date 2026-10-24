@@ -218,6 +218,8 @@ public struct Screen: Sendable {
     public private(set) var merge: (left: Int, current: Int, file: String)?
     /// What nvim asked of the agents last (`:SillAgent next|send|list`), numbered so the same ask twice is two.
     public private(set) var agentAsk: (action: String, serial: Int)?
+    /// How many times the packages were asked for (`:SillPackages`).
+    public private(set) var packagesAsks = 0
     /// What nvim asked of the debugger (`:SillDebug …`), in order.
     public private(set) var debugAsks: [String] = []
     /// The breakpoints nvim has, by file, the lines as they are now.
@@ -356,6 +358,8 @@ public struct Screen: Sendable {
                 }
             }
             merge = (left, current, file)
+        case let .notification(method, _) where method == "sill_packages":
+            packagesAsks += 1
         case let .notification(method, args) where method == "sill_debug":
             if let action = args.first?.stringValue { debugAsks.append(action) }
         case let .notification(method, args) where method == "sill_breakpoints":

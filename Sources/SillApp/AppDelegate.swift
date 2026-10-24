@@ -46,6 +46,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         solutions = Solutions(app: self, channel: session.channel, directory: workingDirectory)
         servers = LanguageServers(channel: session.channel, directory: workingDirectory)
         debugger = Debugger(app: self, channel: session.channel, directory: workingDirectory)
+        packages = Packages(app: self, channel: session.channel, directory: workingDirectory)
+        tools
+            .makePackages = { [weak self] in
+                self?.packages.makeView() ?? PackagesView(scanner: PackageScanner(directory: ""))
+            }
         tools.panel.debug.debugger = debugger
         debugger.onChange = { [weak self] in
             self?.tools.panel.debug.needsDisplay = true
@@ -167,6 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var solutions: Solutions!
     private(set) var servers: LanguageServers!
     private(set) var debugger: Debugger!
+    private(set) var packages: Packages!
     /// Roslyn's provisioning: what the status bar says while it downloads.
     private(set) var roslynStatus: String?
     private(set) var roslyn: RoslynServer?
@@ -188,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateFrame(screen)
         servers.answer(screen.serverAsks)
         debugger.update(screen)
+        packages.update(screen)
         if let ask = screen.slnxAsk, ask.serial != slnxAskSeen {
             slnxAskSeen = ask.serial
             solutions.answer(ask.action)
@@ -280,6 +287,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         root.activityBar.onSelect = { [weak self] activity in
             guard let self else { return }
+            // The packages take a tab page of their own (board 3), as the profiler does.
+            if activity == .packages { return Nvim.lua(channel, "vim.cmd('SillPackages')") }
             let showing = tools.screen.paneRects.contains { $0.kind == "sidebar" }
             if showing, activity == tools.sidebar.activity {
                 Nvim.lua(channel, "require'sill'.toggle('sidebar')")

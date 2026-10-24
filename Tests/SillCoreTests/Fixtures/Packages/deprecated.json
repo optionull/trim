@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "parameters": "--deprecated --include-transitive",
+  "sources": [
+    "https://api.nuget.org/v3/index.json"
+  ],
+  "projects": [
+    {
+      "path": "/w/Pkgs/Pkgs.csproj",
+      "frameworks": [
+        {
+          "framework": "net10.0",
+          "topLevelPackages": [
+            {
+              "id": "Microsoft.AspNetCore.Mvc.Versioning",
+              "requestedVersion": "5.1.0",
+              "resolvedVersion": "5.1.0",
+              "deprecationReasons": [
+                "Other"
+              ],
+              "alternativePackage": {
+                "id": "Asp.Versioning.Mvc",
+                "versionRange": ">= 0.0.0"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

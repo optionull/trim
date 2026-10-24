@@ -44,6 +44,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "packages" {
+                try await packagesSteps()
+                print("sill check (packages): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "m8" {
                 try await m8Steps()
                 print("sill check (M8): passed")
@@ -266,6 +272,79 @@ final class SelfCheck {
         try shot(of: root, to: path, cursor: true)
         print("sill showcase: saved \(path)")
         fflush(stdout)
+    }
+
+    /// M9's packages (`SILL_CHECK=packages`, run in a copy of Tests/SillCoreTests/Fixtures/PackagesProject, with the
+    /// network: nuget.org and osv.dev): board 3 from the SDK's answers; the worst first, its advisory read; Update
+    /// security and patches edits the project, and the packages read again say what is left; Update on the one left
+    /// moves it to the version its advisory says fixes it. `SILL_CHECK_SHOT` saves the view.
+    private func packagesSteps() async throws {
+        let app = try require(app, "the app")
+        let project = (app.workingDirectory as NSString).appendingPathComponent("Pkgs.csproj")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await session.channel.lua("vim.cmd('SillPackages')")
+        try await wait("the packages pane") { $0.currentPaneKind == "packages" }
+        let view = try await waitFor("the packages view") { app.tools.packages }
+        let started = CACurrentMediaTime()
+        let report = try await waitFor("the SDK's report", timeout: .seconds(240)) {
+            app.packages.scanner.scanning ? nil : app.packages.scanner.report
+        }
+        try expect(report.packages.count == 5, "five packages: \(report.packages.map(\.id))")
+        try expect(Set(report.vulnerable.map(\.id)) == ["Newtonsoft.Json", "System.Text.Json"], "vulnerable")
+        try expect(report.deprecated.map(\.id) == ["Microsoft.AspNetCore.Mvc.Versioning"], "deprecated")
+        try expect(report.outdated.count >= 3, "outdated: \(report.outdated.map(\.id))")
+        step(
+            "the SDK's report in \(Bench.format(CACurrentMediaTime() - started)) s: \(report.vulnerable.count) vulnerable, " +
+                "\(report.outdated.count) outdated, \(report.deprecated.count) deprecated, \(report.packages.count) in all"
+        )
+        let first = try require(view.current, "a package selected")
+        try expect(first.isVulnerable, "the worst first: \(first.id)")
+        _ = try await waitFor("its advisories from osv.dev", timeout: .seconds(30)) {
+            first.vulnerabilities
+                .allSatisfy { app.packages.scanner.advisories[$0.id]?.fixed.isEmpty == false } ? true : nil
+        }
+        step("\(first.id) first, its advisories read: fixed in " +
+            first.vulnerabilities.compactMap { app.packages.scanner.advisories[$0.id]?.fixed.joined(separator: "/") }
+            .joined(separator: ", "))
+        let origin = try await waitFor("how it got here, read off the main thread") {
+            app.packages.scanner.origins[first.id].flatMap { $0.chain.isEmpty ? nil : $0 }
+        }
+        try expect(origin.chain.last == first.id && origin.file == project, "its origin: \(origin)")
+        step("how it got here: \(origin.chain.joined(separator: " → ")), its version in Pkgs.csproj")
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            view.display()
+            try self.shot(to: shot)
+            step("saved \(shot)")
+        }
+
+        let safe = view.safe
+        try expect(safe.count >= 4, "patches to apply: \(safe.map(\.id))")
+        app.packages.update(safe.compactMap { package in package.safeUpdate.map { (package, $0) } })
+        let text = try String(contentsOfFile: project, encoding: .utf8)
+        try expect(
+            text.contains("Include=\"System.Text.Json\" Version=\"8.0.") && !text.contains("Version=\"8.0.3\""),
+            "System.Text.Json patched in the project"
+        )
+        let after = try await waitFor("the packages read again", timeout: .seconds(240)) {
+            !app.packages.scanner.scanning && app.packages.scanner.report != report ? app.packages.scanner.report : nil
+        }
+        try expect(after.vulnerable.map(\.id) == ["Newtonsoft.Json"], "left vulnerable: \(after.vulnerable.map(\.id))")
+        step("Update security and patches moved \(safe.count) packages in Pkgs.csproj; only Newtonsoft.Json is " +
+            "still vulnerable (its fix is a major version)")
+
+        view.scanned()
+        let newtonsoft = try require(after.vulnerable.first, "Newtonsoft.Json")
+        _ = try await waitFor("Newtonsoft's advisory", timeout: .seconds(30)) {
+            newtonsoft.vulnerabilities.allSatisfy { app.packages.scanner.advisories[$0.id]?.fixed.isEmpty == false }
+                ? true : nil
+        }
+        let version = try require(view.update(for: newtonsoft), "an update for it")
+        app.packages.update([(newtonsoft, version)])
+        let fixed = try await waitFor("read again", timeout: .seconds(240)) {
+            !app.packages.scanner.scanning && app.packages.scanner.report != after ? app.packages.scanner.report : nil
+        }
+        try expect(fixed.vulnerable.isEmpty, "nothing vulnerable: \(fixed.vulnerable.map(\.id))")
+        step("Update moves Newtonsoft.Json to \(version), the version its advisory names: nothing vulnerable left")
     }
 
     /// M8's exit (`SILL_CHECK=m8`, run in a copy of Tests/SillSidecarTests/Fixtures/Sample): breakpoints and stepping
@@ -654,6 +733,20 @@ final class SelfCheck {
         try await phase("diagnostics") {
             try await Task.sleep(for: .seconds(5))
         }
+        let packages = try await phase("packages (board 3)") {
+            _ = try await session.channel.lua("vim.cmd('SillPackages')")
+            let report = try await waitFor("the packages", timeout: .seconds(600)) { () -> PackageReport? in
+                if app.packages.scanner.scanning { return nil }
+                return app.packages.scanner.report
+                    ?? app.packages.scanner.problem.map { _ in PackageReport(packages: []) }
+            }
+            try expect(app.packages.scanner.problem == nil, "the packages read: \(app.packages.scanner.problem ?? "")")
+            _ = try await session.channel.lua("vim.cmd('tabclose')")
+            return report
+        }
+        step("the packages: \(packages.packages.count) in all, \(packages.vulnerable.count) vulnerable, " +
+            "\(packages.outdated.count) outdated, \(packages.deprecated.count) deprecated; " +
+            "\(app.packages.scanner.problems.count) projects the SDK could not read")
         // SILL_CHECK_CLEAN=1: dotnet clean first, so ⌘B compiles everything and its warnings stream in.
         if ProcessInfo.processInfo.environment["SILL_CHECK_CLEAN"] == "1" {
             let directory = app.workingDirectory
@@ -1291,12 +1384,14 @@ final class SelfCheck {
                 .count == changes ? true : nil
         }
         step("source control lists git's \(changes) changes")
+        // Packages is a tab of its own (board 3), not a sidebar view.
         root.activityBar.onSelect?(.packages)
-        try await waitFor("the packages view") { tools.sidebar.activity == .packages ? true : nil }
-        try expect(root.activityBar.selected == .packages, "packages selected")
+        try await wait("the packages pane") { $0.currentPaneKind == "packages" }
+        _ = try await session.channel.lua("vim.cmd('tabclose')")
+        try await wait("the editor again") { $0.currentPaneKind != "packages" }
         root.activityBar.onSelect?(.explorer)
         try await waitFor("the explorer again") { tools.sidebar.activity == .explorer ? true : nil }
-        step("the activity bar switches the sidebar between its views")
+        step("the activity bar switches the sidebar between its views; packages opens its tab")
 
         // Problems: a diagnostic in the panel, opened from it.
         _ = try await session.channel.lua("""

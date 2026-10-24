@@ -233,15 +233,19 @@ function M.open_pane(kind, mods)
   return win
 end
 
---- The profile pane: the one open, wherever it is, else a new one in a tab page of its own.
-function M.show_profile()
+--- A pane that takes a tab page (the profiler, the packages): the one open, wherever it is, else a new one.
+function M.show_pane(kind)
   for _, win in ipairs(vim.api.nvim_list_wins()) do
-    if vim.b[vim.api.nvim_win_get_buf(win)].sill_kind == 'profile' then
+    if vim.b[vim.api.nvim_win_get_buf(win)].sill_kind == kind then
       vim.api.nvim_set_current_win(win)
       return win
     end
   end
-  return M.open_pane('profile', 'tab')
+  return M.open_pane(kind, 'tab')
+end
+
+function M.show_profile()
+  return M.show_pane('profile')
 end
 
 -- :SillTerminal opens a terminal pane. Modifiers place it as they place :new (:vertical SillTerminal,
@@ -541,6 +545,11 @@ function M.setup()
   end, { desc = 'Show or hide the base of a merge' })
   -- The .slnx and the folders on disk (owner, 2026-10-23): sync shows the solution rewritten so its folders follow the
   -- disk, as a diff; apply writes it.
+  -- The solution's packages (board 3, M9): vulnerable, outdated, deprecated.
+  vim.api.nvim_create_user_command('SillPackages', function()
+    M.show_pane('packages')
+    notify('sill_packages', 'show')
+  end, { desc = "The solution's packages: vulnerable, outdated, deprecated" })
   vim.api.nvim_create_user_command('SillSlnx', function(opts)
     notify('sill_slnx', opts.args ~= '' and opts.args or 'sync')
   end, {

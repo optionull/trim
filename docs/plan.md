@@ -119,7 +119,7 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 | M6 (done) | .NET profiler in sidecar, Razor | CPU and heap diff on a sample app |
 | M7 (done) | Rust and Swift profiling, remaining language servers | samply and xctrace sessions viewable |
 | M8 (done) | Debugger (DAP) | Breakpoints and stepping in C# |
-| M9 | Polish: diff/merge tool modes, packages view, settings, Sparkle updates | Beta release |
+| M9 (started) | Polish: diff/merge tool modes, packages view, settings, Sparkle updates | Beta release |
 
 ### M2
 
@@ -272,7 +272,7 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   time, total and hot path, and the payload an agent would get. The profile is M0's synthetic one; Timeline, Call
   tree, Allocations and Heap diff say they come with M6. Pane buffers have names ("Terminal 2", "Profile") for the
   tab line.
-- Still placeholders: packages (board 3, M3's .NET work). Sessions (boards 2 and 9) are M5's thin list over heed,
+- Still placeholders: packages (board 3, M3's .NET work; built in M9). Sessions (boards 2 and 9) are M5's thin list over heed,
   as decided, not the boards' full session UI.
 - No swap files (owner, 2026-10-23): sill always starts nvim with `-n`, whatever a config sets. Quitting (⌘Q or
   closing the window) with unsaved changes asks: Save All, Don't Save, or Cancel.
@@ -406,6 +406,24 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     end, and kills what outlives its time; the servers check passed four runs out of four after, in 5 to 7 s.
   - Not done: conditional and function breakpoints in the UI (the adapter has them), the expression evaluator (watch,
     hover), exceptions, attaching to a running process, Rust and Swift (lldb-dap).
+- M9, started 2026-10-24 without signing, Sparkle or a release (owner: "no releases yet"). Packages (board 3) done:
+  `PackageScanner` restores the solution (the .slnx, else the .sln, else the first project) and asks the SDK
+  `dotnet list package --include-transitive --format json`, plain, `--vulnerable` and `--deprecated`, in parallel;
+  what it could read is kept when it exits with an error over a project it could not (its problems are counted in the
+  footer). Newer versions come from nuget.org's flat container index, not `--outdated`: the SDK's `--outdated` fails
+  with "Sequence contains no matching element" on docs-builder.slnx and on 43 of its 59 projects one by one. A stable
+  install is compared with stable versions; the newest patch is the newest with the same major and minor. Advisories
+  (summary, fixed versions) come from osv.dev by GHSA id. "How it got here" is the shortest chain in the project's
+  `project.assets.json` (obj or artifacts/obj), read off the main thread once per package. Update writes
+  `PackageVersion` in Directory.Packages.props, else the project's `PackageReference` (attribute or child element),
+  else adds one for a transitive package; open buffers read again, the solution is read again.
+  - `SILL_CHECK=packages` in a copy of Tests/SillCoreTests/Fixtures/PackagesProject: the report in 2 s (2 vulnerable,
+    4 outdated, 1 deprecated), Newtonsoft.Json first with "fixed in 13.0.1"; Update security and patches moves 4;
+    Update moves Newtonsoft.Json to 13.0.1, leaving nothing vulnerable.
+  - On docs-builder (`SILL_CHECK=project`): 327 packages, 1 vulnerable, 283 outdated, 4 deprecated, in 37 s (restore,
+    the SDK and 327 index reads); the main thread's worst was 23 ms. The first version stalled it 725 ms: the side
+    panel read project.assets.json on every draw, and the report's lists were sorted again on every draw.
+  - Next in M9: the merge and diff tool hardened (exit codes for `git mergetool`, conflict kinds), then settings.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

@@ -90,6 +90,16 @@ variables. F10 steps over, F11 in, Shift-F11 out, F5 continues, Shift-F5 stops (
 
 ![Paused at a breakpoint: the line marked, the call stack and the variables in the Debug tab](docs/showcase-debugger-2026-10-24.png)
 
+## Packages
+
+The activity bar's packages (`:SillPackages`) reads the solution's NuGet packages with the SDK (`dotnet list package`):
+vulnerable ones first, with the advisory and the version that fixes it (from osv.dev), then deprecated and outdated
+ones (their newest versions from nuget.org). Update moves one to its fix or its newest patch in the file that says its
+version (Directory.Packages.props or the project); Update security and patches does every one at once; Ask agent hands
+it to an agent to update and run the tests. j/k move, 1 to 5 filter, u updates, a asks, r reads again.
+
+![The packages of a sample project: two vulnerable, one deprecated, Newtonsoft.Json selected with its advisory, how it got there and Update to 13.0.1](docs/showcase-packages-2026-10-24.png)
+
 ## Language servers
 
 Beside Roslyn, sill starts rust-analyzer, sourcekit-lsp, marksman, the HTML, CSS and JSON servers and TypeScript's own

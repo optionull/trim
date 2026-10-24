@@ -247,6 +247,9 @@ Fetched on the user's machine into `~/Library/Caches/sill`, at pinned versions, 
 MIT or Apache-2.0), marksman 2026-02-08 (https://github.com/artempyanykh/marksman, MIT), and with npm
 vscode-langservers-extracted 4.10.0 (MIT) and TypeScript 7.0.2 (Apache-2.0).
 
+Services the packages view asks (data, not code): osv.dev (https://osv.dev, advisories by id) and nuget.org's
+package index (https://api.nuget.org/v3-flatcontainer, each package's versions).
+
 The debugger's packages, all MIT: Microsoft.CodeAnalysis.CSharp (https://github.com/dotnet/roslyn),
 MP.Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.ExpressionCompiler (Roslyn's expression evaluator as published by
 https://github.com/MattParkerDev/roslyn), ICSharpCode.Decompiler (https://github.com/icsharpcode/ILSpy), ZLinq

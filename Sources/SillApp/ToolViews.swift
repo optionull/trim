@@ -19,6 +19,10 @@ final class ToolPanes {
     /// The profiler, made the first time a profile pane opens or a run starts (the synthetic profile takes a moment to
     /// build).
     private(set) var profile: ProfileView?
+    /// The packages (board 3), made the first time their pane opens.
+    private(set) var packages: PackagesView?
+    var makePackages: (() -> PackagesView)?
+
     /// Called with the profiler the first time it is made.
     var onProfileMade: ((ProfileView) -> Void)?
 
@@ -60,6 +64,19 @@ final class ToolPanes {
                 view.isHidden = true
             }
         }
+        if let rect = screen.paneRects.first(where: { $0.kind == "packages" }), let make = makePackages {
+            let view = packages ?? {
+                let made = make()
+                editor.addSubview(made)
+                packages = made
+                return made
+            }()
+            view.frame = editor.rect(row: rect.row, col: rect.col, width: rect.width, height: rect.height)
+            view.isHidden = false
+            covered.insert(rect.grid)
+        } else {
+            packages?.isHidden = true
+        }
         if let rect = screen.paneRects.first(where: { $0.kind == "profile" }) {
             let view = profileView()
             view.frame = editor.rect(row: rect.row, col: rect.col, width: rect.width, height: rect.height)
@@ -80,6 +97,7 @@ final class ToolPanes {
         case "sidebar": sidebar.handleKey(event)
         case "panel": panel.handleKey(event)
         case "profile": profile?.handleKey(event) ?? false
+        case "packages": packages?.handleKey(event) ?? false
         default: false
         }
     }
