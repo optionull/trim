@@ -22,6 +22,9 @@ final class ToolPanes {
     /// The packages (board 3), made the first time their pane opens.
     private(set) var packages: PackagesView?
     var makePackages: (() -> PackagesView)?
+    /// The walkthrough pane, made the first time it opens.
+    private(set) var walk: WalkView?
+    var makeWalk: (() -> WalkView)?
     /// The review pane, made the first time it opens.
     private(set) var review: ReviewView?
     var makeReview: (() -> ReviewView)?
@@ -80,6 +83,19 @@ final class ToolPanes {
         } else {
             packages?.isHidden = true
         }
+        if let rect = screen.paneRects.first(where: { $0.kind == "walk" }), let make = makeWalk {
+            let view = walk ?? {
+                let made = make()
+                editor.addSubview(made)
+                walk = made
+                return made
+            }()
+            view.frame = editor.rect(row: rect.row, col: rect.col, width: rect.width, height: rect.height)
+            view.isHidden = false
+            covered.insert(rect.grid)
+        } else {
+            walk?.isHidden = true
+        }
         if let rect = screen.paneRects.first(where: { $0.kind == "review" }), let make = makeReview {
             let view = review ?? {
                 let made = make()
@@ -115,6 +131,7 @@ final class ToolPanes {
         case "profile": profile?.handleKey(event) ?? false
         case "packages": packages?.handleKey(event) ?? false
         case "review": review?.handleKey(event) ?? false
+        case "walk": walk?.handleKey(event) ?? false
         default: false
         }
     }

@@ -49,6 +49,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "walk" {
+                try await walkSteps()
+                print("sill check (walkthroughs): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "review" {
                 try await reviewSteps()
                 print("sill check (review): passed")
@@ -860,6 +866,105 @@ final class SelfCheck {
             throw CheckFailure(description: "no turn baseline: \(reviewer.baselines.map(\.name)) (\(before) before)")
         }
         step("an agent's turn ending takes a baseline: \(reviewer.baselines.map(\.name).joined(separator: ", "))")
+    }
+
+    /// Walkthroughs (`SILL_CHECK=walk`, in a git copy of Tests/SillSidecarTests/Fixtures/Debuggee, SILL_AGENT=echo,
+    /// CFFIXED_USER_HOME a scratch folder): a walkthrough's anchors found by Roslyn (one that names nothing reported),
+    /// opened at a step through MCP, a question sent to the agent and its answer written back, and the skill installed.
+    private func walkSteps() async throws {
+        let app = try require(app, "the app")
+        let walker = try require(app.walker, "the walker")
+        let root = app.workingDirectory
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        let program = root + "/Program.cs"
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(program)])
+        try await wait("Roslyn ready", timeout: .seconds(300)) { $0.languageServers["Roslyn"] == "ready" }
+        let path = root + "/tour.walk.md"
+        try """
+        ---
+        title: How the debuggee runs
+        for: Debuggee.csproj
+        ---
+        A short tour.
+
+        ## Pricing
+        The total of an order: `seed` times each step.
+        @code Pricing.Total
+        @ask Why multiply by the seed?
+
+        ## The clock
+        @code Clock.Tick lines 1-3
+
+        ## The project
+        @code Debuggee.csproj:1
+        @code Missing.Thing
+        """.write(toFile: path, atomically: true, encoding: .utf8)
+
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        // Roslyn may still be loading the project: check until Pricing.Total is found.
+        var checked = ""
+        for _ in 0 ..< 30 {
+            checked = try await agent.call("walkthrough_check", ["path": path])
+            if checked.hasPrefix("1 of 4 anchors not found") { break }
+            try await Task.sleep(for: .seconds(1))
+        }
+        try expect(checked.contains("Missing.Thing") && checked.hasPrefix("1 of 4"), "only the missing one: \(checked)")
+        step("walkthrough_check finds Pricing.Total, Clock.Tick and Debuggee.csproj, and reports Missing.Thing")
+
+        _ = try await agent.call("walkthrough_open", ["path": path, "step": 1])
+        try await wait("the walkthrough pane") { $0.currentPaneKind == "walk" }
+        let view = try await waitFor("the walk view") { app.tools.walk }
+        let total = try await waitFor("Pricing.Total found", timeout: .seconds(20)) { walker.found[safe: 0]?[1] }
+        try expect(
+            total.path == program && total.lines.first?.contains("Total(int seed)") == true &&
+                total.lines.last?.trimmingCharacters(in: .whitespaces) == "}" && total.by.hasPrefix("roslyn"),
+            "Pricing.Total whole, found by Roslyn: \(total)"
+        )
+        step(
+            "walkthrough_open shows step 1: Pricing.Total, lines \(total.from)–\(total.to) of Program.cs, by \(total.by)"
+        )
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            view.display()
+            try self.shot(to: shot)
+            step("saved \(shot)")
+        }
+
+        // The step's question to the agent, and its answer written back.
+        walker.ask(line: 10)
+        try await wait("the agent's pane", timeout: .seconds(10)) { $0.paneRects.contains { $0.kind == "terminal" } }
+        _ = try await agent.call("walkthrough_answer", [
+            "path": path,
+            "line": 10,
+            "answer": "So each order's total grows with its seed.",
+        ])
+        _ = try await waitFor("the answer shown", timeout: .seconds(10)) { () -> Bool? in
+            guard case let .ask(_, answer, _)? = walker.walk?.steps[0].blocks.last else { return nil }
+            return answer == "So each order's total grows with its seed." ? true : nil
+        }
+        let file = try String(contentsOfFile: path, encoding: .utf8)
+        try expect(
+            file.contains("@ask Why multiply by the seed?\n> So each order's total grows with its seed."),
+            "written under the question: \(file)"
+        )
+        step("the question went to the agent; walkthrough_answer wrote its answer under it, and the pane shows it")
+
+        walker.go(to: 1)
+        let tick = try await waitFor("Clock.Tick") { walker.found[safe: 1]?[0] }
+        try expect(tick.lines.count == 3 && tick.lines[0].contains("Tick(int tick)"), "Clock.Tick lines 1-3: \(tick)")
+        _ = try await session.channel.lua("vim.cmd('SillWalk skill')")
+        let skill = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
+            ".claude/skills/sill-walkthrough/SKILL.md"
+        ).path
+        _ = try await waitFor("the skill installed", timeout: .seconds(10)) {
+            FileManager.default.fileExists(atPath: skill) ? true : nil
+        }
+        step("step 2 shows Clock.Tick's first three lines; :SillWalk skill installed the skill at \(skill)")
     }
 
     private func m8Steps() async throws {

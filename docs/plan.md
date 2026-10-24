@@ -539,6 +539,20 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     slow snapshot could take a later moment's worktree under its own name (one run in the full chain); they are
     now taken in the order asked. Unit tests on a real repository (the index
     unchanged, a log ignored, a hunk taken back twice failing the second time). Dropping `-R` fails them.
+- Walkthroughs (2026-10-24; the owner chose: any `*.walk.md`, symbol anchors first with file and lines as the
+  fallback, answers written into the file). `SillCore.Walkthrough` parses front matter (`title`, `for`), `##` steps,
+  prose, `@code` anchors (`Type.Member`, optionally `lines a-b` of it; a path, optionally `:a-b`) and `@ask`
+  questions with their `>` answers, and writes an answer under its question. `sill.walk` finds anchors: a symbol
+  through the running servers' `workspace/symbol` (Roslyn's container reads `in Pricing (project …)`), else its
+  declaration by `git grep`; the excerpt runs to where its braces close or its indentation ends. The pane shows
+  each step with its live code, stale anchors in red, and Ask the agent; the prompt names the walkthrough and the
+  question's line, and `walkthrough_answer` writes the answer back. The skill ships in the app's runtime
+  (`runtime/skills/sill-walkthrough`), `:SillWalk skill` copies it to `~/.claude/skills`.
+  - `SILL_CHECK=walk` (a git copy of Debuggee; CFFIXED_USER_HOME a scratch home): walkthrough_check finds
+    Pricing.Total, Clock.Tick and Debuggee.csproj by Roslyn and reports Missing.Thing; walkthrough_open at step 1
+    shows Program.cs 20–25; the question went to the agent and walkthrough_answer wrote the answer under it; the
+    skill installed. Without a server the text fallback finds the same lines. Found on the way: git grep's
+    extended expressions have no `\b` or `\s`. Unit tests for the format and the write-back.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

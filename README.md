@@ -135,6 +135,28 @@ it to an agent to update and run the tests. j/k move, 1 to 5 filter, u updates, 
 
 ![The packages of a sample project: two vulnerable, one deprecated, Newtonsoft.Json selected with its advisory, how it got there and Update to 13.0.1](docs/showcase-packages-2026-10-24.png)
 
+## Walkthroughs
+
+A walkthrough is a Markdown file ending in `.walk.md`, anywhere, that walks someone through code: `## steps` of prose,
+`@code` anchors (a symbol such as `Pricing.Total`, found by the language server so it survives edits, or a file and
+lines) and `@ask` questions. `:SillWalk` opens one: the steps beside the code each anchor points at now, an anchor
+that no longer resolves flagged. Ask the agent about a step and its answer is written into the file under the
+question. Agents write them with the sill-walkthrough skill (`:SillWalk skill` installs it in `~/.claude/skills`) and
+use `walkthrough_check`, `walkthrough_open` and `walkthrough_answer` through sill's MCP server.
+
+```markdown
+---
+title: How an order reaches the database
+for: Orders.slnx
+---
+## Pricing
+The total of an order: `seed` times each step.
+@code Pricing.Total
+@ask Why multiply by the seed?
+```
+
+![A walkthrough's first step: its prose, Pricing.Total as it is now, and a question to ask the agent](docs/showcase-walkthrough-2026-10-24.png)
+
 ## Reviewing what an agent changed
 
 `:SillReview` shows what changed since a baseline: the files with their counts, and each change to keep, take back

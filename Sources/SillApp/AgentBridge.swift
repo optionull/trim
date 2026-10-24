@@ -109,7 +109,92 @@ final class AgentBridge {
             ) { [weak self] arguments in
                 await self?.callOpen(arguments) ?? gone
             },
-        ] + debugTools(gone) + profileTools(gone)
+        ] + debugTools(gone) + profileTools(gone) + walkTools(gone)
+    }
+
+    // MARK: Walkthroughs
+
+    private struct WalkArguments: Decodable {
+        var path: String?
+        var step: Int?
+        var line: Int?
+        var answer: String?
+    }
+
+    private nonisolated static func walkArguments(_ data: Data) -> WalkArguments {
+        (try? JSONDecoder().decode(WalkArguments.self, from: data)) ?? WalkArguments()
+    }
+
+    private func walkTools(_ gone: ToolResult) -> [Tool] {
+        [
+            Tool(
+                name: "walkthrough_check",
+                description: "Reads a walkthrough (*.walk.md) as sill does and finds each " +
+                    "@code anchor in the code; answers with the anchors not found. Check one after writing it.",
+                properties: ["path": ["type": "string"]],
+                required: ["path"]
+            ) { [weak self] data in
+                await self?.call("walkthrough_check") { bridge in
+                    guard let path = Self.walkArguments(data).path.map(bridge.absolute),
+                          let walker = bridge.app?.walker
+                    else {
+                        return ToolResult("walkthrough_check needs a path", isError: true)
+                    }
+                    guard let source = try? String(contentsOfFile: path, encoding: .utf8) else {
+                        return ToolResult("No file at \(path)", isError: true)
+                    }
+                    let walk = Walkthrough(source)
+                    let shown = walker.path
+                    walker.open(path)
+                    let problems = await walker.read()
+                    if let shown, shown != path { walker.open(shown) }
+                    let anchors = walk.steps.flatMap(\.blocks)
+                        .count(where: { if case .code = $0 { true } else { false } })
+                    return problems.isEmpty ?
+                        ToolResult("\(walk.steps.count) steps, \(anchors) anchors, all found.") :
+                        ToolResult(
+                            "\(problems.count) of \(anchors) anchors not found:\n" +
+                                problems.joined(separator: "\n"),
+                            isError: true
+                        )
+                } ?? gone
+            },
+            Tool(
+                name: "walkthrough_open",
+                description: "Opens a walkthrough in sill for the person, at a step " +
+                    "(1-based), to walk them through it.",
+                properties: ["path": ["type": "string"], "step": ["type": "integer"]],
+                required: ["path"]
+            ) { [weak self] data in
+                await self?.call("walkthrough_open") { bridge in
+                    let asked = Self.walkArguments(data)
+                    guard let path = asked.path.map(bridge.absolute), let walker = bridge.app?.walker else {
+                        return ToolResult("walkthrough_open needs a path", isError: true)
+                    }
+                    walker.open(path, step: max((asked.step ?? 1) - 1, 0))
+                    return ToolResult("Opened \(path) at step \(asked.step ?? 1).")
+                } ?? gone
+            },
+            Tool(
+                name: "walkthrough_answer",
+                description: "Writes your answer under a question in a walkthrough: " +
+                    "the path and the question's line, as the request named them.",
+                properties: ["path": ["type": "string"], "line": ["type": "integer"], "answer": ["type": "string"]],
+                required: ["path", "line", "answer"]
+            ) { [weak self] data in
+                await self?.call("walkthrough_answer") { bridge in
+                    let asked = Self.walkArguments(data)
+                    guard let path = asked.path.map(bridge.absolute), let line = asked.line,
+                          let answer = asked.answer,
+                          let walker = bridge.app?.walker
+                    else {
+                        return ToolResult("walkthrough_answer needs a path, a line and an answer", isError: true)
+                    }
+                    return await walker.answer(path: path, line: line, answer) ?
+                        ToolResult("Written under line \(line).") : ToolResult("No file at \(path)", isError: true)
+                } ?? gone
+            },
+        ]
     }
 
     // MARK: Debugging and profiling, seen live in sill

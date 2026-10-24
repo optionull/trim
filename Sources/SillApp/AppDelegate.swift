@@ -67,6 +67,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         debugger = Debugger(app: self, channel: session.channel, directory: workingDirectory)
         packages = Packages(app: self, channel: session.channel, directory: workingDirectory)
         reviewer = Reviewer(app: self, channel: session.channel, directory: workingDirectory)
+        walker = Walker(app: self, channel: session.channel, directory: workingDirectory)
+        tools.makeWalk = { [weak self] in
+            guard let self else { fatalError("the app is gone") }
+            let view = WalkView(walker: walker)
+            walker.onChange = { [weak view] in view?.changed() }
+            return view
+        }
         tools.makeReview = { [weak self] in
             guard let self else { fatalError("the app is gone") }
             let view = ReviewView(reviewer: reviewer)
@@ -225,6 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var debugger: Debugger!
     private(set) var packages: Packages!
     private(set) var reviewer: Reviewer!
+    private(set) var walker: Walker!
     /// Roslyn's provisioning: what the status bar says while it downloads.
     private(set) var roslynStatus: String?
     private(set) var roslyn: RoslynServer?
@@ -250,6 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         debugger.update(screen)
         packages.update(screen)
         reviewer.update(screen)
+        walker.update(screen)
         // Turns come from heed's sessions: without heed there are none to follow.
         if agents.sessions != nil { reviewer.follow(agents.sessionHere.map { ($0.state, $0.title) }) }
         if let ask = screen.slnxAsk, ask.serial != slnxAskSeen {
