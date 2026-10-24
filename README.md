@@ -172,8 +172,8 @@ from sill, build output and what git ignores are not followed.
 
 A walkthrough is a Markdown file ending in `.walk.md`, anywhere, that walks someone through code: `## steps` of prose,
 `@code` anchors (a symbol such as `Pricing.Total`, found by the language server so it survives edits, or a file and
-lines) and `@ask` questions. `:SillWalk` opens one: the steps beside the code each anchor points at now, an anchor
-that no longer resolves flagged. Ask the agent about a step and its answer is written into the file under the
+lines) and `@ask` questions. `:SillWalk` opens one as a notebook: one scrolling document with an outline, the code each anchor points at now
+(an anchor that no longer resolves flagged), `@diff` for a change and `@example` for a script that runs in place. Ask the agent about a step and its answer is written into the file under the
 question. Agents write them with the sill-walkthrough skill (`:SillWalk skill` installs it in `~/.claude/skills`) and
 use `walkthrough_check`, `walkthrough_open` and `walkthrough_answer` through sill's MCP server.
 
@@ -200,6 +200,13 @@ nvim's diff. A baseline is a git tree of the worktree written through a temporar
 left alone.
 
 ![Review: a.txt's two changes since sill opened, each to keep, take back or comment on](docs/showcase-review-2026-10-24.png)
+
+Walkthrough (`w`) asks the agent for a walkthrough of the changes to review: a throwaway notebook inside the
+repository's `.git` that goes through them by idea, with each part's diff and usage examples of what changed as
+isolated scripts (a .NET 10 file-based app referencing the changed project, or a TypeScript, Python, Rust or Swift
+script). It opens as one scrolling document with an outline; Run runs an example in place, its output under it.
+
+![A review walkthrough: the outline, a section's diff, the changed method](docs/showcase-review-walkthrough-2026-10-25.png)
 
 ## An agent debugging and profiling, in view
 

@@ -201,6 +201,60 @@ final class Reviewer {
         changed()
     }
 
+    // MARK: A walkthrough of the changes
+
+    /// The last walkthrough asked for: where the agent is to write it.
+    private(set) var walkthroughAsked: String?
+
+    /// Asks the agent for a walkthrough of the changes since the baseline: a throwaway notebook (inside the
+    /// repository's .git, never committed) that goes through them at a high level, their diffs, and examples of what
+    /// changed as isolated scripts it can run.
+    func askForWalkthrough() {
+        guard let base = baseline, let agents = app?.agents else { return }
+        let directory = directory, files = files
+        Task {
+            let (gitDir, now) = await Task.detached {
+                (
+                    Review.git(["rev-parse", "--absolute-git-dir"], in: directory)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines),
+                    Review.snapshot(in: directory)
+                )
+            }.value
+            guard let gitDir, let now else { return }
+            let stamp = Date()
+                .formatted(.iso8601.year().month().day().dateSeparator(.omitted).time(includingFractionalSeconds: false)
+                    .timeSeparator(.omitted)).replacingOccurrences(of: "T", with: "-").replacingOccurrences(
+                    of: "Z",
+                    with: ""
+                )
+            let folder = gitDir + "/sill/reviews/" + stamp
+            try? FileManager.default.createDirectory(atPath: folder + "/examples", withIntermediateDirectories: true)
+            let path = folder + "/review.walk.md"
+            walkthroughAsked = path
+            let list = files.map { "  \($0.status.rawValue) \($0.path) +\($0.added) −\($0.removed)" }
+                .joined(separator: "\n")
+            agents.send(headline: "Write a review walkthrough of the changes since \(base.name)", """
+            Write a walkthrough of the changes made since \(base
+                .name), for the person to review them: what changed and \
+            why it matters, at a high level, in the order a reviewer should read it, one section per idea (not per file).
+
+            The changes are `git diff \(base.tree) \(now)` in \(directory) (git trees of the worktree then and now):
+            \(list)
+
+            Follow the sill-walkthrough skill's review form. Write \(path) with `base: \(base.tree)` in its front \
+            matter; show the part of a change a section is about with `@diff <path from the repository's root>`, code \
+            it relates to with `@code Symbol`, and usage examples of what changed as isolated scripts in \
+            \(folder)/examples, each printing what it shows, referenced with `@example examples/<file>`: for C# a .NET \
+            10 file-based app (`#:project <path to the .csproj, relative to the script>` at its top, run with `dotnet \
+            run file.cs`); TypeScript a .ts file node runs; Python a script with PEP 723 metadata; Rust cargo's script \
+            format (a `---cargo` manifest at its top); Swift a script. It is a throwaway for this review: keep it short.
+
+            Then call sill's walkthrough_check with its path (it runs the examples), fix what it reports, and call \
+            walkthrough_open.
+            """)
+        }
+    }
+
     /// Reviews sent, for the self-check.
     private(set) var sentReviews = 0
 

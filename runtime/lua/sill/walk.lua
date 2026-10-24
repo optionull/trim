@@ -60,8 +60,8 @@ local function extent(lines, line)
       opened = true
     end
     if opened and depth <= 0 then return i end
-    -- An arrow body ends with its semicolon.
-    if not opened and text:find(';%s*$') and i > line then return i end
+    -- An arrow body (or a field) ends with its semicolon, on its first line or a later one.
+    if not opened and text:find(';%s*$') then return i end
   end
   if not opened then
     local indent = #(lines[line]:match('^%s*'))
@@ -75,8 +75,11 @@ end
 --- Finds each anchor: { kind = 'symbol'|'file', name, from, to } (from/to lines of the symbol or the file), relative
 --- paths to `folder`. Answers { path, from, to, by } for each, or { problem } when it is not found.
 function M.resolve(anchors, folder)
-  local root = vim.fn.systemlist({ 'git', '-C', folder, 'rev-parse', '--show-toplevel' })[1] or folder
-  if vim.v.shell_error ~= 0 then root = folder end
+  -- A review's walkthrough lives inside .git: its repository is the worktree around that.
+  local inside = folder:find('/.git/', 1, true)
+  local root = inside and folder:sub(1, inside - 1)
+    or vim.fn.systemlist({ 'git', '-C', folder, 'rev-parse', '--show-toplevel' })[1] or folder
+  if not inside and vim.v.shell_error ~= 0 then root = folder end
   local out = {}
   for i, anchor in ipairs(anchors) do
     local path, line, by
@@ -122,6 +125,11 @@ function M.find(folder)
     found = vim.fs.find(function(name) return name:match('%.walk%.md$') end, { path = folder, type = 'file', limit = 200 })
   else
     found = vim.tbl_map(function(p) return folder .. '/' .. p end, found)
+  end
+  -- Reviews' walkthroughs: throwaways inside the repository's .git.
+  local git_dir = vim.fn.systemlist({ 'git', '-C', folder, 'rev-parse', '--absolute-git-dir' })[1]
+  if vim.v.shell_error == 0 and git_dir then
+    vim.list_extend(found, vim.fn.glob(git_dir .. '/sill/reviews/*/*.walk.md', false, true))
   end
   table.sort(found)
   return vim.fn.uniq(found)

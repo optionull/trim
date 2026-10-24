@@ -121,7 +121,11 @@ public enum Review {
     }
 
     /// git's output, or nil when it failed.
-    static func git(_ arguments: [String], in directory: String, environment: [String: String] = [:]) -> String? {
+    public static func git(
+        _ arguments: [String],
+        in directory: String,
+        environment: [String: String] = [:]
+    ) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git"] + arguments

@@ -41,13 +41,37 @@ What happens here, in a few sentences. Name things in `code spans`.
 - **Questions:** `@ask <question>` on its own line marks a question worth asking about the step. When one is asked,
   the answer is written right under it as a `>` quote. Don't write answers yourself unless asked.
 
+## A review walkthrough
+
+When sill asks for a walkthrough of changes to review, it names the baseline tree, the file to write (inside the
+repository's `.git`: a throwaway, never committed) and its `examples` folder. Then:
+
+- **Front matter:** `base: <tree>` as sill gave it; the `@diff`s compare it with the worktree.
+- **Sections:** one per idea of the change, not per file, in the order a reviewer should read them: what it does,
+  why, what to look at closely. Keep it short.
+- **`@diff <path>`** (from the repository's root) shows that file's change under the section about it.
+- **`@example examples/<file>`** embeds a usage example: an isolated script beside the walkthrough that exercises
+  what changed and prints what it shows. The person runs it in place; `walkthrough_check` runs them all.
+  - C#: a .NET 10 file-based app, `examples/total.cs`:
+    ```csharp
+    #:project ../../../../../src/Orders/Orders.csproj
+    using Orders;
+    Console.WriteLine($"Total(4) = {Pricing.Total(4)}");
+    ```
+    (`#:project` is relative to the script; `#:package Name@Version` brings a package.)
+  - TypeScript: `examples/total.ts`, run by node (types are stripped); import the code with a relative path
+    ending in `.ts`.
+  - Python: a script with PEP 723 metadata (`# /// script` … `# ///`) for what it needs.
+  - Rust: cargo's script format, a `---cargo` manifest with `[dependencies] crate = { path = "…" }` at its top.
+  - Swift: a script `swift` runs.
+
 ## When you write one
 
 1. Read the code first and choose the path through it a newcomer needs. Usually that's an entry point, then the
    main flow, then the one or two places where the interesting decisions are.
 2. Write the file.
 3. If sill's MCP tools are available, call `walkthrough_check` with its path and fix every anchor it reports as not
-   found. Then call `walkthrough_open` so the person sees it.
+   found and every example that fails. Then call `walkthrough_open` so the person sees it.
 4. Tell the person the path, and that `:SillWalk` in sill opens it.
 
 When sill asks you a question on a step, it gives you the step, its code, the walkthrough's path and the question's

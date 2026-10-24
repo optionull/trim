@@ -75,3 +75,25 @@ struct WalkthroughTests {
         #expect(replaced.contains("## Pricing\n@code Pricing.Total lines 3-9"), "the rest untouched")
     }
 }
+
+@Suite("review walkthroughs")
+struct ReviewWalkthroughTests {
+    @Test("a review's base, and its diffs and examples")
+    func review() {
+        let walk = Walkthrough("""
+        ---
+        title: Review: pricing by seed
+        base: 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+        ---
+        ## What changed
+        Total now scales with the seed.
+        @diff src/Orders/Pricing.cs
+        @example examples/total.cs
+        """)
+        #expect(walk.base == "4b825dc642cb6eb9a060e54bf8d69288fbee4904")
+        #expect(walk.steps[0].blocks == [
+            .prose("Total now scales with the seed."), .diff("src/Orders/Pricing.cs", line: 7),
+            .example("examples/total.cs", line: 8),
+        ])
+    }
+}

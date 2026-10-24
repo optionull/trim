@@ -68,6 +68,12 @@ final class SelfCheck {
                 fflush(stdout)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "reviewwalk" {
+                try await reviewWalkSteps()
+                print("sill check (review walkthrough): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "walk" {
                 try await walkSteps()
                 print("sill check (walkthroughs): passed")
@@ -1179,6 +1185,114 @@ final class SelfCheck {
         _ = try await session.channel.lua("vim.cmd('SillTelemetry stop')")
         _ = try await waitFor("stopped", timeout: .seconds(10)) { watch.run == nil ? true : nil }
         step(":SillTelemetry stop ends it; the shop goes on running: \(shop.isRunning)")
+    }
+
+    /// A review walkthrough (`SILL_CHECK=reviewwalk`, in a git copy of Tests/SillSidecarTests/Fixtures/Orders,
+    /// SILL_AGENT=echo): the agent's change reviewed, a walkthrough of it asked for (a throwaway inside .git), written
+    /// as the agent would (a diff, a symbol, a .NET 10 script using the changed library), checked through MCP (its
+    /// example run), and read as a notebook: one scroll, an outline, the example run in place.
+    private func reviewWalkSteps() async throws {
+        let app = try require(app, "the app")
+        let reviewer = try require(app.reviewer, "the reviewer")
+        let walker = try require(app.walker, "the walker")
+        let root = app.workingDirectory
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await waitFor("the baseline", timeout: .seconds(10)) { reviewer.baselines.first }
+        // The agent's change.
+        try """
+        namespace Orders;
+
+        /// <summary>An order's price.</summary>
+        public static class Pricing
+        {
+            public static double Total(int seed) => seed * 3.5;
+
+            public static double Discounted(int seed, double off) => Total(seed) * (1 - off);
+        }
+        """.write(toFile: root + "/Pricing.cs", atomically: true, encoding: .utf8)
+        _ = try await session.channel.lua("vim.cmd('SillReview')")
+        _ = try await waitFor("the change", timeout: .seconds(10)) {
+            reviewer.files.map(\.path) == ["Pricing.cs"] ? true : nil
+        }
+        reviewer.askForWalkthrough()
+        let path = try await waitFor("the walkthrough asked for", timeout: .seconds(10)) { reviewer.walkthroughAsked }
+        try await wait("the agent's pane", timeout: .seconds(10)) { $0.paneRects.contains { $0.kind == "terminal" } }
+        let prompt = try require(app.agents.lastPrompt, "the prompt")
+        let base = try require(reviewer.baselines.first?.tree, "the base")
+        try expect(
+            path.contains("/.git/sill/reviews/") && prompt.contains("git diff \(base) ") &&
+                prompt.contains(path) && prompt.contains("M Pricing.cs") && prompt.contains("#:project"),
+            "asked with the diff, the place and the examples: \(prompt.prefix(400))"
+        )
+        step("Walkthrough asks the agent for one: the diff since \(reviewer.baselines.first?.name ?? ""), to " +
+            "\(path.replacingOccurrences(of: root + "/", with: ""))")
+
+        // The agent writes it, as the skill says.
+        let folder = (path as NSString).deletingLastPathComponent
+        try """
+        #:project ../../../../../Orders.csproj
+        using Orders;
+        Console.WriteLine($"Total(4) = {Pricing.Total(4)}");
+        Console.WriteLine($"Discounted(4, 10%) = {Pricing.Discounted(4, 0.1)}");
+        """.write(toFile: folder + "/examples/discount.cs", atomically: true, encoding: .utf8)
+        try """
+        ---
+        title: Review: pricing scales by 3.5 and gains a discount
+        base: \(base)
+        ---
+        Two changes to `Pricing`: the rate, and a discount on top of it.
+
+        ## The rate is 3.5 now
+        Every total grows by 75%: check the callers expect it.
+        @diff Pricing.cs
+        @code Pricing.Total
+
+        ## A discount on the total
+        `Discounted` takes a fraction off the total.
+        @example examples/discount.cs
+        @ask Should a discount over 1 be refused?
+        """.write(toFile: path, atomically: true, encoding: .utf8)
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        let checked = try await agent.call("walkthrough_check", ["path": path])
+        try expect(checked == "2 steps, 1 anchors all found, 1 examples all ran.", "walkthrough_check: \(checked)")
+        _ = try await agent.call("walkthrough_open", ["path": path])
+        try await wait("the walkthrough pane") { $0.currentPaneKind == "walk" }
+        let view = try await waitFor("the walk view") { app.tools.walk }
+        let example = folder + "/examples/discount.cs"
+        let run = try await waitFor("the example's run") { walker.runs[example].flatMap { $0.running ? nil : $0 } }
+        try expect(
+            run.status == 0 && run.output.contains("Total(4) = 14") && run.output.contains("Discounted(4, 10%) = 12.6"),
+            "the example ran: \(run.output)"
+        )
+        let diff = try require(walker.diffs["Pricing.cs"], "Pricing.cs's change")
+        try expect(
+            diff.hunks.first?.lines
+                .contains { $0.contains("+    public static double Total(int seed) => seed * 3.5;") } == true,
+            "the diff: \(diff.hunks.first?.lines ?? [])"
+        )
+        step("walkthrough_check: \(checked) (Total(4) = 14, Discounted(4, 10%) = 12.6); walkthrough_open shows it")
+
+        view.display()
+        try expect(view.sectionTops.count == 2 && view.currentSection == 0, "two sections, the first in view")
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try self.shot(to: shot)
+            step("saved \(shot)")
+        }
+        view.show(section: 1)
+        view.display()
+        try expect(view.scroll > 0 && view.currentSection == 1, "the outline scrolls to the second: \(view.scroll)")
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            let second = (shot as NSString).deletingPathExtension + "-example.png"
+            try self.shot(to: second)
+            step("saved \(second)")
+        }
+        step("a notebook: one scroll with the diff, the code and the example's output; the outline goes to a section")
     }
 
     private func m8Steps() async throws {

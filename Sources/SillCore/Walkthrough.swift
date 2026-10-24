@@ -31,6 +31,11 @@ public struct Walkthrough: Equatable, Sendable {
         case code(Anchor, line: Int)
         /// A question, its answer if one was written, and the line the question is on (1-based).
         case ask(String, answer: String?, line: Int)
+        /// A file's change against the walkthrough's `base` (a review's).
+        case diff(String, line: Int)
+        /// An example: an isolated script (a .NET 10 file-based app, a TypeScript, Python, Swift or Rust script)
+        /// beside the walkthrough, shown and run in place.
+        case example(String, line: Int)
     }
 
     public struct Step: Equatable, Sendable {
@@ -43,12 +48,14 @@ public struct Walkthrough: Equatable, Sendable {
     public var title: String
     /// What it walks through: a solution, a folder.
     public var target: String?
+    /// What a review's changes are against: a git tree or commit (its `@diff`s compare it with the worktree).
+    public var base: String?
     public var intro: String
     public var steps: [Step]
 
     public init(_ source: String) {
         var lines = source.components(separatedBy: "\n")
-        var title = "", target: String?, offset = 0
+        var title = "", target: String?, base: String?, offset = 0
         // Front matter.
         if lines.first?.trimmingCharacters(in: .whitespaces) == "---",
            let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" })
@@ -59,6 +66,7 @@ public struct Walkthrough: Equatable, Sendable {
                 switch parts[0] {
                 case "title": title = parts[1]
                 case "for": target = parts[1]
+                case "base": base = parts[1]
                 default: break
                 }
             }
@@ -89,6 +97,18 @@ public struct Walkthrough: Equatable, Sendable {
                 if let anchor = Self.anchor(String(trimmed.dropFirst(6))) {
                     steps[steps.count - 1].blocks.append(.code(anchor, line: number))
                 }
+            } else if trimmed.hasPrefix("@diff ") {
+                flush()
+                steps[steps.count - 1].blocks.append(.diff(
+                    String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespaces),
+                    line: number
+                ))
+            } else if trimmed.hasPrefix("@example ") {
+                flush()
+                steps[steps.count - 1].blocks.append(.example(
+                    String(trimmed.dropFirst(9)).trimmingCharacters(in: .whitespaces),
+                    line: number
+                ))
             } else if trimmed.hasPrefix("@ask ") {
                 flush()
                 var question = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
@@ -113,6 +133,7 @@ public struct Walkthrough: Equatable, Sendable {
         flush()
         self.title = title.isEmpty ? (steps.first?.title ?? "Walkthrough") : title
         self.target = target
+        self.base = base
         self.intro = intro.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         self.steps = steps
     }

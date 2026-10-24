@@ -598,6 +598,23 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   - Found on the way: an Objective-C exception from a write to nvim's closed pipe (the input loop's last request
     racing stop) took the unit tests down once; writes and close now share a lock and the process closes with the
     throwing close.
+- Review walkthroughs and notebooks (2026-10-25, owner: "no one does full reviews any more"; examples as isolated
+  .NET 10 scripts and the like; throwaway docs; a notebook with an outline). The format gains `base:` (front
+  matter), `@diff <path>` (that file's change from the base to the worktree now) and `@example <file>` (a script
+  beside the walkthrough). `ScriptRunner` (SillCore) runs one by its language: `dotnet run file.cs` (a file-based
+  app; `#:project` reaches the changed code; checked on .NET 10.0.400), node for TypeScript and JavaScript, uv (PEP
+  723) or python3, `swift`, cargo's script format through a scratch package on stable, bash. Walkthrough in the
+  review pane asks the agent for one in `.git/sill/reviews/<time>/` with both trees, the files and how to write
+  examples; walkthrough_check now runs the examples too. The walkthrough pane became a notebook: one scroll, an
+  outline that follows it and goes to a section, diffs, code, examples with Run and their output in place. A
+  walkthrough inside .git belongs to the worktree around it (git's toplevel does not answer there).
+  - `SILL_CHECK=reviewwalk` (a git copy of Tests/SillSidecarTests/Fixtures/Orders): the agent's change to
+    Pricing.cs; Walkthrough asks for one with `git diff <base> <now>` and its place in .git; written as the agent
+    would, walkthrough_check runs its example (Total(4) = 14, Discounted(4, 10%) = 12.6); the notebook has two
+    sections and the outline scrolls to the second. Without the .git rule the diff is missing and it fails.
+  - Found on the way: a one-line member's excerpt ran into the next member.
+  - SharpLsp (github.com/Nimblesite/SharpLsp, MIT: a Rust host with Roslyn and F# compiler-service sidecars) was
+    raised by the owner: not evaluated yet; the gap it could fill is F#.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

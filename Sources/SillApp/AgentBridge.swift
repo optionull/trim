@@ -282,16 +282,25 @@ final class AgentBridge {
                     let shown = walker.path
                     walker.open(path)
                     let problems = await walker.read()
+                    // Its examples, run: one that fails is a problem too.
+                    let failed = await walker.runAll()
                     if let shown, shown != path { walker.open(shown) }
-                    let anchors = walk.steps.flatMap(\.blocks)
-                        .count(where: { if case .code = $0 { true } else { false } })
-                    return problems.isEmpty ?
-                        ToolResult("\(walk.steps.count) steps, \(anchors) anchors, all found.") :
-                        ToolResult(
-                            "\(problems.count) of \(anchors) anchors not found:\n" +
-                                problems.joined(separator: "\n"),
-                            isError: true
-                        )
+                    let blocks = walk.steps.flatMap(\.blocks)
+                    let anchors = blocks.count(where: { if case .code = $0 { true } else { false } })
+                    let examples = blocks.count(where: { if case .example = $0 { true } else { false } })
+                    var lines: [String] = []
+                    if !problems.isEmpty {
+                        lines.append("\(problems.count) of \(anchors) anchors not found:")
+                        lines += problems
+                    }
+                    if !failed.isEmpty {
+                        lines.append("\(failed.count) of \(examples) examples failed:")
+                        lines += failed
+                    }
+                    return lines.isEmpty ?
+                        ToolResult("\(walk.steps.count) steps, \(anchors) anchors all found" +
+                            (examples > 0 ? ", \(examples) examples all ran." : ".")) :
+                        ToolResult(lines.joined(separator: "\n"), isError: true)
                 } ?? gone
             },
             Tool(

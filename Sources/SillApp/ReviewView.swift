@@ -78,6 +78,18 @@ final class ReviewView: NSView, ToolContent {
         NSBezierPath(roundedRect: sendRect, xRadius: 15, yRadius: 15).fill()
         send.draw(at: NSPoint(x: sendRect.minX + 14, y: sendRect.midY - send.size().height / 2))
         actionFrames.append(("send", 0, sendRect))
+        // A walkthrough of these changes, from the agent.
+        let walk = text("Walkthrough", 13, reviewer.files.isEmpty ? Design.textFaint : Design.text)
+        let walkRect = NSRect(
+            x: sendRect.minX - walk.size().width - 40,
+            y: 10,
+            width: walk.size().width + 28,
+            height: 30
+        )
+        Design.border.setStroke()
+        NSBezierPath(roundedRect: walkRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 15, yRadius: 15).stroke()
+        walk.draw(at: NSPoint(x: walkRect.minX + 14, y: walkRect.midY - walk.size().height / 2))
+        actionFrames.append(("walkthrough", 0, walkRect))
         // The baselines as chips, newest last.
         baselineFrames = []
         var x: CGFloat = 20
@@ -155,7 +167,11 @@ final class ReviewView: NSView, ToolContent {
         }
         let heading = text(file.path, 14, weight: .semibold)
         heading.draw(at: NSPoint(x: left, y: y))
-        let hint = text("j/k files · J/K changes · x take back · c comment · Return side by side", 11, Design.textFaint)
+        let hint = text(
+            "j/k files · J/K changes · x take back · c comment · w walkthrough · Return side by side",
+            11,
+            Design.textFaint
+        )
         hint.draw(at: NSPoint(x: left + width - hint.size().width, y: y + 2))
         y += 30
         let lineHeight = EditorFont.metrics.height
@@ -241,6 +257,7 @@ final class ReviewView: NSView, ToolContent {
 
     func perform(_ action: String, _ index: Int) {
         if action == "send" { return reviewer.sendReview() }
+        if action == "walkthrough" { return reviewer.askForWalkthrough() }
         guard let hunk = reviewer.diff?.hunks[safe: index] else { return }
         selectedHunk = index
         switch action {
@@ -271,6 +288,7 @@ final class ReviewView: NSView, ToolContent {
         case "c": perform("comment", selectedHunk)
         case "a": perform("keep", selectedHunk)
         case "s": reviewer.sendReview()
+        case "w": reviewer.askForWalkthrough()
         case "r": reviewer.refresh()
         case "\r": reviewer.openSideBySide()
         default: return false

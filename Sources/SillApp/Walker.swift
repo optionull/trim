@@ -28,6 +28,19 @@ final class Walker {
     private(set) var found: [[Int: Found]] = []
     private(set) var step = 0
     private(set) var resolving = false
+    /// A review's changes, by file: each `@diff`'s file against the walkthrough's base, as the worktree is now.
+    private(set) var diffs: [String: Review.Diff] = [:]
+    /// Each example's source, by its absolute path.
+    private(set) var examples: [String: String] = [:]
+    /// An example's last run: what it wrote, how it ended, how long it took; `running` while it runs.
+    struct Run: Equatable {
+        var output = ""
+        var status: Int32 = 0
+        var seconds = 0.0
+        var running = false
+    }
+
+    private(set) var runs: [String: Run] = [:]
     var onChange: (() -> Void)?
     private var handled = 0
 
@@ -98,6 +111,7 @@ final class Walker {
             }
         }
         let folder = (path as NSString).deletingLastPathComponent
+        await readReview(walk, folder: folder)
         let answers = await (try? channel.lua(
             "return require'sill.walk'.resolve(...)",
             args: [.array(anchors), .string(folder)]
@@ -132,6 +146,91 @@ final class Walker {
         resolving = false
         changed()
         return problems
+    }
+
+    // MARK: A review's diffs and examples
+
+    /// The repository's top folder (where a diff's paths start), else the walkthrough's folder.
+    private func repository(from folder: String) async -> String {
+        // A review's walkthrough lives inside .git: its repository is the worktree around that.
+        if let inside = folder.range(of: "/.git/") { return String(folder[..<inside.lowerBound]) }
+        return await Task.detached {
+            Review.git(["rev-parse", "--show-toplevel"], in: folder)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.value ?? folder
+    }
+
+    private func readReview(_ walk: Walkthrough, folder: String) async {
+        var wantedDiffs: [String] = [], wantedExamples: [String] = []
+        for block in walk.steps.flatMap(\.blocks) {
+            if case let .diff(file, _) = block { wantedDiffs.append(file) }
+            if case let .example(file, _) = block {
+                wantedExamples.append(file.hasPrefix("/") ? file : (folder as NSString).appendingPathComponent(file))
+            }
+        }
+        examples = Dictionary(
+            wantedExamples.map { ($0, (try? String(contentsOfFile: $0, encoding: .utf8)) ?? "") },
+            uniquingKeysWith: { first, _ in first }
+        )
+        guard !wantedDiffs.isEmpty else { return diffs = [:] }
+        let root = await repository(from: folder)
+        let base = walk.base ?? "HEAD"
+        diffs = await Task.detached { () -> [String: Review.Diff] in
+            guard let now = Review.snapshot(in: root) else { return [:] }
+            return Dictionary(
+                wantedDiffs.map { ($0, Review.diff($0, from: base, to: now, in: root)) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }.value
+    }
+
+    /// Runs an example as its language does, in its own folder; what it writes shows under it.
+    func run(example path: String) async {
+        guard runs[path]?.running != true else { return }
+        runs[path, default: Run()].running = true
+        changed()
+        let scratch = NSTemporaryDirectory() + "sill-example-" + String(path.hashValue.magnitude)
+        let started = CACurrentMediaTime()
+        var run = Run()
+        do {
+            let environment = NvimProcess.cachedEnv
+            let command = try ScriptRunner.command(for: path, scratch: scratch) { tool in
+                NvimProcess.findInPath(tool, in: environment["PATH"]) != nil
+            }
+            for (file, text) in command.files {
+                try FileManager.default.createDirectory(
+                    atPath: (file as NSString).deletingLastPathComponent,
+                    withIntermediateDirectories: true
+                )
+                try text.write(toFile: file, atomically: true, encoding: .utf8)
+            }
+            let result = try await NativeRecorder.capture(
+                command.executable,
+                command.arguments,
+                in: command.directory,
+                timeout: .seconds(180)
+            )
+            run.output = result.output
+            run.status = result.code
+        } catch {
+            run.output = "\(error)"
+            run.status = -1
+        }
+        run.seconds = CACurrentMediaTime() - started
+        runs[path] = run
+        changed()
+    }
+
+    /// Every example, one after another: for walkthrough_check, which says which fail.
+    func runAll() async -> [String] {
+        var failed: [String] = []
+        for path in examples.keys.sorted() {
+            await run(example: path)
+            if let run = runs[path], run.status != 0 {
+                failed.append("\((path as NSString).lastPathComponent) exited \(run.status): " +
+                    run.output.trimmingCharacters(in: .whitespacesAndNewlines).suffix(300))
+            }
+        }
+        return failed
     }
 
     // MARK: Moving
@@ -186,6 +285,8 @@ final class Walker {
                     context.append("\(file):\(place.from)-\(place.to)")
                     context.append(contentsOf: place.lines.prefix(40).map { "    " + $0 })
                 }
+            case let .diff(path, _): context.append("(the change to \(path))")
+            case let .example(path, _): context.append("(example \(path))")
             case .ask: break
             }
         }
