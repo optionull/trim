@@ -12,8 +12,14 @@ public final class GhosttyRuntime {
     public static let shared = GhosttyRuntime()
 
     let app: ghostty_app_t?
-    private let config: ghostty_config_t?
+    private var config: ghostty_config_t?
     private var tickScheduled = false
+
+    /// The panes' font: sill's grid font, set before the first pane (the runtime starts with it) and changed by
+    /// `setFont`.
+    public static var font: (family: String, size: Double) = ("JetBrains Mono", 12)
+    /// Whether the runtime has started (a pane was made): before that, a font change only waits for it.
+    public private(set) static var started = false
 
     /// Called when a surface's process ends and Ghostty asks to close it (`processAlive` false), or the user closed it.
     public var onSurfaceClosed: ((GhosttySurfaceView, _ processAlive: Bool) -> Void)?
@@ -22,24 +28,43 @@ public final class GhosttyRuntime {
         if ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) != GHOSTTY_SUCCESS {
             NSLog("sill: ghostty_init failed")
         }
-        let config = ghostty_config_new()
-        // The user's own Ghostty config applies, then sill's pane look on top so panes match the window.
-        ghostty_config_load_default_files(config)
-        if let overrides = Self.writeOverrides() { ghostty_config_load_file(config, overrides) }
-        ghostty_config_finalize(config)
+        let config = Self.makeConfig()
         self.config = config
+        Self.started = true
 
         var runtime = Self.runtimeConfig()
         app = withUnsafeMutablePointer(to: &runtime) { ghostty_app_new($0, config) }
         if app == nil { NSLog("sill: ghostty_app_new failed") }
     }
 
+    /// The user's own Ghostty config, then sill's pane look on top so panes match the window.
+    private static func makeConfig() -> ghostty_config_t? {
+        let config = ghostty_config_new()
+        ghostty_config_load_default_files(config)
+        if let overrides = writeOverrides() { ghostty_config_load_file(config, overrides) }
+        ghostty_config_finalize(config)
+        return config
+    }
+
+    /// The panes in a new font: the config made again and handed to the app and to every pane.
+    public func setFont(family: String, size: Double) {
+        guard Self.font != (family, size) else { return }
+        Self.font = (family, size)
+        guard let app, let config = Self.makeConfig() else { return }
+        ghostty_app_update_config(app, config)
+        for view in GhosttySurfaceView.live.allObjects {
+            if let surface = view.surface { ghostty_surface_update_config(surface, config) }
+        }
+        // The one it replaces stays: libghostty may still read it while the panes take the new one.
+        self.config = config
+    }
+
     /// Pane settings that keep a terminal in step with the design: the pane background, padding and the mono face.
-    static let overrides = """
+    static var overrides: String { """
     background = 0c0d0f
     foreground = cfd3d8
-    font-family = JetBrains Mono
-    font-size = 12
+    font-family = \(font.family)
+    font-size = \(font.size == font.size.rounded() ? String(Int(font.size)) : String(font.size))
     window-padding-x = 14
     window-padding-y = 10
     window-padding-balance = false
@@ -47,6 +72,7 @@ public final class GhosttyRuntime {
     confirm-close-surface = false
     wait-after-command = false
     """
+    }
 
     private static func writeOverrides() -> String? {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

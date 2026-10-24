@@ -34,10 +34,14 @@ public final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient
     private var keyTextAccumulator: [String]?
     private var contentSize: CGSize = .zero
 
+    /// The panes alive, for a font change to reach them all.
+    static let live = NSHashTable<GhosttySurfaceView>.weakObjects()
+
     public init(launch: TerminalLaunch) {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         createSurface(launch)
+        Self.live.add(self)
     }
 
     @available(*, unavailable)
@@ -81,6 +85,12 @@ public final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient
     }
 
     // MARK: Reading the screen
+
+    /// A cell's height in pixels, as the terminal lays them out now.
+    public var cellHeight: Int {
+        guard let surface else { return 0 }
+        return Int(ghostty_surface_size(surface).cell_height_px)
+    }
 
     /// The visible screen as text, for guessing agent states from output. Cheap enough to poll a few times a second.
     public func visibleText() -> String? {

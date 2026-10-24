@@ -1,6 +1,9 @@
 import AppKit
 import SillCore
 import SillRender
+#if SILL_GHOSTTY
+    import SillTerminal
+#endif
 
 /// The grid's font: the settings' font, size and line height, with ⌘+ and ⌘- on top for this session. Every view
 /// that draws in the grid's font reads it here, so a change reaches them all; the editor then makes its renderer again
@@ -34,7 +37,22 @@ enum EditorFont {
         let made = CellMetrics(font: settings.font, size: CGFloat(size), lineHeight: CGFloat(settings.lineHeight))
         guard made.regular != metrics.regular || made.cellSize != metrics.cellSize else { return false }
         metrics = made
+        terminalFont()
         onChange?()
         return true
+    }
+
+    /// Terminal panes in the grid's family, a point smaller (the grid's 13 beside a pane's 12, as panes always
+    /// were): set before the first pane starts the terminal runtime, and handed to it once it has.
+    private static func terminalFont() {
+        #if SILL_GHOSTTY
+            let family = settings.font
+            let terminal = max(size - 1, 6)
+            if GhosttyRuntime.started {
+                GhosttyRuntime.shared.setFont(family: family, size: terminal)
+            } else {
+                GhosttyRuntime.font = (family, terminal)
+            }
+        #endif
     }
 }

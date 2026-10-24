@@ -198,6 +198,20 @@ final class SelfCheck {
                 surface.visibleText()?.contains("sill-check") == true ? true : nil
             }
             step("typed keys reach the shell in the pane")
+
+            // The pane follows the grid's font: ⌘+ twice makes its cells taller too, ⌘0 brings them back.
+            let before = surface.cellHeight
+            app?.fontBigger(nil)
+            app?.fontBigger(nil)
+            _ = try await waitFor("the pane's bigger cells", timeout: .seconds(5)) {
+                surface.cellHeight > before ? true : nil
+            }
+            let bigger = surface.cellHeight
+            app?.fontActual(nil)
+            _ = try await waitFor("the pane's cells back", timeout: .seconds(5)) {
+                surface.cellHeight == before ? true : nil
+            }
+            step("the pane follows the font: ⌘+ twice took its cells from \(before) to \(bigger) px, ⌘0 back")
         #endif
 
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {

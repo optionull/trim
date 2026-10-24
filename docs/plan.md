@@ -450,8 +450,11 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     with comments kept and read back (the agent becomes codex); a hand edit turning smooth scrolling off applied
     at once with a typo reported; a syntax error keeping the last good settings; HEED_CONTROL disabling its row.
   - The check also sets 15 pt from the file and presses ⌘+ twice: nvim went from 37 lines to 32, and ⌘0 came back.
-  - Not done: terminal panes keep Ghostty's own font size. Sparkle and signing come last, once the owner no longer
-    codes from the phone (owner, 2026-10-24).
+  - Terminal panes follow the font (after M9): the grid's family a point smaller (13 beside 12, as before), set
+    before the first pane starts libghostty and handed to it after with `ghostty_app_update_config` and
+    `ghostty_surface_update_config` for every pane. `SILL_CHECK=1`: ⌘+ twice took a pane's cells from 32 to 37 px,
+    ⌘0 back.
+  - Sparkle and signing come last, once the owner no longer codes from the phone (owner, 2026-10-24).
 - After M9 (owner, 2026-10-24: all four of debugger depth, profiler depth, Razor markup and polish, in that order).
   Debugger depth: breakpoints carry a condition, a hit count or a log message (`:SillBreakpoint if/hits/log`,
   Shift-F9 asks for a condition; ◆ and ◇ signs), function breakpoints (`fn`), and the exceptions that stop the
