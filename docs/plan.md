@@ -497,6 +497,21 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   hover's inline SVG (a browser-support badge) is left out.
   - `SILL_CHECK=razor`: `<h1>`'s hover says "The h1 element represents a section heading.", completion offers `div`
     beside `PageTitle`, and `color` in a `<style>`. With the bridge taken out it fails.
+- Direction (owner, 2026-10-24): sill is a capable editor that augments agentic coding, not a full IDE: people stay
+  in the agent session and use sill to open, browse and understand code. Queue: islands and zen; the agent driving
+  the debugger and profiler over MCP, seen live, with profile comparison; review mode; walkthroughs (a file DSL, a
+  skill that writes it, MCP to drive it); then following the agent, references from sessions, ask about a
+  selection, a code map, symbol tracing, logs, traces and metrics, a context basket, session replay, PR prep and
+  debugging a test. A slim nvim shell app (no title bar, a rounded window) from the same package. Both sill and the
+  shell will be public; the owner says when.
+- Islands and zen (2026-10-24): JetBrains' islands, a setting on by default. `IslandsView` sits over the editor (under
+  the popups): the canvas everywhere, each nvim window's rounded rectangle cleared and floats cleared as they are, so
+  nvim's separator columns and rule rows become the gaps whatever the colour scheme; it takes no clicks. The bars
+  sit on the canvas and the editor is inset by the gap. `:SillZen` (⌃⌘Z) closes the explorer and panel (and reopens
+  what it closed), hides the bars and centres a 100-column island. Checked: `SILL_CHECK=chrome` (zen in and out),
+  `SILL_CHECK=settings` (the switch applies at once).
+  - Open: the chrome check's zen step timed out once in five runs (in the full chain, not alone); it now says what
+    it saw (zen, the panes, the current pane) if it happens again.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

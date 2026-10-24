@@ -242,6 +242,8 @@ public struct Screen: Sendable {
 
     /// The breakpoints nvim has, by file.
     public private(set) var breakpoints: [String: [Breakpoint]] = [:]
+    /// Zen mode (`:SillZen`): only the text, in a column.
+    public private(set) var zen = false
     /// Function breakpoints, by the method's name.
     public private(set) var functionBreakpoints: [String] = []
     /// The language servers nvim asked sill for (`sill_server`), in order: each the first time a file it serves opened.
@@ -378,6 +380,8 @@ public struct Screen: Sendable {
                 }
             }
             merge = (left, current, file)
+        case let .notification(method, args) where method == "sill_zen":
+            zen = args.first?.boolValue ?? false
         case let .notification(method, _) where method == "sill_packages":
             packagesAsks += 1
         case let .notification(method, args) where method == "sill_debug":

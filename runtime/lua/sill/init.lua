@@ -431,6 +431,32 @@ function M.toggle(kind)
   report()
 end
 
+-- The panes zen closed, to open again when it ends.
+local zen_closed
+
+--- Zen: the explorer and the panel closed and the window's bars hidden, the text in a column in the middle; again,
+--- all of it back as it was.
+function M.zen()
+  if zen_closed then
+    for _, kind in ipairs(zen_closed) do
+      if not M.pane_window(kind) then M.toggle(kind) end
+    end
+    zen_closed = nil
+    local editor = M.editor_window()
+    if editor then vim.api.nvim_set_current_win(editor) end
+    notify('sill_zen', false)
+  else
+    zen_closed = {}
+    for _, kind in ipairs({ 'sidebar', 'panel' }) do
+      if M.pane_window(kind) then
+        table.insert(zen_closed, kind)
+        M.toggle(kind)
+      end
+    end
+    notify('sill_zen', true)
+  end
+end
+
 --- Goes to the window of the pane of `kind`, opening it if it is hidden.
 function M.focus(kind)
   if not M.pane_window(kind) then
@@ -520,6 +546,7 @@ function M.setup()
     vim.keymap.set('n', '<leader>a', '<Cmd>SillAgent next<CR>', { desc = 'Next agent that needs you' })
   end
   vim.api.nvim_create_user_command('SillChrome', M.chrome, { desc = "sill's window: sidebar, panel, colours" })
+  vim.api.nvim_create_user_command('SillZen', M.zen, { desc = 'Zen: only the text, in a column; again to come back' })
   -- :SillProfile runs the project's .NET program under the profiler (M6); snapshot and stop act on the run;
   -- synthetic shows M0's synthetic profile.
   vim.api.nvim_create_user_command('SillProfile', function(opts)

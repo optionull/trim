@@ -489,9 +489,28 @@ final class RootView: NSView {
     let tabBar = TabBarView()
     let editor: EditorView
     let overlay: OverlayLayer
+    let islands = IslandsView()
     /// Without the frame (the self-check's first part runs as days 1 to 5 had it).
     var bare = false {
         didSet { needsLayout = true }
+    }
+
+    /// Zen: no bars, no explorer or panel, the text in a column of `zenColumns` in the middle.
+    var zen = false {
+        didSet { needsLayout = true }
+    }
+
+    var zenColumns = 100
+
+    /// The islands look turned on or off (the setting).
+    func setIslands(_ on: Bool) {
+        Design.islands = on
+        islands.isHidden = !on
+        window?.backgroundColor = on ? Design.canvas : Design.chrome
+        for view in [titleBar, activityBar, statusBar, tabBar] as [NSView] {
+            view.needsDisplay = true
+        }
+        needsLayout = true
     }
 
     init(editor: EditorView, overlay: OverlayLayer) {
@@ -499,7 +518,7 @@ final class RootView: NSView {
         self.overlay = overlay
         super.init(frame: editor.frame)
         tabBar.isHidden = true
-        for view in [titleBar, activityBar, statusBar, tabBar, editor, overlay] as [NSView] {
+        for view in [titleBar, activityBar, statusBar, tabBar, editor, islands, overlay] as [NSView] {
             addSubview(view)
         }
     }
@@ -524,12 +543,15 @@ final class RootView: NSView {
 
     override func layout() {
         super.layout()
+        let bare = bare || zen
         for view in [titleBar, activityBar, statusBar] as [NSView] {
             view.isHidden = bare
         }
-        let top = bare ? 0 : TitleBarView.height
-        let bottom = bare ? 0 : StatusBarView.height
-        let left = bare ? 0 : ActivityBarView.width
+        // With islands the editor is inset from the window's edges by the gap; without the bars, all round.
+        let gap = Design.islands ? Design.islandGap : 0
+        let top = bare ? gap : TitleBarView.height
+        let bottom = (bare ? 0 : StatusBarView.height) + gap
+        let left = bare ? gap : ActivityBarView.width
         titleBar.frame = NSRect(x: 0, y: 0, width: bounds.width, height: TitleBarView.height)
         statusBar.frame = NSRect(
             x: 0,
@@ -540,12 +562,19 @@ final class RootView: NSView {
         activityBar.frame = NSRect(x: 0, y: top, width: ActivityBarView.width, height: bounds.height - top - bottom)
         let tabs = tabBar.isHidden ? 0 : TabBarView.height
         tabBar.frame = NSRect(x: left, y: top, width: bounds.width - left, height: TabBarView.height)
-        editor.frame = NSRect(
+        var frame = NSRect(
             x: left,
             y: top + tabs,
-            width: bounds.width - left,
+            width: bounds.width - left - gap,
             height: bounds.height - top - tabs - bottom
         )
-        overlay.frame = editor.frame
+        // Zen: a readable column in the middle, as wide as `zenColumns` cells (the window's width when narrower).
+        if zen {
+            let width = min(frame.width, CGFloat(zenColumns) * EditorFont.metrics.width + 2 * gap)
+            frame = NSRect(x: (bounds.width - width) / 2, y: frame.minY, width: width, height: frame.height)
+        }
+        editor.frame = frame
+        islands.frame = frame
+        overlay.frame = frame
     }
 }

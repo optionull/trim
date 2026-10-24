@@ -10,6 +10,15 @@ enum Design {
     static let chrome = NSColor(hex: 0x181B21) // Sidebar, title bar, tab strips, status bar.
     static let rail = NSColor(hex: 0x14161B) // Activity bar.
     static let terminal = NSColor(hex: 0x0F1114)
+    /// Behind the islands: the frame the panels float on.
+    static let canvas = NSColor(hex: 0x0A0B0E)
+    static let islandRadius: CGFloat = 10
+    /// Between an island and the window's edge.
+    static let islandGap: CGFloat = 6
+    /// The islands look (the `islands` setting); set on the main thread.
+    nonisolated(unsafe) static var islands = true
+    /// A bar's background: the canvas with islands, else its own surface.
+    static func bar(_ own: NSColor) -> NSColor { islands ? canvas : own }
     static let popup = NSColor(hex: 0x1F232B)
     static let popupSelected = NSColor(hex: 0x2A3140)
     static let selection = NSColor(hex: 0x232833)

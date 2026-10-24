@@ -20,6 +20,8 @@ mise run test      # the Swift Testing suite; the nvim tests start a real `nvim 
 mise run lint
 ```
 
+![sill with islands: the explorer, the editor and the panel as rounded panels on a dark canvas](docs/showcase-islands-2026-10-24.png)
+
 ![sill on 2026-10-23: the explorer, a Lua file with its tab, a terminal pane, the Problems panel and the status bar](docs/showcase-2026-10-23.png)
 
 ![The Agents sidebar over heed's sessions: two need you, one works, one is done](docs/showcase-agents-2026-10-23.png)
@@ -105,6 +107,12 @@ program and show in the Debug tab (`:SillDebug exceptions all|unhandled|none`). 
 processes running and debugs one; Shift-F5 then detaches and leaves it running.
 
 ![Paused where the condition i == 3 holds: a watch, an evaluation and its error in the Debug tab](docs/showcase-debugger-depth-2026-10-24.png)
+
+## Islands and zen
+
+The explorer, each editor window and the panel are rounded islands on a darker canvas (`islands` in the settings, on by
+default). `:SillZen` (⌃⌘Z, View ▸ Zen) hides the bars, the explorer and the panel and centres the text in a
+100-column island; again brings everything back.
 
 ## Settings
 

@@ -18,6 +18,8 @@ final class SettingsController {
 
     private var watcher: SettingsWatcher?
     private(set) var window: SettingsWindow?
+    /// Called on the main thread after the file was read again: what applies at once is applied.
+    var onApplied: (() -> Void)?
     /// Opens a file in the editor (the "Open settings.toml" button).
     var onOpenFile: ((String) -> Void)?
 
@@ -28,6 +30,7 @@ final class SettingsController {
             Settings.shared.load(source)
             Task { @MainActor [weak self] in
                 EditorFont.load(Settings.shared.current)
+                self?.onApplied?()
                 self?.window?.refresh()
             }
         }
@@ -141,6 +144,14 @@ final class SettingsWindow: NSWindow {
         section("Window", in: stack)
         row("Chrome", "The explorer, panel, activity and status bars. Applies when sill starts again.", in: stack) {
             self.toggle(["window", "chrome"], variable: "SILL_CHROME", read: \.chrome)
+        }
+
+        row("Islands", "The explorer, each window and the panel as rounded panels on a darker canvas.", in: stack) {
+            let toggle = NSSwitch()
+            self.bind(["window", "islands"], toggle) { toggle.state = $0.islands ? .on : .off } write: {
+                .bool(toggle.state == .on)
+            }
+            return toggle
         }
 
         section("nvim", in: stack)

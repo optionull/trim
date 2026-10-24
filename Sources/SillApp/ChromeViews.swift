@@ -36,10 +36,10 @@ final class TitleBarView: NSView {
     }
 
     override func draw(_: NSRect) {
-        Design.chrome.setFill()
+        Design.bar(Design.chrome).setFill()
         bounds.fill()
         Design.border.setFill()
-        NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
+        if !Design.islands { NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill() }
         let text = NSAttributedString(
             string: title,
             attributes: [.font: Design.ui(13), .foregroundColor: Design.textMuted]
@@ -130,10 +130,10 @@ final class ActivityBarView: NSView {
     }
 
     override func draw(_: NSRect) {
-        Design.rail.setFill()
+        Design.bar(Design.rail).setFill()
         bounds.fill()
         Design.border.setFill()
-        NSRect(x: bounds.width - 1, y: 0, width: 1, height: bounds.height).fill()
+        if !Design.islands { NSRect(x: bounds.width - 1, y: 0, width: 1, height: bounds.height).fill() }
         for activity in Activity.allCases {
             let rect = rect(activity)
             let active = activity == selected
@@ -244,10 +244,10 @@ final class StatusBarView: NSView {
     }
 
     override func draw(_: NSRect) {
-        Design.chrome.setFill()
+        Design.bar(Design.chrome).setFill()
         bounds.fill()
         Design.border.setFill()
-        NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
+        if !Design.islands { NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill() }
 
         let (label, color) = state.merge != nil && state.mode == "normal" ? ("MERGE", Design.modified) :
             Self.badge(state.mode)

@@ -426,6 +426,19 @@ final class SelfCheck {
         )
         step("an edit by hand applied at once (smooth scrolling off), and the window shows the typo: editor2.size")
 
+        // Islands are on by default; the switch turns them off at once, flat panels again.
+        try expect(Design.islands && !app.root.islands.isHidden, "islands by default")
+        let islands = try require(window.controls["window.islands"] as? NSSwitch, "the islands switch")
+        islands.state = .off
+        _ = islands.target?.perform(islands.action)
+        try await waitFor("flat panels", timeout: .seconds(5)) {
+            !Design.islands && app.root.islands.isHidden ? true : nil
+        }
+        islands.state = .on
+        _ = islands.target?.perform(islands.action)
+        try await waitFor("islands again", timeout: .seconds(5)) { Design.islands ? true : nil }
+        step("islands on by default; the switch turns them off and on at once")
+
         let good = text()
         try "[editor\nsize = 20\n".write(to: file, atomically: true, encoding: .utf8)
         try await waitFor("the syntax error", timeout: .seconds(5)) {
@@ -1789,6 +1802,37 @@ final class SelfCheck {
         try await waitFor("the explorer again") { tools.sidebar.activity == .explorer ? true : nil }
         step("the activity bar switches the sidebar between its views; packages opens its tab")
 
+        // Zen: only the text, in a column in the middle; again, everything back.
+        let hadPanes = Set(latest?.paneRects.map(\.kind) ?? [])
+        _ = try await session.channel.lua("vim.cmd('SillZen')")
+        do {
+            try await wait("zen") { $0.zen && !$0.paneRects.contains { $0.kind == "sidebar" || $0.kind == "panel" } }
+        } catch {
+            throw CheckFailure(description: "no zen: zen \(latest?.zen ?? false), panes " +
+                "\(latest?.paneRects.map(\.kind) ?? []), current \(latest?.currentPaneKind ?? "-")")
+        }
+        root.layoutSubtreeIfNeeded()
+        try expect(root.statusBar.isHidden && root.activityBar.isHidden, "no bars in zen")
+        let column = root.editor.frame
+        try expect(
+            abs(column.midX - root.bounds.midX) < 1 && column.width <= CGFloat(root.zenColumns) *
+                EditorFont.metrics.width + 2 * Design.islandGap + 1,
+            "a centred column: \(column)"
+        )
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            let zenShot = (shot as NSString).deletingPathExtension + "-zen.png"
+            try self.shot(to: zenShot)
+            step("saved \(zenShot)")
+        }
+        _ = try await session.channel.lua("vim.cmd('SillZen')")
+        try await wait("out of zen") { screen in
+            !screen.zen && hadPanes.isSubset(of: Set(screen.paneRects.map(\.kind)))
+        }
+        root.layoutSubtreeIfNeeded()
+        try expect(!root.statusBar.isHidden, "the bars back")
+        step(":SillZen hides the bars, the explorer and the panel and centres a \(Int(column.width))-point column; " +
+            "again brings them back")
+
         // Problems: a diagnostic in the panel, opened from it.
         _ = try await session.channel.lua("""
         local buf = vim.api.nvim_win_get_buf(require'sill'.editor_window())
@@ -2314,7 +2358,7 @@ final class SelfCheck {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
         defer { NSGraphicsContext.restoreGraphicsState() }
-        Design.chrome.setFill()
+        Design.bar(Design.chrome).setFill()
         NSRect(origin: .zero, size: size).fill()
 
         /// A rect in the root's (flipped) coordinates, in the bitmap's.
@@ -2402,6 +2446,8 @@ final class SelfCheck {
             #endif
             paint(view)
         }
+        // The islands' canvas, over the grid and its panes, under the popups.
+        if !root.islands.isHidden { paint(root.islands) }
         for view in app?.externalUI.overlay.subviews ?? [] where !view.isHidden {
             paint(view)
         }

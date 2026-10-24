@@ -17,6 +17,8 @@ public struct SillSettings: Equatable, Sendable {
     public var lineHeight: Double = 1.2
     public var smoothScroll = true
     public var chrome = true
+    /// The explorer, editor windows and panel as rounded islands on a darker canvas.
+    public var islands = true
     public var nvimConfig = NvimConfig.yours
     public var agent = "claude"
     public var heedAgent = "claude"
@@ -48,6 +50,7 @@ public struct SillSettings: Equatable, Sendable {
     public static let keys: [(path: [String], variable: String?)] = [
         (["editor", "font"], nil), (["editor", "size"], nil), (["editor", "line_height"], nil),
         (["editor", "smooth_scroll"], "SILL_SMOOTH_SCROLL"), (["window", "chrome"], "SILL_CHROME"),
+        (["window", "islands"], nil),
         (["nvim", "config"], "SILL_NVIM_CONFIG"), (["agents", "command"], "SILL_AGENT"),
         (["agents", "heed_agent"], "SILL_HEED_AGENT"), (["agents", "allow"], "SILL_MCP_ALLOW"),
         (["dotnet", "path"], "SILL_DOTNET"), (["heed", "control"], "HEED_CONTROL"),
@@ -112,6 +115,7 @@ public enum SettingsLoader {
         number(["editor", "line_height"], 1 ... 2) { settings.lineHeight = $0 }
         bool(["editor", "smooth_scroll"]) { settings.smoothScroll = $0 }
         bool(["window", "chrome"]) { settings.chrome = $0 }
+        bool(["window", "islands"]) { settings.islands = $0 }
         string(["nvim", "config"]) { text in
             if let config = SillSettings.NvimConfig(rawValue: text) {
                 settings.nvimConfig = config
@@ -168,6 +172,8 @@ public enum SettingsLoader {
     [window]
     # The explorer, the panel, the activity and status bars. false is nvim alone. (SILL_CHROME)
     # chrome = true
+    # The explorer, each editor window and the panel as rounded islands on a darker canvas; false is flat panels.
+    # islands = true
 
     [nvim]
     # "yours" loads your nvim config (~/.config/nvim) after sill's base settings; "sill" runs sill's alone.

@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_: Notification) {
         // Before anything reads a setting.
         settings.start()
+        settings.onApplied = { [weak self] in
+            guard let self, chrome else { return }
+            if Design.islands != Settings.shared.current.islands { root.setIslands(Settings.shared.current.islands) }
+        }
         let environment = ProcessInfo.processInfo.environment
         if environment["SILL_BENCH"] == "1" {
             Bench.run()
@@ -97,6 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         externalUI = ExternalUI(editor: editor)
         root = RootView(editor: editor, overlay: externalUI.overlay)
         root.bare = !chrome
+        root.setIslands(chrome && Settings.shared.current.islands)
         window.contentView = root
         window.delegate = self
         if environment["SILL_SHOWCASE"] != nil || environment["SILL_OFFSCREEN"] == "1" {
@@ -228,6 +233,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         tools.update(screen)
         editor.coveredGrids = panes.covered.union(tools.covered)
         splitTabs.update(screen)
+        root.islands.update(screen, editor: editor)
+        if root.zen != screen.zen { root.zen = screen.zen }
         if screen.buffer.kind.isEmpty, !screen.buffer.path.isEmpty { tools.sidebar.explorer.reveal(screen.buffer.path) }
         updateFrame(screen)
         servers.answer(screen.serverAsks)
@@ -544,6 +551,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// The self-check's way to rest the pointer on an expression.
     func hover(_ expression: String, at rect: NSRect) { editor.onHover?(expression, rect) }
 
+    @objc func toggleZen(_: Any?) { Nvim.lua(session.channel, "vim.cmd('SillZen')") }
     @objc func fontBigger(_: Any?) { EditorFont.zoom(1) }
     @objc func fontSmaller(_: Any?) { EditorFont.zoom(-1) }
     @objc func fontActual(_: Any?) { EditorFont.zoom(0) }
@@ -585,6 +593,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         bigger.allowsKeyEquivalentWhenHidden = true
         viewMenu.addItem(withTitle: "Smaller", action: #selector(fontSmaller(_:)), keyEquivalent: "-")
         viewMenu.addItem(withTitle: "Actual Size", action: #selector(fontActual(_:)), keyEquivalent: "0")
+        viewMenu.addItem(.separator())
+        let zen = viewMenu.addItem(withTitle: "Zen", action: #selector(toggleZen(_:)), keyEquivalent: "z")
+        zen.keyEquivalentModifierMask = [.command, .control]
         viewItem.submenu = viewMenu
         let projectItem = NSMenuItem()
         menu.addItem(projectItem)
