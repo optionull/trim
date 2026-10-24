@@ -49,6 +49,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "review" {
+                try await reviewSteps()
+                print("sill check (review): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "agentdebug" {
                 try await agentDebugSteps()
                 print("sill check (agent debugging and profiling): passed")
@@ -786,6 +792,74 @@ final class SelfCheck {
         }
         step("profile_start, two snapshots (Order grows, kept by OrderCache), profile_stop with Pricing.Total hot; " +
             "a second run compared with the first: \(compared.split(separator: "\n")[0])")
+    }
+
+    /// Review mode (`SILL_CHECK=review`, in a git repository with a.txt of twenty lines committed, SILL_AGENT=echo):
+    /// an agent's changes (two places in a.txt, a new file) against the baseline taken when sill opened; one change
+    /// taken
+    /// back in the file, a comment on the other sent as a review; a turn's end taking a new baseline.
+    private func reviewSteps() async throws {
+        let app = try require(app, "the app")
+        let reviewer = try require(app.reviewer, "the reviewer")
+        let root = app.workingDirectory
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await waitFor("the baseline when sill opened", timeout: .seconds(10)) {
+            reviewer.baselines.first?.name == "when sill opened" ? true : nil
+        }
+        // The agent's work, on disk.
+        var lines = (1 ... 20).map { "line \($0)" }
+        lines[2] = "line three"
+        lines[16] = "line seventeen"
+        try (lines.joined(separator: "\n") + "\n").write(toFile: root + "/a.txt", atomically: true, encoding: .utf8)
+        try "new\n".write(toFile: root + "/c.txt", atomically: true, encoding: .utf8)
+
+        _ = try await session.channel.lua("vim.cmd('SillReview')")
+        try await wait("the review pane") { $0.currentPaneKind == "review" }
+        let view = try await waitFor("the review view") { app.tools.review }
+        _ = try await waitFor("the changes", timeout: .seconds(10)) {
+            reviewer.files.map(\.path) == ["a.txt", "c.txt"] && reviewer.diff?.hunks.count == 2 ? true : nil
+        }
+        let hunks = try require(reviewer.diff?.hunks, "a.txt's changes")
+        try expect(reviewer.files[0].added == 2 && reviewer.files[1].status == .added, "\(reviewer.files)")
+        step("since sill opened: a.txt (+2 −2, two changes) and c.txt added")
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            view.display()
+            try self.shot(to: shot)
+            step("saved \(shot)")
+        }
+
+        view.perform("reject", 1)
+        _ = try await waitFor("the change taken back", timeout: .seconds(10)) {
+            reviewer.diff?.hunks.count == 1 ? true : nil
+        }
+        let text = try String(contentsOfFile: root + "/a.txt", encoding: .utf8)
+        try expect(text.contains("line three") && text.contains("line 17\n"), "line 17 as it was: \(text)")
+        reviewer.keep(hunks[0])
+        reviewer.comment(hunks[0], "call it line 3 again, the tests read it")
+        try expect(reviewer.reviewText().contains("a.txt:3: call it line 3 again"), reviewer.reviewText())
+        reviewer.sendReview()
+        try await wait("the agent's pane", timeout: .seconds(10)) { $0.paneRects.contains { $0.kind == "terminal" } }
+        try expect(reviewer.sentReviews == 1 && reviewer.comments.isEmpty, "sent and cleared")
+        step("Take back restored line 17 in the file; a comment on line 3 went to the agent as a review")
+
+        // A turn: the session here works, the file changes, it stops: a baseline after the turn. Sending the review
+        // took one first.
+        _ = try await waitFor("the baseline when the review was sent", timeout: .seconds(10)) {
+            reviewer.baselines.last?.name == "when sent to an agent" ? true : nil
+        }
+        let before = reviewer.baselines.count
+        reviewer.follow(("working", "fix"))
+        try "turn\n".write(toFile: root + "/d.txt", atomically: true, encoding: .utf8)
+        reviewer.follow(("idle", "fix"))
+        do {
+            _ = try await waitFor("the turn's baseline", timeout: .seconds(10)) {
+                reviewer.baselines.count > before && reviewer.baselines.last?
+                    .name == "after the agent's turn" ? true : nil
+            }
+        } catch {
+            throw CheckFailure(description: "no turn baseline: \(reviewer.baselines.map(\.name)) (\(before) before)")
+        }
+        step("an agent's turn ending takes a baseline: \(reviewer.baselines.map(\.name).joined(separator: ", "))")
     }
 
     private func m8Steps() async throws {

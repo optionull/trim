@@ -526,6 +526,19 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     run compared with the first. Dropping the condition in the tool fails it.
   - Found on the way: `settle` answered once the program paused but before its frame's variables were read, so
     the agent's answer could lack the locals (one run in the full chain); it now waits for the pause to be read.
+- Review mode (2026-10-24): `SillCore.Review` takes a baseline as a git tree of the worktree (untracked files
+  in, ignored ones out) through a temporary index copied from the repository's (so it only hashes what changed, and
+  the index and history are untouched), lists the files between two trees, parses a file's hunks, and takes a hunk
+  back with `git apply -R --recount` (false when the file changed since). `Reviewer` keeps up to twelve baselines
+  (when sill opened, when work goes to an agent, after an agent's turn when heed's session here stops working,
+  `:SillReview mark`; the same tree is not taken twice, and baselines are taken in the order asked). The review pane: baseline chips,
+  files, hunks named by their first changed line with Keep, Take back and Comment; Send review sends the comments
+  as one prompt; Return opens the baseline beside the file in nvim's diff.
+  - `SILL_CHECK=review`: a.txt's two changes and c.txt since sill opened; Take back restored line 17 in the file; a
+    comment on line 3 sent as a review; a turn's end took a baseline. Found on the way: baselines were taken as separate tasks, so a
+    slow snapshot could take a later moment's worktree under its own name (one run in the full chain); they are
+    now taken in the order asked. Unit tests on a real repository (the index
+    unchanged, a log ignored, a hunk taken back twice failing the second time). Dropping `-R` fails them.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

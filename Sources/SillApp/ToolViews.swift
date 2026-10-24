@@ -22,6 +22,9 @@ final class ToolPanes {
     /// The packages (board 3), made the first time their pane opens.
     private(set) var packages: PackagesView?
     var makePackages: (() -> PackagesView)?
+    /// The review pane, made the first time it opens.
+    private(set) var review: ReviewView?
+    var makeReview: (() -> ReviewView)?
 
     /// Called with the profiler the first time it is made.
     var onProfileMade: ((ProfileView) -> Void)?
@@ -77,6 +80,19 @@ final class ToolPanes {
         } else {
             packages?.isHidden = true
         }
+        if let rect = screen.paneRects.first(where: { $0.kind == "review" }), let make = makeReview {
+            let view = review ?? {
+                let made = make()
+                editor.addSubview(made)
+                review = made
+                return made
+            }()
+            view.frame = editor.rect(row: rect.row, col: rect.col, width: rect.width, height: rect.height)
+            view.isHidden = false
+            covered.insert(rect.grid)
+        } else {
+            review?.isHidden = true
+        }
         if let rect = screen.paneRects.first(where: { $0.kind == "profile" }) {
             let view = profileView()
             view.frame = editor.rect(row: rect.row, col: rect.col, width: rect.width, height: rect.height)
@@ -98,6 +114,7 @@ final class ToolPanes {
         case "panel": panel.handleKey(event)
         case "profile": profile?.handleKey(event) ?? false
         case "packages": packages?.handleKey(event) ?? false
+        case "review": review?.handleKey(event) ?? false
         default: false
         }
     }

@@ -483,6 +483,8 @@ final class AgentBridge {
     /// An ask from the editor (problems, a profile): to heed when it runs, else a terminal pane. `headline` is the
     /// prompt's first line, which heed titles the session with.
     func send(headline: String, _ body: String) {
+        // What the agent does from here is reviewed against the worktree as it is now.
+        app?.reviewer?.mark("when sent to an agent")
         let prompt = headline + "\n" + body
         guard sessions != nil else {
             lastSent = (nil, nil)

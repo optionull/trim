@@ -135,6 +135,17 @@ it to an agent to update and run the tests. j/k move, 1 to 5 filter, u updates, 
 
 ![The packages of a sample project: two vulnerable, one deprecated, Newtonsoft.Json selected with its advisory, how it got there and Update to 13.0.1](docs/showcase-packages-2026-10-24.png)
 
+## Reviewing what an agent changed
+
+`:SillReview` shows what changed since a baseline: the files with their counts, and each change to keep, take back
+(the file as the baseline had it there) or comment on. Send review hands the comments to the agent working here, each
+with its file, line and change. Baselines are taken when sill opens, when work is sent to an agent, when an agent's
+turn ends (its heed session stops working) and with `:SillReview mark`; Return opens a file beside its baseline in
+nvim's diff. A baseline is a git tree of the worktree written through a temporary index: your index and history are
+left alone.
+
+![Review: a.txt's two changes since sill opened, each to keep, take back or comment on](docs/showcase-review-2026-10-24.png)
+
 ## An agent debugging and profiling, in view
 
 sill's MCP server gives an agent the debugger and the profiler, and sill shows what it does as it does it:

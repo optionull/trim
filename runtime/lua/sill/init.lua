@@ -572,6 +572,20 @@ function M.setup()
   end, { desc = 'Show or hide the base of a merge' })
   -- The .slnx and the folders on disk (owner, 2026-10-23): sync shows the solution rewritten so its folders follow the
   -- disk, as a diff; apply writes it.
+  -- Reviewing what an agent changed: the files and changes since a baseline; `mark` takes a baseline now.
+  vim.api.nvim_create_user_command('SillReview', function(opts)
+    if opts.args == 'mark' then
+      notify('sill_review', 'mark')
+      vim.notify('A baseline to review against: the worktree now', vim.log.levels.INFO)
+    else
+      M.show_pane('review')
+      notify('sill_review', 'show')
+    end
+  end, {
+    nargs = '?',
+    complete = function() return { 'mark' } end,
+    desc = 'Review what changed since a baseline (an agent\'s work); mark takes a baseline now',
+  })
   -- The solution's packages (board 3, M9): vulnerable, outdated, deprecated.
   vim.api.nvim_create_user_command('SillPackages', function()
     M.show_pane('packages')

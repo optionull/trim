@@ -66,6 +66,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         servers = LanguageServers(channel: session.channel, directory: workingDirectory)
         debugger = Debugger(app: self, channel: session.channel, directory: workingDirectory)
         packages = Packages(app: self, channel: session.channel, directory: workingDirectory)
+        reviewer = Reviewer(app: self, channel: session.channel, directory: workingDirectory)
+        tools.makeReview = { [weak self] in
+            guard let self else { fatalError("the app is gone") }
+            let view = ReviewView(reviewer: reviewer)
+            reviewer.onChange = { [weak view] in view?.changed() }
+            reviewer.refresh()
+            return view
+        }
         tools
             .makePackages = { [weak self] in
                 self?.packages.makeView() ?? PackagesView(scanner: PackageScanner(directory: ""))
@@ -216,6 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var servers: LanguageServers!
     private(set) var debugger: Debugger!
     private(set) var packages: Packages!
+    private(set) var reviewer: Reviewer!
     /// Roslyn's provisioning: what the status bar says while it downloads.
     private(set) var roslynStatus: String?
     private(set) var roslyn: RoslynServer?
@@ -240,6 +249,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         servers.answer(screen.serverAsks)
         debugger.update(screen)
         packages.update(screen)
+        reviewer.update(screen)
+        // Turns come from heed's sessions: without heed there are none to follow.
+        if agents.sessions != nil { reviewer.follow(agents.sessionHere.map { ($0.state, $0.title) }) }
         if let ask = screen.slnxAsk, ask.serial != slnxAskSeen {
             slnxAskSeen = ask.serial
             solutions.answer(ask.action)
