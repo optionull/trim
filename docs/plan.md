@@ -586,6 +586,18 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     before anyone listened), so the check looks among the slowest five, and ASP.NET's graceful shutdown outlived a check (it is killed now).
 - Fixtures' restore output (obj/ of Debuggee and Sample) had been committed, with absolute paths of the machine
   that restored them; untracked and ignored since, but still in the history.
+- The slim shell (2026-10-24; owner: public later, no title bar by default, rounded like a macOS app). First the
+  editor surface moved into a library, `SillEditor` (EditorView, the native command line, completion, messages and
+  toasts, Design, EditorFont; the font hands terminal panes their size through a hook), with no change in behaviour
+  (the full chain passed). The shell (`Sources/SillShell`, `Sill Shell.app`, bundle id com.mpdreamz.sill.shell for
+  now) uses it and nothing else: nvim with the person's config and sill's runtime, a titled window with a
+  transparent title bar and its buttons hidden (so macOS rounds and shadows it), moving by an 8-point margin; sill's
+  settings file for the font and `[shell] title_bar`. `SILL_SHELL_CHECK=1`: typed text comes back in a grid (each
+  window is a grid of its own under multigrid), the buttons hidden but the window titled, a picture with the
+  window's corners. Showing the buttons fails it.
+  - Found on the way: an Objective-C exception from a write to nvim's closed pipe (the input loop's last request
+    racing stop) took the unit tests down once; writes and close now share a lock and the process closes with the
+    throwing close.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

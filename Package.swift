@@ -60,6 +60,11 @@ if hasGhostty {
     appDependencies.append("SillTerminal")
 }
 
+// The shell: nvim alone in a native window, with sill's editor surface and nothing else.
+targets.append(.executableTarget(
+    name: "SillShell",
+    dependencies: ["SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", messagePack]
+))
 targets.append(.executableTarget(
     name: "SillApp",
     dependencies: appDependencies,
@@ -71,6 +76,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .executable(name: "SillApp", targets: ["SillApp"]),
+        .executable(name: "SillShell", targets: ["SillShell"]),
     ],
     // The msgpack codec Veil's RPC layer is written against (MIT).
     dependencies: [.package(url: "https://github.com/qvacua/MessagePack.swift", exact: "4.1.0")],

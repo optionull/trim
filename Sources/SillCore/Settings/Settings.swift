@@ -19,6 +19,8 @@ public struct SillSettings: Equatable, Sendable {
     public var chrome = true
     /// The explorer, editor windows and panel as rounded islands on a darker canvas.
     public var islands = true
+    /// The shell's window with its title bar (its buttons); without it the window moves by its margin.
+    public var shellTitleBar = false
     public var nvimConfig = NvimConfig.yours
     public var agent = "claude"
     public var heedAgent = "claude"
@@ -50,7 +52,7 @@ public struct SillSettings: Equatable, Sendable {
     public static let keys: [(path: [String], variable: String?)] = [
         (["editor", "font"], nil), (["editor", "size"], nil), (["editor", "line_height"], nil),
         (["editor", "smooth_scroll"], "SILL_SMOOTH_SCROLL"), (["window", "chrome"], "SILL_CHROME"),
-        (["window", "islands"], nil),
+        (["window", "islands"], nil), (["shell", "title_bar"], nil),
         (["nvim", "config"], "SILL_NVIM_CONFIG"), (["agents", "command"], "SILL_AGENT"),
         (["agents", "heed_agent"], "SILL_HEED_AGENT"), (["agents", "allow"], "SILL_MCP_ALLOW"),
         (["dotnet", "path"], "SILL_DOTNET"), (["heed", "control"], "HEED_CONTROL"),
@@ -116,6 +118,7 @@ public enum SettingsLoader {
         bool(["editor", "smooth_scroll"]) { settings.smoothScroll = $0 }
         bool(["window", "chrome"]) { settings.chrome = $0 }
         bool(["window", "islands"]) { settings.islands = $0 }
+        bool(["shell", "title_bar"]) { settings.shellTitleBar = $0 }
         string(["nvim", "config"]) { text in
             if let config = SillSettings.NvimConfig(rawValue: text) {
                 settings.nvimConfig = config
@@ -174,6 +177,10 @@ public enum SettingsLoader {
     # chrome = true
     # The explorer, each editor window and the panel as rounded islands on a darker canvas; false is flat panels.
     # islands = true
+
+    [shell]
+    # The shell (nvim alone in a window) with its title bar and buttons; without, it moves by its margin.
+    # title_bar = false
 
     [nvim]
     # "yours" loads your nvim config (~/.config/nvim) after sill's base settings; "sill" runs sill's alone.

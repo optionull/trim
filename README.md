@@ -8,6 +8,16 @@ diff and three-way merge, and a bridge that hands build errors and profiles to a
 plan's first week are done: sill embeds nvim as a multigrid UI drawn by an instanced Metal grid, and a terminal pane
 is a placeholder nvim window with a Ghostty surface drawn over it.
 
+## The shell
+
+`Sill Shell.app`, built beside sill, is nvim alone in a native window: the same Metal grid, the command line,
+completion and messages as native views, your own nvim config, and nothing else (no explorer, panel, sidecar or
+agents). It has no title bar by default; the window keeps macOS's rounded corners and shadow and moves by its margin
+(`title_bar = true` under `[shell]` in the settings brings the buttons back). ⌘+, ⌘- and ⌘0 size the font; ⌘, opens
+the settings in it.
+
+![The shell: nvim in a rounded window with no title bar](docs/showcase-shell-2026-10-24.png)
+
 ## Building
 
 Tools come from mise (`mise.toml`): Zig for GhosttyKit, SwiftFormat and SwiftLint. Xcode with the Metal toolchain

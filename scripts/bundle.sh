@@ -41,3 +41,14 @@ for wanted in runtime/plugin/sill.lua sidecar/Sill.Sidecar.dll; do
   fi
 done
 echo "bundle: $app ($version, build $build, $commit)"
+
+# The shell: nvim alone in a native window. Its binary, sill's runtime and its own Info.plist; no sidecar.
+shell="${BUILD_DIR:-$root/build}/Sill Shell.app"
+mkdir -p "$shell/Contents/MacOS" "$shell/Contents/Resources"
+cp "$products/SillShell" "$shell/Contents/MacOS/SillShell"
+rm -rf "$shell/Contents/Resources/runtime"
+cp -R "$root/runtime" "$shell/Contents/Resources/runtime"
+sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
+  "$root/Resources/Shell-Info.plist" >"$shell/Contents/Info.plist"
+codesign --force --sign - "$shell"
+echo "bundle: $shell"
