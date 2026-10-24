@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         profiler = Profiler(app: self, channel: session.channel, directory: workingDirectory)
         tools.onProfileMade = { [weak self] view in self?.profiler.attach(view) }
         solutions = Solutions(app: self, channel: session.channel, directory: workingDirectory)
+        servers = LanguageServers(channel: session.channel, directory: workingDirectory)
         tools.sidebar.explorer.onSolutionRead = { [weak self] path, slnx, drift in
             self?.solutions.read(path, slnx, drift)
         }
@@ -157,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var agents: AgentBridge!
     private(set) var profiler: Profiler!
     private(set) var solutions: Solutions!
+    private(set) var servers: LanguageServers!
     /// Roslyn's provisioning: what the status bar says while it downloads.
     private(set) var roslynStatus: String?
     private(set) var roslyn: RoslynServer?
@@ -176,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         splitTabs.update(screen)
         if screen.buffer.kind.isEmpty, !screen.buffer.path.isEmpty { tools.sidebar.explorer.reveal(screen.buffer.path) }
         updateFrame(screen)
+        servers.answer(screen.serverAsks)
         if let ask = screen.slnxAsk, ask.serial != slnxAskSeen {
             slnxAskSeen = ask.serial
             solutions.answer(ask.action)
@@ -242,6 +245,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             state.services.append((roslynStatus, false))
         } else if let status = screen.languageServers["Roslyn"] {
             state.services.append(("Roslyn" + (status == "ready" ? "" : " " + status), status == "ready"))
+        }
+        // The current file's server, when sill started it.
+        let serving = [
+            "rust": "rust-analyzer", "swift": "sourcekit-lsp", "markdown": "marksman", "html": "HTML", "css": "CSS",
+            "scss": "CSS", "json": "JSON", "jsonc": "JSON", "typescript": "TypeScript", "javascript": "TypeScript",
+            "typescriptreact": "TypeScript", "javascriptreact": "TypeScript",
+        ][screen.buffer.filetype]
+        if let serving, let status = screen.languageServers[serving] {
+            state.services.append((serving + (status == "ready" ? "" : " " + status), status == "ready"))
         }
         state.filetype = screen.buffer.filetype
         state.position = screen.buffer.kind.isEmpty ? screen.cursorPosition : nil

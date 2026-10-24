@@ -79,11 +79,11 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 | Language | Server | Notes |
 |---|---|---|
 | C# / Razor (first, M3) | Roslyn LS with Razor cohosted in it, talked to by nvim's LSP client (M3, M6); an HTML server for Razor's markup (`__virtual.html`, `razor/updateHtml`) later | Downloaded on the user's machine, never bundled: nuget.org's `roslyn-language-server.<rid>` (MIT) still carries four Visual Studio assemblies, left out. |
-| Rust | rust-analyzer via `vim.lsp` | Profiling with samply |
-| Swift | sourcekit-lsp via `vim.lsp` | Profiling with xctrace |
-| Markdown | marksman | |
-| HTML / CSS / JSON | vscode-langservers | |
-| TS / JS | typescript-language-server | |
+| Rust | rust-analyzer via `vim.lsp` (M7) | Profiling with samply. The person's if it runs, else its release into sill's cache |
+| Swift | sourcekit-lsp via `vim.lsp` (M7) | Profiling with xctrace. From the PATH or Xcode |
+| Markdown | marksman (M7) | Its release into sill's cache |
+| HTML / CSS / JSON | vscode-langservers-extracted (M7) | npm into sill's cache |
+| TS / JS | TypeScript 7's own `tsc --lsp` (M7) | npm into sill's cache, or the project's TypeScript 7; typescript-language-server needs the tsserver TypeScript 7 no longer ships |
 
 ## 6. Profiler
 
@@ -117,7 +117,7 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 | M4 (done) | MCP server, editor-only agent loop | Agent fixes a build error end to end |
 | M5 (done) | heed bridge (needs heed's control socket) | Send to heed and see the session in the editor |
 | M6 (done) | .NET profiler in sidecar, Razor | CPU and heap diff on a sample app |
-| M7 | Rust and Swift profiling, remaining language servers | samply and xctrace sessions viewable |
+| M7 (done) | Rust and Swift profiling, remaining language servers | samply and xctrace sessions viewable |
 | M8 | Debugger (DAP) | Breakpoints and stepping in C# |
 | M9 | Polish: diff/merge tool modes, packages view, settings, Sparkle updates | Beta release |
 
@@ -367,6 +367,27 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     its folder's end, a needed folder added after its parent, an emptied one gone, nothing added. On
     elastic/docs-builder (which follows the rule by hand) it changes CONTRIBUTING.MD's case, and re-indents the few
     lines indented with tabs.
+- M7 (done 2026-10-24). Exit tests `SILL_CHECK=m7` in Tests/SillCoreTests/Fixtures/RustSample and SwiftSample,
+  and `SILL_CHECK=servers` in Fixtures/Polyglot.
+  - Native profiles: `:SillProfile` in a Cargo package records with samply, in a Swift package with xctrace (Time
+    Profiler), each built in release with line tables in a folder of its own (Cargo profile `sill-profile`,
+    `.build/sill-profile`), so the person's release build is left alone. Stop interrupts the program (samply waits
+    for it; xctrace ends it). samply's processed profile and the symbols it writes beside it, and xctrace's exported
+    time-profile table, become the same profile document the .NET profiler's does; frames the symbols cannot name
+    (the dyld shared cache's, stubs) are named for their library, and the hot frame shown is the hottest with a
+    source. On the samples: `rsample::pricing::total` at main.rs:7, `Pricing.total(_:)` at main.swift:9. No heap
+    snapshots for native programs yet.
+  - samply 0.13.1 is the person's if on their PATH, else its release downloaded into sill's cache, checksum checked.
+  - Language servers: a file's server starts the first time one opens, unless the person's config runs one for it.
+    sill finds it (the PATH, rustup, Xcode; a found one must run, as rustup's proxy for a missing component does not)
+    or provisions it into `~/Library/Caches/sill/servers`: rust-analyzer's and marksman's releases at pinned versions
+    with checksums (their releases publish none: the pinned sums are of the archives sill first fetched), and with npm,
+    vscode-langservers-extracted 4.10.0 and TypeScript 7.0.2, whose compiler is its own server (`tsc --lsp`).
+  - Once (2026-10-24), the Swift check, run straight after the Rust one, sat before recording until its 10-minute
+    timeout; it passed in the full verification before and in every run since. Not explained; the check now says
+    where it waits (building, or the recorder starting).
+  - Not done: Razor's HTML through the HTML server (plan §5's bridge), heap profiling for native programs, Xcode
+    projects (only Swift packages), Cargo workspaces with several programs (the last one built is profiled).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

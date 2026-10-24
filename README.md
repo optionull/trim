@@ -73,10 +73,20 @@ it. Markup gets Razor's answers (components, directives); plain HTML, CSS and Ja
 
 ## Profiling
 
-`:SillProfile` builds the .NET program of the project you are in and runs it under the profiler. While it records,
-Take snapshot (`s`) records the heap; a second one is compared with the first, object by object, as a treemap of what
-grew. Stop (`x`) shows the CPU profile: the flame graph, the hot spots with where they are written, allocations and
-collections. Send to agent gives the hot frame or the growth to an agent. It needs the .NET sidecar (your dotnet 10).
+`:SillProfile` builds the program of the project you are in and runs it under the profiler: .NET with EventPipe, a
+Cargo package with samply, a Swift package with xctrace (Instruments' Time Profiler). Stop (`x`) shows the CPU
+profile: the flame graph and the hot spots with where they are written. For .NET (which needs the sidecar, on your
+dotnet 10) Take snapshot (`s`) records the heap while it runs; a second one is compared with the first, object by object,
+as a treemap of what grew, and the profile has allocations and collections too. Send to agent gives the hot frame or
+the growth to an agent.
+
+![A Rust program's CPU profile from samply: rsample::pricing::total at main.rs:7](docs/showcase-rust-profile-2026-10-24.png)
+
+## Language servers
+
+Beside Roslyn, sill starts rust-analyzer, sourcekit-lsp, marksman, the HTML, CSS and JSON servers and TypeScript's own
+server the first time you open such a file, unless your nvim config already runs one for it. It uses yours when they
+are on your PATH; otherwise it downloads them into `~/Library/Caches/sill/servers` (the web servers with your npm).
 
 ## Agents
 

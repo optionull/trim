@@ -44,6 +44,18 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "servers" {
+                try await serversSteps()
+                print("sill check (servers): passed")
+                fflush(stdout)
+                exit(0)
+            }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "m7" {
+                try await m7Steps()
+                print("sill check (M7): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "solution" {
                 try await solutionSteps()
                 print("sill check (solution): passed")
@@ -248,6 +260,104 @@ final class SelfCheck {
         try shot(of: root, to: path, cursor: true)
         print("sill showcase: saved \(path)")
         fflush(stdout)
+    }
+
+    /// M7's language servers (`SILL_CHECK=servers`, run in a copy of Tests/SillCoreTests/Fixtures/Polyglot): each kind
+    /// of file opened gets its server, found or provisioned by sill, and the server answers for it: the file's symbols,
+    /// and TypeScript's error.
+    private func serversSteps() async throws {
+        let app = try require(app, "the app")
+        let root = app.workingDirectory
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        let files: [(path: String, server: String, symbol: String)] = [
+            ("src/main.rs", "rust_analyzer", "total"), ("swift/Sources/poly/main.swift", "sourcekit", "total"),
+            ("docs/README.md", "marksman", "Totals"), ("web/index.html", "html", "main"),
+            ("web/site.css", "cssls", ".totals"), ("web/data.json", "jsonls", "totals"),
+            ("web/app.ts", "typescript", "total"),
+        ]
+        for file in files {
+            let started = CACurrentMediaTime()
+            let path = (root as NSString).appendingPathComponent(file.path)
+            _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(path)])
+            try await wait("\(file.path) open") { $0.buffer.path == path }
+            let client = "sill_" + file.server
+            // Found or provisioned (the first time, downloaded or installed with npm).
+            let resolved = try await waitFor("\(file.server) found", timeout: .seconds(300)) {
+                app.servers.resolved[file.server]
+            }
+            if case let .failure(why) = resolved { throw CheckFailure(description: "no \(file.server): \(why)") }
+            var symbols: [String] = []
+            for _ in 0 ..< 60 {
+                let answer = try await session.channel.lua("""
+                local names = {}
+                local function walk(list)
+                  for _, s in ipairs(list or {}) do
+                    table.insert(names, s.name)
+                    walk(s.children)
+                  end
+                end
+                if #vim.lsp.get_clients({ bufnr = 0, name = ... }) == 0 then return names end
+                local result = vim.lsp.buf_request_sync(0, 'textDocument/documentSymbol',
+                  { textDocument = vim.lsp.util.make_text_document_params(0) }, 5000)
+                for _, r in pairs(result or {}) do walk(r.result) end
+                return names
+                """, args: [.string(client)])
+                symbols = (answer.arrayValue ?? []).compactMap(\.stringValue)
+                if symbols.contains(where: { $0.contains(file.symbol) }) { break }
+                try await Task.sleep(for: .milliseconds(500))
+            }
+            try expect(
+                symbols.contains { $0.contains(file.symbol) },
+                "\(client) lists \(file.symbol) in \(file.path): \(symbols.prefix(8))"
+            )
+            step("\(file.path): \(LanguageServers.label(file.server)) answers with its symbols (\(file.symbol)) in " +
+                "\(Bench.format(CACurrentMediaTime() - started)) s")
+        }
+        // TypeScript's error, from its own server.
+        let error = try await wait("TypeScript's error", timeout: .seconds(60)) { screen in
+            screen.diagnostics.contains { $0.path.hasSuffix("web/app.ts") && $0.severity == 1 }
+        }.diagnostics.first { $0.path.hasSuffix("web/app.ts") && $0.severity == 1 }
+        try expect(error?.line == 5, "on line 5: \(error.map { "\($0.line) \($0.message)" } ?? "")")
+        step("TypeScript reports the string assigned to a number, on line 5")
+    }
+
+    /// M7's exit (`SILL_CHECK=m7`, run in a copy of Tests/SillCoreTests/Fixtures/RustSample or SwiftSample): a native
+    /// program profiled, samply for Rust and xctrace for Swift, viewable as the .NET one is: its hot frame the sample's
+    /// hot loop, with its source line. `SILL_CHECK_SHOT` saves the CPU view.
+    private func m7Steps() async throws {
+        let app = try require(app, "the app")
+        let kind = try require(NativeRecorder.kind(in: app.workingDirectory), "a Cargo or Swift package")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await session.channel.lua("vim.cmd('SillProfile')")
+        try await wait("the profile pane") { $0.currentPaneKind == "profile" }
+        let view = try await waitFor("the profiler") { app.tools.profile.flatMap { $0.isHidden ? nil : $0 } }
+        let started = CACurrentMediaTime()
+        // Under the runner's own timeout, so a stall says where (the build, or the recorder starting).
+        _ = try await waitFor("the program to run (\(view.subtitle))", timeout: .seconds(300)) {
+            view.isRecording ? true : nil
+        }
+        try expect(!view.canSnapshot, "no heap snapshots for a native program")
+        step("\(kind.engine): built in release with line tables and running in " +
+            "\(Bench.format(CACurrentMediaTime() - started)) s")
+        try await Task.sleep(for: .seconds(kind == .swift ? 6 : 3))
+        _ = try await session.channel.lua("vim.cmd('SillProfile stop')")
+        let document = try await waitFor("the CPU profile", timeout: .seconds(120)) { view.document }
+        try expect(document.samples > 500, "\(document.samples) samples")
+        let hot = try require(view.selected, "a hot frame selected")
+        let name = view.name(hot)
+        try expect(name.contains(kind == .rust ? "pricing::total" : "Pricing.total"), "the hot loop: \(name)")
+        let source = try require(view.source(of: name), "its source")
+        try expect(source.file.hasSuffix(kind == .rust ? "main.rs" : "main.swift"), "in the sample: \(source.file)")
+        view.select(tab: .flameGraph)
+        view.display()
+        try expect(view.blocksDrawn > 3, "\(view.blocksDrawn) blocks")
+        try expect(view.cpuPayload(hot).contains("runtime: \(kind.rawValue)"), "the payload names the runtime")
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try self.shot(to: shot)
+            step("saved \(shot)")
+        }
+        step("stopped: \(document.samples) samples; the hot frame \(name) at " +
+            "\((source.file as NSString).lastPathComponent):\(source.line), in the flame graph")
     }
 
     /// The explorer and the .slnx (`SILL_CHECK=solution`, run in a copy of Tests/SillCoreTests/Fixtures/Solution): the

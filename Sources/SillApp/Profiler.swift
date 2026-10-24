@@ -45,9 +45,21 @@ final class Profiler {
     }
 
     /// Profiles `project`, else the project the current file is in, else the folder's first runnable one.
+    /// A native program being recorded (Rust, Swift).
+    private(set) var native: NativeRecorder?
+
     func start(project chosen: String?) {
-        guard run == nil else { return say("A profile is already recording: :SillProfile stop ends it.") }
-        guard let app, let sidecar = app.sidecar else {
+        guard run == nil, native == nil else {
+            return say("A profile is already recording: :SillProfile stop ends it.")
+        }
+        guard let app else { return }
+        // A .NET program when there is one; else the folder's Cargo or Swift package.
+        if chosen == nil, DotnetProjects.pick(in: directory, near: app.tools.screen.buffer.path) == nil,
+           let kind = NativeRecorder.kind(in: directory)
+        {
+            return startNative(kind)
+        }
+        guard let sidecar = app.sidecar else {
             view?.failed("the .NET sidecar is not running")
             return say("The .NET sidecar is not running, so there is no profiler.", warn: true)
         }
@@ -60,7 +72,7 @@ final class Profiler {
         }
         self.project = project
         let name = ((project as NSString).lastPathComponent as NSString).deletingPathExtension
-        view?.begin(name)
+        view?.begin(name, engine: ".NET · EventPipe", snapshots: true)
         Task {
             do {
                 let id = try await sidecar.startProfile(project: project) { [weak self] partial in
@@ -77,6 +89,27 @@ final class Profiler {
         }
     }
 
+    /// A Rust program under samply, a Swift one under xctrace.
+    private func startNative(_ kind: NativeRecorder.Kind) {
+        let recorder = NativeRecorder(kind: kind, directory: directory, onOutput: { [weak self] text in
+            self?.view?.append(output: text)
+        }, onRunning: { [weak self] name in
+            self?.view?.running(name)
+        })
+        native = recorder
+        view?.begin((directory as NSString).lastPathComponent, engine: kind.engine, snapshots: false)
+        Task {
+            do {
+                let document = try await recorder.record()
+                native = nil
+                view?.finish(document)
+            } catch {
+                native = nil
+                view?.failed("\(error)")
+            }
+        }
+    }
+
     private func progress(_ partial: ProfilePartial) {
         switch partial.stage {
         case "running": view?.running(partial.name ?? "the program")
@@ -87,6 +120,7 @@ final class Profiler {
     }
 
     func snapshot() {
+        if native != nil { return say("Heap snapshots are for .NET programs; a native profile is the CPU's.") }
         guard let run, let sidecar = app?.sidecar, let view else { return say("No profile is recording.") }
         view.busy = "taking snapshot #\(view.heaps.count + 1)…"
         Task {
@@ -100,6 +134,10 @@ final class Profiler {
     }
 
     func stop() {
+        if let native {
+            view?.reading()
+            return native.stop()
+        }
         guard let run, let sidecar = app?.sidecar else { return say("No profile is recording.") }
         view?.reading()
         Task { _ = try? await sidecar.stopProfile(run: run) }

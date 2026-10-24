@@ -107,10 +107,23 @@ final class ProfileView: NSView, ToolContent {
         changed()
     }
 
+    /// What recorded the run (".NET · EventPipe", "Rust · samply").
+    private(set) var engine = ""
+    /// The runtime an agent is told: dotnet, rust, swift.
+    private var runtime: String {
+        let first = engine.split(separator: " ").first.map(String.init)?.lowercased() ?? "dotnet"
+        return first == ".net" ? "dotnet" : first
+    }
+
+    /// Whether the run takes heap snapshots (.NET's does).
+    private(set) var canSnapshot = true
+
     /// A run of `name` begins: built first.
-    func begin(_ name: String) {
+    func begin(_ name: String, engine: String, snapshots: Bool) {
         phase = .building
         title = name
+        self.engine = engine
+        canSnapshot = snapshots
         document = nil
         heaps = []
         output = ""
@@ -163,7 +176,9 @@ final class ProfileView: NSView, ToolContent {
         busy = nil
         names = document.names
         show(FlameGraph(preorder: document.preorder))
-        if let hot = document.hotSpots.first {
+        // The hottest frame that is the program's own (its source is known), else the hottest: a system library's
+        // time is spent on behalf of the code that called it.
+        if let hot = document.hotSpots.first(where: { $0.file != nil }) ?? document.hotSpots.first {
             selected = profile.nodes.indices.filter { names[profile.nodes[$0].name] == hot.name }
                 .max { profile.nodes[$0].samples < profile.nodes[$1].samples }
         }
@@ -208,7 +223,7 @@ final class ProfileView: NSView, ToolContent {
     }
 
     private func updateButtons() {
-        snapshotButton.isHidden = !isRecording
+        snapshotButton.isHidden = !isRecording || !canSnapshot
         stopButton.isHidden = !isRecording
         againButton.isHidden = !isOver
         sendButton.isHidden = agentPayload() == nil
@@ -344,13 +359,13 @@ final class ProfileView: NSView, ToolContent {
         case .building: return "\(title) · building in Release…"
         case let .running(since):
             let seconds = String(format: "%.1f", Date().timeIntervalSince(since))
-            return "\(title) · .NET · EventPipe · recording \(seconds) s" + (busy.map { " · \($0)" } ?? "")
+            return "\(title) · \(engine) · recording \(seconds) s" + (busy.map { " · \($0)" } ?? "")
         case .reading: return "\(title) · reading the trace…"
         case let .failed(why): return "\(title) · \(why)"
         case .done:
             guard let document else { return title }
             let seconds = String(format: "%.1f", document.durationMs / 1000)
-            return "\(title) · .NET · EventPipe · \(document.samples.formatted()) samples over \(seconds) s" +
+            return "\(title) · \(engine) · \(document.samples.formatted()) samples over \(seconds) s" +
                 (heaps.isEmpty ? "" : " · \(heaps.count) snapshot\(heaps.count == 1 ? "" : "s")")
         }
     }
@@ -395,8 +410,8 @@ final class ProfileView: NSView, ToolContent {
         case .building: (big, hint) = ("Building \(title)…", "Then it runs under the profiler from its first line.")
         case let .running(since):
             big = "Recording \(title) · \(String(format: "%.1f", Date().timeIntervalSince(since))) s"
-            hint = "Take snapshot (s) records the heap; take another later to see what grew. Stop (x) ends the " +
-                "recording and shows the CPU profile."
+            hint = (canSnapshot ? "Take snapshot (s) records the heap; take another later to see what grew. " : "") +
+                "Stop (x) ends the recording and shows the CPU profile."
         case .reading: (big, hint) = ("Reading the trace…", "")
         case let .failed(why): (big, hint) = ("The profile failed", why)
         default: (big, hint) = ("", "")
@@ -542,7 +557,7 @@ final class ProfileView: NSView, ToolContent {
         let total = Double(max(profile.totalSamples, 1))
         var lines = [
             "kind: profile",
-            "runtime: \(document == nil ? "dotnet (synthetic)" : "dotnet")",
+            "runtime: \(document == nil ? "dotnet (synthetic)" : runtime)",
             "hot_frame: \(name(node))",
             "self_pct: \(String(format: "%.1f", Double(selfSamples(node)) / total * 100))",
             "total_pct: \(String(format: "%.1f", Double(profile.nodes[node].samples) / total * 100))",
@@ -694,6 +709,13 @@ final class ProfileView: NSView, ToolContent {
     private func drawHeap() {
         tiles = []
         guard let last = heaps.last else {
+            if !canSnapshot {
+                return attributed(
+                    "Heap snapshots are for .NET programs: this profile is the CPU's.",
+                    13,
+                    Design.textMuted
+                ).draw(at: NSPoint(x: 24, y: Self.header + 24))
+            }
             attributed(
                 "No snapshots yet. While a run records, Take snapshot (s); let it work, then take another: the " +
                     "second is compared with the first, object by object.", 13, Design.textMuted
@@ -901,7 +923,7 @@ final class ProfileView: NSView, ToolContent {
             return true
         }
         switch key {
-        case "s" where isRecording: snapshotClicked()
+        case "s" where isRecording && canSnapshot: snapshotClicked()
         case "x" where isRecording: onStop?()
         case "a": sendClicked()
         case "j", String(UnicodeScalar(NSDownArrowFunctionKey)!): row += 1

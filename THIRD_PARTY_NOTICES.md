@@ -133,3 +133,10 @@ Each is © Microsoft Corporation and others, https://github.com/microsoft/perfvi
 https://github.com/dotnet/diagnostics, https://github.com/Azure/azure-sdk-for-net,
 https://github.com/AzureAD/microsoft-authentication-library-for-dotnet and https://github.com/dotnet/runtime.
 
+## Tools sill downloads (not part of the app)
+
+Fetched on the user's machine into `~/Library/Caches/sill`, at pinned versions, when first needed: samply 0.13.1
+(https://github.com/mstange/samply, MIT or Apache-2.0), rust-analyzer 2026-10-19 (https://github.com/rust-lang/rust-analyzer,
+MIT or Apache-2.0), marksman 2026-02-08 (https://github.com/artempyanykh/marksman, MIT), and with npm
+vscode-langservers-extracted 4.10.0 (MIT) and TypeScript 7.0.2 (Apache-2.0).
+

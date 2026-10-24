@@ -1,4 +1,5 @@
 import Foundation
+@_exported import SillCore
 
 /// The sidecar's profiler (M6): a .NET program run under EventPipe's sampler, heap snapshots of it compared as they are
 /// taken, and its CPU profile once the recording stops.
@@ -10,54 +11,6 @@ public struct ProfilePartial: Decodable, Sendable, Equatable {
     public var error: Bool?
     public var processId: Int?
     public var name: String?
-}
-
-/// A CPU profile: the call tree of all threads flattened in preorder, as triples in `frames` (an index into `names`, a
-/// depth, samples), and what an agent is told about it.
-public struct ProfileDocument: Decodable, Sendable, Equatable {
-    public var name: String
-    public var samples: Int
-    public var durationMs: Double
-    public var sampleMs: Double
-    public var exited: Bool
-    public var names: [String]
-    public var frames: [Int]
-    public var hotSpots: [HotFrame]
-    public var collections: [GcRow]
-    public var allocations: [AllocationRow]
-
-    public struct HotFrame: Decodable, Sendable, Equatable {
-        public var name: String
-        public var module: String
-        /// Samples in it and no deeper (the sidecar's `self`).
-        public var selfSamples: Int
-        public var total: Int
-        public var file: String?
-        public var line: Int?
-
-        enum CodingKeys: String, CodingKey {
-            case name, module, selfSamples = "self", total, file, line
-        }
-    }
-
-    public struct GcRow: Decodable, Sendable, Equatable {
-        public var number: Int
-        public var generation: Int
-        public var reason: String
-        public var atMs: Double
-        public var pauseMs: Double
-    }
-
-    public struct AllocationRow: Decodable, Sendable, Equatable {
-        public var name: String
-        public var bytes: Int64
-        public var ticks: Int
-    }
-
-    /// The frames as (name, depth, samples).
-    public var preorder: [(name: Int, depth: Int, samples: Int)] {
-        stride(from: 0, to: frames.count - 2, by: 3).map { (frames[$0], frames[$0 + 1], frames[$0 + 2]) }
-    }
 }
 
 /// A heap snapshot: its types by bytes, and how it differs from the run's previous one.
