@@ -16,6 +16,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var check: SelfCheck?
     /// The .NET sidecar, started at launch; nil until it is ready, and after it failed to start.
     private(set) var sidecar: Sidecar?
+    /// As git's mergetool or difftool (`Sill merge LOCAL BASE REMOTE MERGED`, `Sill diff A B`): how sill ends tells git
+    /// whether the merge is done.
+    enum Tool { case merge(merged: String), diff }
+    let tool: Tool? = {
+        let arguments = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-psn") && !$0.hasPrefix("-NS") }
+        if arguments.first == "merge", arguments.count == 5 { return .merge(merged: arguments[4]) }
+        if arguments.first == "diff", arguments.count == 3 { return .diff }
+        return nil
+    }()
+
     private(set) var sidecarReady: (ready: SidecarReady, seconds: Double)?
     private(set) var sidecarProblem: String?
 
@@ -106,7 +116,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.show(update)
             }
             // nvim exited (:qa).
-            if self?.check == nil { NSApp.terminate(nil) }
+            if self?.tool != nil {
+                await self?.endTool()
+            } else if self?.check == nil {
+                NSApp.terminate(nil)
+            }
         }
         let (cols, rows) = editor.gridSize
         let chrome = chrome, workingDirectory = workingDirectory
@@ -433,7 +447,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return false
     }
 
+    /// The exit status git reads with `trustExitCode`: nvim's own (`:cquit` is 1), and 1 for a merge whose result
+    /// still has conflicts in it, whatever nvim said.
+    func toolStatus(nvim: Int32) -> Int32 {
+        guard case let .merge(merged) = tool, nvim == 0 else { return nvim }
+        let left = MergeConflicts.count(inFile: merged)
+        guard left > 0 else { return 0 }
+        FileHandle.standardError.write(Data(
+            "sill: \(left) conflict\(left == 1 ? "" : "s") left in \((merged as NSString).lastPathComponent)\n".utf8
+        ))
+        return 1
+    }
+
+    /// nvim ended in merge or diff mode: sill ends with the status git should see.
+    private func endTool() async {
+        let status = await toolStatus(nvim: session.channel.exitStatus() ?? 1)
+        agents?.stop()
+        await sidecar?.stop()
+        exit(status)
+    }
+
     func applicationWillTerminate(_: Notification) {
+        // Quit (⌘Q, the window closed) in merge or diff mode: what the result file says.
+        if tool != nil { exit(toolStatus(nvim: 0)) }
         agents?.stop()
         let session = session, sidecar = sidecar
         Task {

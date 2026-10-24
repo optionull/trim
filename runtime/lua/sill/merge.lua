@@ -10,18 +10,25 @@ local function notify(method, ...)
   end
 end
 
---- The conflicts in `buf`: each {start, middle (base marker or nil), separator, finish}, 1-based lines.
+-- A marker: seven of the character at the start of the line, then a space or nothing (a CR at most), so that a line
+-- of eight `=` in Markdown is no separator. The same rules as SillCore's MergeConflicts.
+local function marker(line, char)
+  local rest = line:sub(8)
+  return line:sub(1, 7) == string.rep(char, 7) and (rest == '' or rest == '\r' or rest:sub(1, 1) == ' ')
+end
+
+--- The conflicts in `buf`: each {start, base (its marker's line, or nil), separator, finish}, 1-based lines.
 function M.conflicts(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local result, open = {}, nil
   for i, line in ipairs(lines) do
-    if line:match('^<<<<<<<') then
+    if marker(line, '<') then
       open = { start = i }
-    elseif open and line:match('^|||||||') then
+    elseif open and not open.separator and marker(line, '|') then
       open.base = i
-    elseif open and line:match('^=======') then
+    elseif open and (line == '=======' or line == '=======\r') then
       open.separator = i
-    elseif open and open.separator and line:match('^>>>>>>>') then
+    elseif open and open.separator and marker(line, '>') then
       open.finish = i
       table.insert(result, open)
       open = nil

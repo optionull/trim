@@ -59,6 +59,16 @@ public final nonisolated class NvimProcess: @unchecked Sendable {
         _processLock.unlock()
     }
 
+    /// nvim's exit status once it has ended (`:cquit` makes it 1); nil while it runs.
+    public func exitStatus() async -> Int32? {
+        guard let process = _processLock.withLock({ _process }) else { return nil }
+        // The stream ends when nvim closes its output, a moment before the process is reaped.
+        for _ in 0 ..< 100 where process.isRunning {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return process.isRunning ? nil : process.terminationStatus
+    }
+
     public func stop() {
         _processLock.lock()
         let process = _process

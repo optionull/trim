@@ -172,6 +172,9 @@ public actor NvimChannel {
         _ = await request("nvim_ui_try_resize", params: [.int(Int64(width)), .int(Int64(height))])
     }
 
+    /// nvim's exit status once it has ended.
+    public func exitStatus() async -> Int32? { await process?.exitStatus() }
+
     public func stop() {
         rpcTask?.cancel()
         inputTask?.cancel()

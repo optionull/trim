@@ -46,12 +46,15 @@ hands it back; a click on the pane or on the editor does the same.
 ```sh
 git config merge.tool sill
 git config mergetool.sill.cmd '"/Applications/Sill.app/Contents/MacOS/Sill" merge "$LOCAL" "$BASE" "$REMOTE" "$MERGED"'
+git config mergetool.sill.trustExitCode true
 git config diff.tool sill
 git config difftool.sill.cmd '"/Applications/Sill.app/Contents/MacOS/Sill" diff "$LOCAL" "$REMOTE"'
 ```
 
 In a merge, `]x` and `[x` walk the conflicts and `\o`, `\t` and `\b` take ours, theirs or both (`<localleader>`);
-`:w` saves the result and `:qa` ends the merge.
+`:w` saves the result and `:qa` ends the merge. sill tells git how it went: it exits nonzero when the saved result
+still has conflicts in it, or when you give up with `:cq`, and git then keeps the file unmerged. `git difftool
+--trust-exit-code` reads `:cq` the same way.
 
 ## Files and the solution
 

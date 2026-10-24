@@ -40,6 +40,11 @@ final class SelfCheck {
 
     func run() async {
         do {
+            // As git's mergetool (driven by the mergetool script): resolve, leave or :cquit, and let sill end as it
+            // does for git.
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "merge" {
+                return try await mergeToolSteps()
+            }
             if let path = ProcessInfo.processInfo.environment["SILL_SHOWCASE"] {
                 try await showcase(to: path)
                 exit(0)
@@ -272,6 +277,49 @@ final class SelfCheck {
         try shot(of: root, to: path, cursor: true)
         print("sill showcase: saved \(path)")
         fflush(stdout)
+    }
+
+    /// `SILL_CHECK=merge SILL_MERGE=theirs|leave|cq`, run by git's mergetool: every conflict taken as theirs and saved,
+    /// the result saved as it is, or every conflict taken and saved and then `:cquit`. sill then ends as it would for a
+    /// person (`endTool`).
+    private func mergeToolSteps() async throws {
+        // Opened: a merge reports its conflicts; a diff has two windows in diff mode.
+        for attempt in 0 ... 300 {
+            let opened = switch app?.tool {
+            case .merge?: latest?.merge != nil
+            case .diff?: await (try? session.channel.lua(
+                    "return #vim.tbl_filter(function(w) return vim.wo[w].diff end, vim.api.nvim_list_wins())"
+                ))?.int64Value == 2
+            case nil: false
+            }
+            if opened {
+                step(latest?.merge.map { "a merge of \($0.file): \($0.left) conflicts" } ?? "a diff: two windows")
+                break
+            }
+            if attempt == 300 { throw CheckFailure(description: "timed out waiting for the merge or diff") }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        switch ProcessInfo.processInfo.environment["SILL_MERGE"] ?? "theirs" {
+        // nvim ends in these, so their answers may never come: how sill ends is what is checked. cq resolves and saves
+        // first, so only nvim's own status says the merge was given up.
+        case "theirs", "cq":
+            let end = ProcessInfo.processInfo.environment["SILL_MERGE"] == "cq" ? "vim.cmd('wall') vim.cmd('cquit')" :
+                "vim.cmd('wqa')"
+            _ = try? await session.channel.lua("""
+            local merge = require('sill.merge')
+            local buf = vim.g.sill_merge_result
+            if buf then vim.api.nvim_set_current_win(vim.fn.bufwinid(buf)) end
+            for _ = 1, buf and 1000 or 0 do
+              local first = merge.conflicts(buf)[1]
+              if not first then break end
+              vim.api.nvim_win_set_cursor(0, { first.start, 0 })
+              merge.take('theirs')
+            end
+            \(end)
+            """)
+        default:
+            _ = try? await session.channel.command("wqa")
+        }
     }
 
     /// M9's packages (`SILL_CHECK=packages`, run in a copy of Tests/SillCoreTests/Fixtures/PackagesProject, with the

@@ -423,7 +423,19 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   - On docs-builder (`SILL_CHECK=project`): 327 packages, 1 vulnerable, 283 outdated, 4 deprecated, in 37 s (restore,
     the SDK and 327 index reads); the main thread's worst was 23 ms. The first version stalled it 725 ms: the side
     panel read project.assets.json on every draw, and the report's lists were sorted again on every draw.
-  - Next in M9: the merge and diff tool hardened (exit codes for `git mergetool`, conflict kinds), then settings.
+- M9's merge and diff tool, hardened (2026-10-24): in merge or diff mode sill ends with nvim's status (`:cquit` is
+  1), and a merge whose saved result still has conflicts ends with 1 whatever nvim said, so git's `trustExitCode`
+  keeps it unmerged; ⌘Q or closing the window goes by the result file. Markers are matched as git writes them (seven
+  characters, then a space or nothing; `=======` alone on its line; CRLF), in Lua and in `SillCore.MergeConflicts`.
+  - Tested through git itself by `scripts/mergetool-check.sh` (`SILL_CHECK=merge` run as `mergetool.sill.cmd`): six kinds of conflict (one hunk,
+    the first and last lines, two near each other, CRLF, a Markdown underline in theirs, a deletion against an edit)
+    in merge, diff3 and zdiff3 styles, each resolved as theirs (git sees it resolved, its text what `git merge-file
+    --theirs` makes), left with conflicts and resolved-then-`:cq` (both unmerged); and `git difftool
+    --trust-exit-code` (`:qa` 0, `:cq` failing). Found on the way: splitting on "\n" in Swift never splits CRLF
+    (one character), so a CRLF result's conflicts went uncounted; the old Lua took a `========` underline in theirs
+    for the separator and dropped lines. Mutations of the exit status, the conflict count and the separator each
+    failed the run.
+  - Next in M9: settings.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
