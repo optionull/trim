@@ -563,6 +563,11 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     b.txt written from sill, obj/out.txt and an ignored run.log not followed, c.txt followed. Found on the way: URL's
     symlink resolving takes /private off again (realpath instead), and atomic writes' temporary files. With the
     person's write not recorded, b.txt is followed and the check fails.
+- Asking about code (2026-10-24): `:SillAsk` (a range, the question as arguments or asked for) sends the lines with
+  their numbers and the question to the agent working here (`AgentBridge.ask`), naming the file and the line to
+  answer under; the agent's `annotate` MCP call shows the answer as virtual lines under it (`sill.ask`, its own
+  namespace, wrapped to the window), until `:SillAsk clear`. `SILL_CHECK=ask`: the prompt carries Program.cs:20-25
+  and the question; the answer shows under line 25 and clears; with the extmark not set the check fails.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

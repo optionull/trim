@@ -533,6 +533,7 @@ function M.setup()
   require('sill.servers').setup()
   require('sill.debug').setup()
   require('sill.walk').setup()
+  require('sill.ask').setup()
   -- What the person writes is theirs: sill does not follow it as an agent's change.
   vim.api.nvim_create_autocmd('BufWritePost', {
     group = vim.api.nvim_create_augroup('sill_wrote', {}),

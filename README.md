@@ -135,6 +135,12 @@ it to an agent to update and run the tests. j/k move, 1 to 5 filter, u updates, 
 
 ![The packages of a sample project: two vulnerable, one deprecated, Newtonsoft.Json selected with its advisory, how it got there and Update to 13.0.1](docs/showcase-packages-2026-10-24.png)
 
+## Asking about code
+
+`:SillAsk` on a selection (or `:20,25SillAsk why is this here?`) sends the lines and your question to the agent
+working here; its answer comes back through sill's `annotate` tool and shows under the lines, beside the code it is
+about. `:SillAsk clear` removes the answers.
+
 ## Following an agent
 
 sill watches the worktree while an agent works: every file it changes is marked in the explorer for the session, and

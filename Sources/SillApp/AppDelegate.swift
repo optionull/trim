@@ -240,6 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var reviewer: Reviewer!
     private(set) var walker: Walker!
     private(set) var follower: Follower!
+    private var asksHandled = 0
     /// Roslyn's provisioning: what the status bar says while it downloads.
     private(set) var roslynStatus: String?
     private(set) var roslyn: RoslynServer?
@@ -267,6 +268,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         reviewer.update(screen)
         walker.update(screen)
         follower.update(screen)
+        for asked in screen.askQuestions.dropFirst(asksHandled) {
+            agents.ask(path: asked.path, from: asked.from, to: asked.to, lines: asked.lines, question: asked.question)
+        }
+        asksHandled = screen.askQuestions.count
         // Turns come from heed's sessions: without heed there are none to follow.
         if agents.sessions != nil { reviewer.follow(agents.sessionHere.map { ($0.state, $0.title) }) }
         if let ask = screen.slnxAsk, ask.serial != slnxAskSeen {

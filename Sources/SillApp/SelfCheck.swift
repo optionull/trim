@@ -49,6 +49,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "ask" {
+                try await askSteps()
+                print("sill check (ask): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "follow" {
                 try await followSteps()
                 print("sill check (follow): passed")
@@ -1035,6 +1041,60 @@ final class SelfCheck {
             "only the agent's: \(follower.touched.keys.sorted())"
         )
         step("not followed: b.txt (written from sill), obj/out.txt and run.log (ignored); c.txt is")
+    }
+
+    /// Asking about code (`SILL_CHECK=ask`, in a copy of Tests/SillSidecarTests/Fixtures/Debuggee, SILL_AGENT=echo):
+    /// lines and a question to the agent with the code, and its answer through `annotate` under the lines.
+    private func askSteps() async throws {
+        let app = try require(app, "the app")
+        let program = app.workingDirectory + "/Program.cs"
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(program), .int(20)])
+        try await wait("Program.cs open") { $0.buffer.name == "Program.cs" }
+        _ = try await session.channel.lua("vim.cmd('20,25SillAsk Why does Total multiply by the seed?')")
+        try await wait("the agent's pane", timeout: .seconds(10)) { $0.paneRects.contains { $0.kind == "terminal" } }
+        let prompt = try require(app.agents.lastPrompt, "the prompt")
+        try expect(
+            prompt.contains("Why does Total multiply by the seed?") && prompt.contains("About Program.cs:20-25") &&
+                prompt.contains("20\t    public static double Total(int seed)") && prompt.contains("line 25"),
+            "the question with its code: \(prompt)"
+        )
+        step(":20,25SillAsk sends the question with Program.cs:20-25 to the agent")
+
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        _ = try await agent.call("annotate", [
+            "path": program,
+            "line": 25,
+            "text": "So each order's total scales with its seed: a stand-in for real pricing.",
+        ])
+        let shown = try await session.channel.lua("""
+        local buf = vim.fn.bufnr(...)
+        return require'sill.ask'.annotations(buf)
+        """, args: [.string(program)])
+        let first = shown.arrayValue?.first?.arrayValue ?? []
+        try expect(
+            first.first?.integerValue == 25 && first.last?.stringValue?.contains("scales with its seed") == true,
+            "under line 25: \(shown)"
+        )
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(program), .int(18)])
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try await Task.sleep(for: .milliseconds(400))
+            try self.shot(to: shot)
+            step("saved \(shot)")
+        }
+        _ = try await session.channel.lua("vim.cmd('SillAsk clear')")
+        let cleared = try await session.channel.lua(
+            "return #require'sill.ask'.annotations(vim.fn.bufnr(...))",
+            args: [.string(program)]
+        )
+        try expect(cleared.integerValue == 0, "cleared")
+        step("the agent's answer through annotate shows under line 25; :SillAsk clear removes it")
     }
 
     private func m8Steps() async throws {

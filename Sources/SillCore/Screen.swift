@@ -221,6 +221,8 @@ public struct Screen: Sendable {
     /// The files the person wrote from nvim, the latest last (at most 50), and how many writes in all.
     public private(set) var written: [String] = []
     public private(set) var writes = 0
+    /// `:SillAsk` questions: the file, its lines and the question.
+    public private(set) var askQuestions: [(path: String, from: Int, to: Int, lines: [String], question: String)] = []
     /// How many times `:SillFollow` was asked.
     public private(set) var followAsks = 0
     /// `:SillWalk` asks: open a walkthrough, install the skill.
@@ -396,6 +398,18 @@ public struct Screen: Sendable {
                 writes += 1
                 written.append(path)
                 if written.count > 50 { written.removeFirst(written.count - 50) }
+            }
+        case let .notification(method, args) where method == "sill_ask":
+            if let map = args.first?.dictionaryValue, let path = map[.string("path")]?.stringValue,
+               let question = map[.string("question")]?.stringValue
+            {
+                askQuestions.append((
+                    path,
+                    Int(map[.string("from")]?.integerValue ?? 1),
+                    Int(map[.string("to")]?.integerValue ?? 1),
+                    (map[.string("lines")]?.arrayValue ?? []).compactMap(\.stringValue),
+                    question
+                ))
             }
         case let .notification(method, _) where method == "sill_follow":
             followAsks += 1

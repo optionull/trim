@@ -24,6 +24,8 @@ final class AgentBridge {
     private(set) var sessions: [HeedSession]?
     /// What the last Send to agent did, for the self-check: the heed session it went to, or nil for the pane.
     private(set) var lastSent: (session: String?, error: String?)?
+    /// The last prompt sent, for the self-check.
+    private(set) var lastPrompt: String?
 
     init(app: AppDelegate, channel: NvimChannel, directory: String) {
         self.app = app
@@ -109,7 +111,44 @@ final class AgentBridge {
             ) { [weak self] arguments in
                 await self?.callOpen(arguments) ?? gone
             },
-        ] + debugTools(gone) + profileTools(gone) + walkTools(gone)
+        ] + debugTools(gone) + profileTools(gone) + walkTools(gone) + [
+            Tool(
+                name: "annotate",
+                description: "Shows your answer to the person beside the code it is about, under " +
+                    "a line of a file in the editor (as a question asked with :SillAsk names it).",
+                properties: ["path": ["type": "string"], "line": ["type": "integer"], "text": ["type": "string"]],
+                required: ["path", "line", "text"]
+            ) { [weak self] data in
+                await self?.call("annotate") { bridge in
+                    let asked = Self.walkArguments(data)
+                    let text = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["text"] as? String
+                    guard let path = asked.path.map(bridge.absolute), let line = asked.line, let text else {
+                        return ToolResult("annotate needs a path, a line and the text", isError: true)
+                    }
+                    _ = try? await bridge.channel.lua(
+                        "require'sill.ask'.annotate(...)",
+                        args: [.string(path), .int(Int64(line)), .string(text)]
+                    )
+                    return ToolResult("Shown under \((path as NSString).lastPathComponent):\(line).")
+                } ?? gone
+            },
+        ]
+    }
+
+    /// `:SillAsk`: a question about lines of a file, to the agent working here, the code with it; the answer is to
+    /// come back through `annotate`, under the lines.
+    func ask(path: String, from: Int, to: Int, lines: [String], question: String) {
+        let place = "\(relative(path)):\(from)" + (to > from ? "-\(to)" : "")
+        let prompt = """
+        \(question)
+
+        About \(place):
+        \(lines.enumerated().map { "\(from + $0.offset)\t\($0.element)" }.joined(separator: "\n"))
+
+        Answer in a few sentences, then call sill's annotate tool with path "\(path)", line \(to) and your answer, so
+        it shows under the code.
+        """
+        send(headline: "Question on \(place)", prompt)
     }
 
     // MARK: Walkthroughs
@@ -572,6 +611,7 @@ final class AgentBridge {
         // What the agent does from here is reviewed against the worktree as it is now.
         app?.reviewer?.mark("when sent to an agent")
         let prompt = headline + "\n" + body
+        lastPrompt = prompt
         guard sessions != nil else {
             lastSent = (nil, nil)
             app?.run(command: agentCommand(prompt: prompt))
