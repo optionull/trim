@@ -74,7 +74,8 @@ public final nonisolated class NvimProcess: @unchecked Sendable {
         let process = _process
         _processLock.unlock()
         guard let process, process.isRunning else { return }
-        stdinPipe.fileHandleForWriting.closeFile()
+        // The throwing close: the transport may have closed it already, and closeFile would then raise.
+        try? stdinPipe.fileHandleForWriting.close()
         DispatchQueue.global().async {
             process.waitUntilExit()
         }

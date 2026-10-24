@@ -32,12 +32,26 @@ public final class PipeTransport: RpcTransport, @unchecked Sendable {
         }
     }
 
+    /// Writes and closing under one lock: a write after the pipe closed throws, rather than reaching a closed handle,
+    /// which raises an Objective-C exception no Swift code can catch (the input loop's last request racing `stop`).
+    private let writeLock = NSLock()
+    private nonisolated(unsafe) var writeClosed = false
+
+    public struct Closed: Error {}
+
     public nonisolated func write(_ data: Data) throws {
-        try writePipe.write(contentsOf: data)
+        try writeLock.withLock {
+            guard !writeClosed else { throw Closed() }
+            try writePipe.write(contentsOf: data)
+        }
     }
 
     public nonisolated func close() {
-        try? writePipe.close()
+        writeLock.withLock {
+            guard !writeClosed else { return }
+            writeClosed = true
+            try? writePipe.close()
+        }
         // readPipe is owned by the Process's stdout pipe; closing it here
         // would race with the readabilityHandler. Let the Process teardown
         // handle it.

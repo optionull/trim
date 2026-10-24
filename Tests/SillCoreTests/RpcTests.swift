@@ -27,3 +27,15 @@ struct RpcTests {
         #expect(messages.count == 1 && buffer.isEmpty)
     }
 }
+
+@Suite("pipe transport")
+struct PipeTransportTests {
+    @Test("a write after the pipe closed throws, rather than crashing on the closed handle")
+    func writeAfterClose() {
+        let pipe = Pipe(), back = Pipe()
+        let transport = PipeTransport(writePipe: pipe.fileHandleForWriting, readPipe: back.fileHandleForReading)
+        transport.close()
+        #expect(throws: PipeTransport.Closed.self) { try transport.write(Data([1, 2, 3])) }
+        transport.close()
+    }
+}
