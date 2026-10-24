@@ -62,7 +62,7 @@ public actor Sidecar {
     public init() {}
 
     /// The dotnet to run the sidecar on: `SILL_DOTNET`, `DOTNET_ROOT`, the login shell's PATH, then the usual places.
-    public static func findDotnet(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> URL {
+    public static func findDotnet(environment: [String: String] = Settings.shared.environment) throws -> URL {
         var searched: [String] = []
         func usable(_ path: String) -> URL? {
             searched.append(path)

@@ -93,6 +93,16 @@ variables. F10 steps over, F11 in, Shift-F11 out, F5 continues, Shift-F5 stops (
 
 ![Paused at a breakpoint: the line marked, the call stack and the variables in the Debug tab](docs/showcase-debugger-2026-10-24.png)
 
+## Settings
+
+⌘, opens the settings window. It writes `~/.config/sill/settings.toml`, which you can also edit by hand ("Open
+settings.toml" opens it in sill): the window changes one value in place and keeps your comments, and an edit to the
+file applies as soon as it is saved. The first start writes every setting commented out at its default. A key sill
+does not know, or a value it cannot use, is named at the top of the window. Settings cover what only sill has (the
+font, the chrome, which nvim config, the agents, dotnet, heed); what nvim has an option for stays in your nvim config.
+
+![The settings window: the font, size and line height, smooth scrolling, the chrome, the nvim config, the agents, dotnet and heed, and a typo in the file named at the top](docs/showcase-settings-2026-10-24.png)
+
 ## Packages
 
 The activity bar's packages (`:SillPackages`) reads the solution's NuGet packages with the SDK (`dotnet list package`):

@@ -435,7 +435,20 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     (one character), so a CRLF result's conflicts went uncounted; the old Lua took a `========` underline in theirs
     for the separator and dropped lines. Mutations of the exit status, the conflict count and the separator each
     failed the run.
-  - Next in M9: settings.
+- M9's settings (2026-10-24, owner: "Native settings window, powered by something more user editable. Like toml
+  which I believe heed uses"): `~/.config/sill/settings.toml` (`$XDG_CONFIG_HOME`, or `SILL_SETTINGS`), heed's
+  hand-written TOML parser copied in (`SillCore/Settings/TOML.swift`, with its tests) and heed's folder watcher.
+  The window (⌘,, AppKit in the design tokens) writes one value in place through `TOMLDocument.setting`, or on its
+  commented-out line, and the watcher reads the file back, so a hand edit and the window take the same path. Each
+  setting stands for an environment variable sill already read (SILL_AGENT, SILL_CHROME, …), and a variable set
+  when sill starts wins, its row disabled; the checks run without a settings file unless they name one. Font,
+  size and line height (new: `CellMetrics(font:size:lineHeight:)`), the chrome and the nvim config apply when sill
+  starts again; the rest at once. Unknown keys are reported (a typo), a bad value keeps its default, a syntax error
+  keeps the last good settings.
+  - `SILL_CHECK=settings`: the default written on first start; the size stepper and agent field written in place
+    with comments kept and read back (the agent becomes codex); a hand edit turning smooth scrolling off applied
+    at once with a typo reported; a syntax error keeping the last good settings; HEED_CONTROL disabling its row.
+  - Not done: the font changing without a restart (the grid's metrics and glyph atlas are made once), ⌘+ and ⌘-.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

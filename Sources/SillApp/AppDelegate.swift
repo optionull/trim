@@ -29,7 +29,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var sidecarReady: (ready: SidecarReady, seconds: Double)?
     private(set) var sidecarProblem: String?
 
+    let settings = SettingsController()
+
     func applicationDidFinishLaunching(_: Notification) {
+        // Before anything reads a setting.
+        settings.start()
         let environment = ProcessInfo.processInfo.environment
         if environment["SILL_BENCH"] == "1" {
             Bench.run()
@@ -42,9 +46,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let real = realPath(directory)
         workingDirectory = real == "/" ? NSHomeDirectory() : real
         // The self-check's first part runs as days 1 to 5 had sill: no frame, no sidebar, no panel.
-        chrome = environment["SILL_CHROME"] != "0" && environment["SILL_CHECK"] != "1"
+        chrome = Settings.shared.value("SILL_CHROME") != "0" && environment["SILL_CHECK"] != "1"
 
-        editor = EditorView(channel: session.channel, metrics: CellMetrics())
+        let settings = Settings.shared.current
+        editor = EditorView(channel: session.channel, metrics: CellMetrics(
+            font: settings.font, size: settings.size, lineHeight: settings.lineHeight
+        ))
         panes = TerminalPanes(editor: editor, channel: session.channel, directory: workingDirectory)
         tools = ToolPanes(editor: editor, channel: session.channel, directory: workingDirectory)
         splitTabs = SplitTabs(editor: editor, channel: session.channel)
@@ -138,7 +145,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // alone too.
                 let environment = NvimProcess.cachedEnv.merging(ProcessInfo.processInfo.environment) { _, own in own }
                 let showcaseAlone = environment["SILL_SHOWCASE"] != nil && environment["SILL_SHOWCASE_USER"] != "1"
-                let alone = environment["SILL_CHECK"] != nil || showcaseAlone || environment["SILL_NVIM_CONFIG"] == "0"
+                let alone = environment["SILL_CHECK"] != nil || showcaseAlone || Settings.shared
+                    .value("SILL_NVIM_CONFIG") == "0"
                 // No swap files, ever (-n), whatever a config sets: a swap file left by a stopped nvim only brings a
                 // prompt the next time the file opens. Unsaved changes are guarded at quit instead.
                 arguments.insert("-n", at: 0)
@@ -491,11 +499,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.terminate(nil)
     }
 
+    @objc func showSettings(_: Any?) {
+        settings.onOpenFile = { [weak self] path in
+            guard let self else { return }
+            Nvim.lua(session.channel, "require'sill'.open(...)", [.string(path)])
+            window.makeKeyAndOrderFront(nil)
+        }
+        settings.show()
+    }
+
     private func buildMenu() {
         let menu = NSMenu()
         let appItem = NSMenuItem()
         menu.addItem(appItem)
         let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit sill", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         // Copy, cut and paste go to the first responder: the editor (Visual mode and nvim_paste) or a terminal

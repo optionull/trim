@@ -49,6 +49,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "settings" {
+                try await settingsSteps()
+                print("sill check (settings): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "packages" {
                 try await packagesSteps()
                 print("sill check (packages): passed")
@@ -319,6 +325,87 @@ final class SelfCheck {
             """)
         default:
             _ = try? await session.channel.command("wqa")
+        }
+    }
+
+    /// M9's settings (`SILL_CHECK=settings SILL_SETTINGS=<a file not there yet>`, with HEED_CONTROL set): the commented
+    /// default written on first start; the window's controls write one value each in place, comments kept, and the
+    /// file read back applies at once; an edit by hand, a typo and a syntax error reach the window; a variable set in
+    /// the environment disables its row.
+    private func settingsSteps() async throws {
+        let app = try require(app, "the app")
+        let file = try require(SettingsController.file, "SILL_SETTINGS")
+        func text() -> String { (try? String(contentsOf: file, encoding: .utf8)) ?? "" }
+        try expect(text() == SettingsLoader.defaultSource, "the commented default written on first start")
+        try expect(Settings.shared.current == .default && Settings.shared.problems.isEmpty, "the defaults")
+        step("first start wrote \(file.lastPathComponent) with every setting commented out at its default")
+
+        app.showSettings(nil)
+        let window = try require(app.settings.window, "the settings window")
+        let size = try require(window.controls["editor.size"] as? NSStepper, "the size stepper")
+        try expect(size.doubleValue == 13, "the size shown: \(size.doubleValue)")
+        size.doubleValue = 15
+        _ = size.target?.perform(size.action)
+        let agent = try require(window.controls["agents.command"] as? NSTextField, "the agent field")
+        agent.stringValue = "codex"
+        _ = agent.target?.perform(agent.action)
+        try await waitFor("the file read back", timeout: .seconds(5)) {
+            Settings.shared.current.size == 15 && Settings.shared.value("SILL_AGENT") == "codex" ? true : nil
+        }
+        let written = text()
+        try expect(
+            written.contains("# Its size in points, 6 to 72.\nsize = 15\n") &&
+                written.contains("command = \"codex\"") && written.contains("# sill's settings."),
+            "set in place, comments kept:\n\(written)"
+        )
+        step(
+            "the window wrote size = 15 and command = \"codex\" in place, comments kept; read back, the agent is codex"
+        )
+
+        // By hand, as in nvim: a smooth-scroll change and a typo.
+        try (written + "\n[editor2]\nsize = 1\n").replacingOccurrences(
+            of: "# smooth_scroll = true",
+            with: "smooth_scroll = false"
+        )
+        .write(to: file, atomically: true, encoding: .utf8)
+        try await waitFor("the edit by hand", timeout: .seconds(5)) {
+            !Settings.shared.current.smoothScroll && !Settings.shared.problems.isEmpty ? true : nil
+        }
+        let toggle = try require(window.controls["editor.smooth_scroll"] as? NSSwitch, "the smooth scroll switch")
+        try await waitFor("the window following the file") { toggle.state == .off ? true : nil }
+        try expect(
+            Settings.shared.problems.map(\.description) == ["editor2.size: is not a setting"],
+            "the typo: \(Settings.shared.problems)"
+        )
+        step("an edit by hand applied at once (smooth scrolling off), and the window shows the typo: editor2.size")
+
+        let good = text()
+        try "[editor\nsize = 20\n".write(to: file, atomically: true, encoding: .utf8)
+        try await waitFor("the syntax error", timeout: .seconds(5)) {
+            Settings.shared.problems.first?.path == "" ? true : nil
+        }
+        try expect(
+            Settings.shared.current.size == 15 && Settings.shared.value("SILL_AGENT") == "codex",
+            "the last good settings kept"
+        )
+        step("a syntax error: \(Settings.shared.problems[0]); the last good settings kept")
+
+        let heed = try require(window.controls["heed.control"], "the heed socket field")
+        try expect(!heed.isEnabled && agent.isEnabled, "HEED_CONTROL from the environment disables its row only")
+        step("HEED_CONTROL, set in the environment, disables its row")
+
+        try good.write(to: file, atomically: true, encoding: .utf8)
+        try await waitFor("the file fixed", timeout: .seconds(5)) {
+            Settings.shared.problems.map(\.path) == ["editor2.size"] ? true : nil
+        }
+        window.refresh()
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            let view = try require(window.contentView, "the window's view")
+            view.layoutSubtreeIfNeeded()
+            let rep = try require(view.bitmapImageRepForCachingDisplay(in: view.bounds), "a bitmap")
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try require(rep.representation(using: .png, properties: [:]), "png").write(to: URL(fileURLWithPath: shot))
+            step("saved \(shot)")
         }
     }
 

@@ -8,11 +8,12 @@ public struct CellMetrics: @unchecked Sendable {
     /// From the top of a cell to where text is drawn, centring the line in the cell.
     public let textOffset: CGFloat
 
-    public init(size: CGFloat = 13) {
-        regular = NSFont(name: "JetBrains Mono", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
+    /// The font by name (the system's monospaced one when it is not installed), a line `lineHeight` times its own.
+    public init(font: String = "JetBrains Mono", size: CGFloat = 13, lineHeight: CGFloat = 1.2) {
+        regular = NSFont(name: font, size: size) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
         width = ceil(("M" as NSString).size(withAttributes: [.font: regular]).width)
         let line = ceil(regular.ascender - regular.descender + regular.leading)
-        height = ceil(line * 1.2)
+        height = ceil(line * lineHeight)
         textOffset = floor((height - line) / 2)
     }
 

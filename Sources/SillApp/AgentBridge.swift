@@ -20,7 +20,7 @@ final class AgentBridge {
     /// Calls so far, for the self-check.
     private(set) var calls: [String] = []
     /// heed's control socket, and its sessions (nil while heed is not running).
-    let heed = Heed()
+    let heed = Heed(path: Heed.socketPath(Settings.shared.environment))
     private(set) var sessions: [HeedSession]?
     /// What the last Send to agent did, for the self-check: the heed session it went to, or nil for the pane.
     private(set) var lastSent: (session: String?, error: String?)?
@@ -32,7 +32,7 @@ final class AgentBridge {
         let temporary = NSTemporaryDirectory()
         let pid = ProcessInfo.processInfo.processIdentifier
         configPath = (temporary as NSString).appendingPathComponent("sill-mcp-\(pid).json")
-        allowed = Set((ProcessInfo.processInfo.environment["SILL_MCP_ALLOW"] ?? "").split(separator: ",")
+        allowed = Set((Settings.shared.value("SILL_MCP_ALLOW") ?? "").split(separator: ",")
             .map(String.init))
         server = McpServer(
             path: (temporary as NSString).appendingPathComponent("sill-\(pid).sock"), tools: [],
@@ -223,7 +223,7 @@ final class AgentBridge {
 
     /// The agent command line: `claude` with sill's MCP server and the prompt (`SILL_AGENT` names another command).
     func agentCommand(prompt: String) -> String {
-        let agent = ProcessInfo.processInfo.environment["SILL_AGENT"] ?? "claude"
+        let agent = Settings.shared.value("SILL_AGENT") ?? "claude"
         return "\(agent) --mcp-config \(shellQuote(configPath)) \(shellQuote(prompt))"
     }
 
@@ -268,7 +268,7 @@ final class AgentBridge {
     }
 
     /// heed's name for the agent sill starts (`SILL_HEED_AGENT`, else claude).
-    private var heedAgent: String { ProcessInfo.processInfo.environment["SILL_HEED_AGENT"] ?? "claude" }
+    private var heedAgent: String { Settings.shared.value("SILL_HEED_AGENT") ?? "claude" }
 
     /// The words that give an agent sill's MCP server, for the agents sill knows how to tell.
     func mcpArguments(agent: String) -> [String] {

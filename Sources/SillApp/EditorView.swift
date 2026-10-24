@@ -72,8 +72,8 @@ final class EditorView: NSView {
     private var slides: [Int: Slide] = [:]
     private var seenScrolls: [Int: Int] = [:]
     private var slideLink: CADisplayLink?
-    /// Off with SILL_SMOOTH_SCROLL=0.
-    private let smoothScrolling = ProcessInfo.processInfo.environment["SILL_SMOOTH_SCROLL"] != "0"
+    /// Off with `smooth_scroll = false` (SILL_SMOOTH_SCROLL=0); read as it is now, so a change applies at once.
+    private var smoothScrolling: Bool { Settings.shared.value("SILL_SMOOTH_SCROLL") != "0" }
 
     /// A window that scrolled less than its height slides there from where it was.
     private func startScrolls(from old: Screen, to new: Screen) {
