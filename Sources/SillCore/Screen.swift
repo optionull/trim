@@ -223,6 +223,8 @@ public struct Screen: Sendable {
     public private(set) var writes = 0
     /// `:SillAsk` questions: the file, its lines and the question.
     public private(set) var askQuestions: [(path: String, from: Int, to: Int, lines: [String], question: String)] = []
+    /// `:SillTelemetry` asks: a pid, "stop", or "" to pick.
+    public private(set) var telemetryAsks: [String] = []
     /// How many times `:SillFollow` was asked.
     public private(set) var followAsks = 0
     /// `:SillWalk` asks: open a walkthrough, install the skill.
@@ -411,6 +413,8 @@ public struct Screen: Sendable {
                     question
                 ))
             }
+        case let .notification(method, args) where method == "sill_telemetry":
+            telemetryAsks.append(args.first?.stringValue ?? "")
         case let .notification(method, _) where method == "sill_follow":
             followAsks += 1
         case let .notification(method, args) where method == "sill_walk":

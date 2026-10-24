@@ -49,6 +49,8 @@ public static class Methods
     /// <summary><see cref="ProfileRunParams"/>: ends a run's recording; true if it was recording.</summary>
     public const string ProfileStop = "profile.stop";
     public const string ProfileWithin = "profile.within";
+    public const string Telemetry = "telemetry";
+    public const string TelemetryStop = "telemetry.stop";
     public const string ProfileRetainers = "profile.retainers";
 
     /// <summary><see cref="DbgshimParams"/>: <see cref="RoslynProgress"/> partials while downloading, then

@@ -111,7 +111,7 @@ final class AgentBridge {
             ) { [weak self] arguments in
                 await self?.callOpen(arguments) ?? gone
             },
-        ] + debugTools(gone) + profileTools(gone) + walkTools(gone) + [
+        ] + debugTools(gone) + profileTools(gone) + walkTools(gone) + telemetryTools(gone) + [
             Tool(
                 name: "annotate",
                 description: "Shows your answer to the person beside the code it is about, under " +
@@ -130,6 +130,101 @@ final class AgentBridge {
                         args: [.string(path), .int(Int64(line)), .string(text)]
                     )
                     return ToolResult("Shown under \((path as NSString).lastPathComponent):\(line).")
+                } ?? gone
+            },
+        ]
+    }
+
+    private struct TelemetryArguments: Decodable {
+        var pid: Int?
+        var level: String?
+        var contains: String?
+        var last: Int?
+        var slowest: Int?
+        var name: String?
+    }
+
+    private nonisolated static func telemetryArguments(_ data: Data) -> TelemetryArguments {
+        (try? JSONDecoder().decode(TelemetryArguments.self, from: data)) ?? TelemetryArguments()
+    }
+
+    private func telemetryTools(_ gone: ToolResult) -> [Tool] {
+        let notWatching = ToolResult(
+            "No program is watched: telemetry_watch with a pid, or :SillTelemetry in sill.",
+            isError: true
+        )
+        return [
+            Tool(
+                name: "telemetry_watch",
+                description: "Starts reading a running .NET program's logs, traces and " +
+                    "metrics (by its pid) without changing it; the person sees them in sill's telemetry pane.",
+                properties: ["pid": ["type": "integer"]],
+                required: ["pid"]
+            ) { [weak self] data in
+                await self?.call("telemetry_watch") { bridge in
+                    guard let pid = Self.telemetryArguments(data).pid,
+                          let watch = bridge.app?.telemetry else { return gone }
+                    watch.watch(Int32(pid))
+                    // A moment for the first batches.
+                    try? await Task.sleep(for: .seconds(2))
+                    return ToolResult(
+                        watch.run != nil ? "Watching \(watch.name) (pid \(pid)): \(watch.store.logs.count) " +
+                            "logs, \(watch.store.spans.count) spans so far." : "Could not watch pid \(pid).",
+                        isError: watch.run == nil
+                    )
+                } ?? gone
+            },
+            Tool(
+                name: "telemetry_logs",
+                description: "The watched program's newest logs: level (information, " +
+                    "warning, error) or worse, containing a text, the last n (default 50).",
+                properties: [
+                    "level": ["type": "string"],
+                    "contains": ["type": "string"],
+                    "last": ["type": "integer"],
+                ]
+            ) { [weak self] data in
+                await self?.call("telemetry_logs") { bridge in
+                    guard let watch = bridge.app?.telemetry, watch.processId != nil else { return notWatching }
+                    let asked = Self.telemetryArguments(data)
+                    let level = [
+                        "trace": 0,
+                        "debug": 1,
+                        "information": 2,
+                        "info": 2,
+                        "warning": 3,
+                        "error": 4,
+                        "critical": 5,
+                    ][asked.level?.lowercased() ?? ""] ?? 0
+                    return ToolResult(watch.store.logText(
+                        level: level,
+                        containing: asked.contains,
+                        last: asked.last ?? 50
+                    ))
+                } ?? gone
+            },
+            Tool(
+                name: "telemetry_traces",
+                description: "The watched program's slowest traces (default 5), or those " +
+                    "whose root is named like a text, each as its spans with durations and tags.",
+                properties: ["slowest": ["type": "integer"], "name": ["type": "string"]]
+            ) { [weak self] data in
+                await self?.call("telemetry_traces") { bridge in
+                    guard let watch = bridge.app?.telemetry, watch.processId != nil else { return notWatching }
+                    let asked = Self.telemetryArguments(data)
+                    bridge.app?.tools.telemetry?.select(tab: .traces)
+                    return ToolResult(watch.store.traceText(slowest: asked.slowest ?? 5, named: asked.name))
+                } ?? gone
+            },
+            Tool(
+                name: "telemetry_metrics",
+                description: "The watched program's metrics: each series' latest value " +
+                    "and its range, those named like a text when given.",
+                properties: ["name": ["type": "string"]]
+            ) { [weak self] data in
+                await self?.call("telemetry_metrics") { bridge in
+                    guard let watch = bridge.app?.telemetry, watch.processId != nil else { return notWatching }
+                    return ToolResult(watch.store.metricText(named: Self.telemetryArguments(data).name))
                 } ?? gone
             },
         ]

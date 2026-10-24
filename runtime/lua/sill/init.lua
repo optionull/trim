@@ -539,6 +539,10 @@ function M.setup()
     group = vim.api.nvim_create_augroup('sill_wrote', {}),
     callback = function(args) notify('sill_wrote', vim.fn.resolve(vim.api.nvim_buf_get_name(args.buf))) end,
   })
+  vim.api.nvim_create_user_command('SillTelemetry', function(opts) notify('sill_telemetry', opts.args) end, {
+    nargs = '?', complete = function() return { 'stop' } end,
+    desc = "A running .NET program's logs, traces and metrics: a pid, or pick one; stop ends it",
+  })
   vim.api.nvim_create_user_command('SillFollow', function() notify('sill_follow') end,
     { desc = "Follow an agent: what changes on disk opens in the Follow tab as it lands; again stops" })
   -- Files an agent edits on disk are read again (sill runs :checktime after its tool calls).

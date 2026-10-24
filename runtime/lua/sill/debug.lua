@@ -106,13 +106,15 @@ function M.expression(opts)
   return vim.fn.expand('<cexpr>')
 end
 
---- Asks which .NET process to attach to: `processes` is { { pid, name }, ... }.
-function M.pick_process(processes)
+--- Asks which .NET process: `processes` is { { pid, name }, ... }; the choice runs `command` with its pid (the
+--- debugger's attach by default).
+function M.pick_process(processes, command)
   vim.ui.select(processes, {
-    prompt = 'Attach to',
+    prompt = command and 'Watch' or 'Attach to',
     format_item = function(p) return p[2] .. '  (' .. p[1] .. ')' end,
   }, function(choice)
-    if choice then notify('sill_debug', 'attach ' .. choice[1]) end
+    if not choice then return end
+    if command then vim.cmd(command .. ' ' .. choice[1]) else notify('sill_debug', 'attach ' .. choice[1]) end
   end)
 end
 

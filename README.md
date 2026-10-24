@@ -135,6 +135,16 @@ it to an agent to update and run the tests. j/k move, 1 to 5 filter, u updates, 
 
 ![The packages of a sample project: two vulnerable, one deprecated, Newtonsoft.Json selected with its advisory, how it got there and Update to 13.0.1](docs/showcase-packages-2026-10-24.png)
 
+## Logs, traces and metrics
+
+`:SillTelemetry` watches a running .NET program (it picks among those running, or takes a pid) without changing it:
+its logs (Microsoft.Extensions.Logging), its traces (every ActivitySource, as a waterfall of each request's spans) and
+its metrics (every Meter, the program's own first, each over a sparkline), read through EventPipe by sill's sidecar.
+An agent asks the same through `telemetry_watch`, `telemetry_logs`, `telemetry_traces` and `telemetry_metrics`.
+`:SillTelemetry stop` ends it; the program goes on.
+
+![The telemetry pane's traces: a request's spans as a waterfall](docs/showcase-telemetry-traces-2026-10-24.png)
+
 ## Asking about code
 
 `:SillAsk` on a selection (or `:20,25SillAsk why is this here?`) sends the lines and your question to the agent

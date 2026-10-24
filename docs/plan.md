@@ -568,6 +568,24 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   answer under; the agent's `annotate` MCP call shows the answer as virtual lines under it (`sill.ask`, its own
   namespace, wrapped to the window), until `:SillAsk clear`. `SILL_CHECK=ask`: the prompt carries Program.cs:20-25
   and the question; the answer shows under line 25 and clears; with the extmark not set the check fails.
+- Logs, traces and metrics (2026-10-24, the owner's addition): one EventPipe session from the sidecar
+  (`telemetry`, streaming batches a quarter second apart; `telemetry.stop`) with Microsoft-Extensions-Logging's
+  FormattedMessage (level, category, message, trace and span ids), DiagnosticSource's `[AS]*/Stop:-…` (every
+  ActivitySource's finished activities with ids, name, kind, status, start, duration and tags; the tags arrive as
+  one string of `[key, value]` pairs) and System.Diagnostics.Metrics with `Metrics=*` (every Meter, once a second:
+  counters' rates, gauges, up-down counters, histograms' percentiles). Found by spiking against the Shop fixture
+  (Tests/SillSidecarTests/Fixtures/Shop, a minimal API that calls itself). `TelemetryStore` (SillCore) keeps the
+  newest 5000 logs and spans and 600 points a series, groups spans into traces (each after its parent, labelled by
+  route or path), and writes logs, the slowest traces and metrics as text for an agent. The pane: Logs (filtered by
+  level), Traces (a waterfall), Metrics (the program's own meters first, sparklines). MCP: `telemetry_watch`,
+  `telemetry_logs`, `telemetry_traces`, `telemetry_metrics`. .NET only for now; OTLP for others is a later step.
+  - `SILL_CHECK=telemetry`: the shop run on its own and watched through MCP; its warnings, its slowest trace with
+    price order and order.id, shop.orders and ASP.NET's request duration histogram read back; stop leaves the shop
+    running. Without the logging provider it fails. Found on the way: a trace can be read before all of its spans
+    are in, and a request under way when the watch begins never has its client span (its activity was made
+    before anyone listened), so the check looks among the slowest five, and ASP.NET's graceful shutdown outlived a check (it is killed now).
+- Fixtures' restore output (obj/ of Debuggee and Sample) had been committed, with absolute paths of the machine
+  that restored them; untracked and ignored since, but still in the history.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

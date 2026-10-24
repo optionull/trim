@@ -49,6 +49,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "telemetry" {
+                try await telemetrySteps()
+                print("sill check (telemetry): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "ask" {
                 try await askSteps()
                 print("sill check (ask): passed")
@@ -1095,6 +1101,83 @@ final class SelfCheck {
         )
         try expect(cleared.integerValue == 0, "cleared")
         step("the agent's answer through annotate shows under line 25; :SillAsk clear removes it")
+    }
+
+    /// A running program's logs, traces and metrics (`SILL_CHECK=telemetry`, in a built copy of
+    /// Tests/SillSidecarTests/Fixtures/Shop): the shop run on its own, watched through MCP, its logs, its slowest
+    /// traces and its metrics read back by an agent and shown in the pane.
+    private func telemetrySteps() async throws {
+        let app = try require(app, "the app")
+        let watch = try require(app.telemetry, "the telemetry")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await waitFor("the sidecar", timeout: .seconds(20)) { app.sidecar }
+        let shop = Process()
+        shop.executableURL = try Sidecar.findDotnet()
+        shop.arguments = [app.workingDirectory + "/bin/Debug/net10.0/Shop.dll", "http://127.0.0.1:5297"]
+        shop.standardOutput = FileHandle.nullDevice
+        shop.standardError = FileHandle.nullDevice
+        try shop.run()
+        // Killed, not asked: ASP.NET's graceful shutdown can outlast the check's exit.
+        defer { if shop.isRunning { kill(shop.processIdentifier, SIGKILL) } }
+        let pid = shop.processIdentifier
+        _ = try await waitFor("its diagnostics socket", timeout: .seconds(20)) {
+            Debugger.dotnetProcesses().contains { $0.pid == pid } ? true : nil
+        }
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        let watched = try await agent.call("telemetry_watch", ["pid": Int(pid)])
+        try expect(watched.hasPrefix("Watching Shop.dll"), "telemetry_watch: \(watched)")
+        try await wait("the telemetry pane") { $0.currentPaneKind == "telemetry" }
+        // A few seconds of orders: every seventh is slow, every fifth warns.
+        _ = try await waitFor("orders priced", timeout: .seconds(30)) {
+            watch.store.traces.contains { $0.durationMs > 100 } && watch.store.logs
+                .contains { $0.level == 3 } ? true : nil
+        }
+        let warnings = try await agent.call("telemetry_logs", ["level": "warning"])
+        try expect(warnings.contains("warning") && warnings.contains("is slow to price"), "the warnings: \(warnings)")
+        // Spans come in batches, and a request already under way when the watch began has no client span (its
+        // activity was made before anyone listened): a complete slow trace among the slowest five.
+        var traces = ""
+        for _ in 0 ..< 20 {
+            let five = try await agent.call("telemetry_traces", ["slowest": 5])
+            if let whole = five.components(separatedBy: "\n\n").first(where: {
+                $0.contains("price order") && $0.contains("order.id") && $0.contains("\n  GET")
+            }) {
+                traces = whole
+                break
+            }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+        try expect(
+            traces.contains("price order") && traces.contains("order.id") && traces.contains("GET"),
+            "the slowest trace with its spans: \(traces)"
+        )
+        let metrics = try await agent.call("telemetry_metrics", ["name": "shop.orders"])
+        try expect(metrics.hasPrefix("shop.orders: "), "the shop's counter: \(metrics)")
+        let duration = try await agent.call("telemetry_metrics", ["name": "http.server.request.duration"])
+        try expect(
+            duration.contains("http.server.request.duration") && duration.contains("p50"),
+            "ASP.NET's histogram: \(duration)"
+        )
+        step("an agent watched the shop (pid \(pid)) through MCP: its warnings, its slowest trace " +
+            "(\(traces.split(separator: "\n").first ?? "")) and its metrics (\(metrics.split(separator: "\n").first ?? ""))")
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"], let view = app.tools.telemetry {
+            for tab in [TelemetryView.Tab.logs, .traces, .metrics] {
+                view.select(tab: tab)
+                view.display()
+                let path = (shot as NSString).deletingPathExtension + "-\(tab.rawValue.lowercased()).png"
+                try self.shot(to: path)
+                step("saved \(path)")
+            }
+        }
+        _ = try await session.channel.lua("vim.cmd('SillTelemetry stop')")
+        _ = try await waitFor("stopped", timeout: .seconds(10)) { watch.run == nil ? true : nil }
+        step(":SillTelemetry stop ends it; the shop goes on running: \(shop.isRunning)")
     }
 
     private func m8Steps() async throws {

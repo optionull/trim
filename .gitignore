@@ -9,3 +9,5 @@ mise.local.toml
 dist/
 sidecar/**/bin/
 sidecar/**/obj/
+Tests/**/bin/
+Tests/**/obj/
