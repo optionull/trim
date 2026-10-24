@@ -1,5 +1,6 @@
 import AppKit
 import MessagePack
+import SillEditor
 import SillNvim
 
 /// The editor's right-click menu (board 6): the language server's actions, compare with a branch, tag or commit,

@@ -2,6 +2,7 @@ import AppKit
 import MessagePack
 import SillAgent
 import SillCore
+import SillEditor
 import SillNvim
 
 /// The editor's side of the agent loop: sill's tools on its MCP server, the permission broker (M4), and Send to

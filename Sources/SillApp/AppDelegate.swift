@@ -1,6 +1,7 @@
 import AppKit
 import SillAgent
 import SillCore
+import SillEditor
 import SillNvim
 import SillRender
 import SillSidecar
@@ -52,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // The self-check's first part runs as days 1 to 5 had sill: no frame, no sidebar, no panel.
         chrome = Settings.shared.value("SILL_CHROME") != "0" && environment["SILL_CHECK"] != "1"
 
+        TerminalPanes.followGridFont()
         EditorFont.load(Settings.shared.current)
         editor = EditorView(channel: session.channel)
         panes = TerminalPanes(editor: editor, channel: session.channel, directory: workingDirectory)

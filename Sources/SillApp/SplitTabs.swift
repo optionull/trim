@@ -1,6 +1,7 @@
 import AppKit
 import MessagePack
 import SillCore
+import SillEditor
 import SillNvim
 
 /// Tabs per split (board 1): a strip over each editor window's winbar row listing the files opened in that window.

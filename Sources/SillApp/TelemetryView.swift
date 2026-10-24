@@ -1,5 +1,6 @@
 import AppKit
 import SillCore
+import SillEditor
 
 /// The telemetry pane: a program's logs as they come, its traces (a waterfall of the selected one's spans) and its
 /// metrics (each series' latest value over a sparkline).

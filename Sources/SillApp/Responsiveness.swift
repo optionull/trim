@@ -1,4 +1,5 @@
 import Foundation
+import SillEditor
 
 /// Watches the main thread from a thread of its own: every 10 ms it schedules a block there and records how late it
 /// ran. A stall is a block more than 50 ms late, kept with the phase it happened in, so a check can say what blocked

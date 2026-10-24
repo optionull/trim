@@ -1,6 +1,7 @@
 import AppKit
 import MessagePack
 import SillCore
+import SillEditor
 import SillNvim
 
 /// Build (⌘B): the project's build command, run with the login shell's environment, its output streamed to the

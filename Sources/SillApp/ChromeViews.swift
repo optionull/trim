@@ -1,5 +1,6 @@
 import AppKit
 import SillCore
+import SillEditor
 
 /// The title bar under the traffic lights: the project and branch, centred, and Run.
 final class TitleBarView: NSView {

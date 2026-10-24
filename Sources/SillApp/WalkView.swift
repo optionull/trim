@@ -1,5 +1,6 @@
 import AppKit
 import SillCore
+import SillEditor
 
 /// The walkthrough pane: its steps on the left, the step on the right: its prose, the code each anchor points at now
 /// (or why it was not found), and its questions with their answers.

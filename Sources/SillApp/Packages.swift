@@ -1,6 +1,7 @@
 import AppKit
 import MessagePack
 import SillCore
+import SillEditor
 import SillNvim
 
 /// The packages pane's actions (board 3, M9): updates written into the files that say the version (the open buffers

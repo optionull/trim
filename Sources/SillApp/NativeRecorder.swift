@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import SillCore
+import SillEditor
 import SillNvim
 
 /// A native program's profile (M7): a Rust one recorded with samply, a Swift one with xctrace (Instruments' Time

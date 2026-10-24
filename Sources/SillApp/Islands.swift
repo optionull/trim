@@ -1,5 +1,6 @@
 import AppKit
 import SillCore
+import SillEditor
 
 /// JetBrains' islands look (a setting, on by default): the explorer, each editor window, the panel and the panes as
 /// rounded panels on a darker canvas, the title, activity and status bars on the canvas too. Drawn over the editor

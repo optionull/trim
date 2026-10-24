@@ -1,4 +1,5 @@
 import AppKit
+import SillEditor
 import SillRender
 import SillSidecar
 

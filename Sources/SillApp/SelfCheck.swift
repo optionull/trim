@@ -2,6 +2,7 @@ import AppKit
 import Metal
 import os
 import SillCore
+import SillEditor
 import SillNvim
 import SillRender
 import SillSidecar

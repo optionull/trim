@@ -2,6 +2,7 @@ import AppKit
 import MessagePack
 import Metal
 import SillCore
+import SillEditor
 import SillNvim
 import SillRender
 

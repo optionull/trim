@@ -1,5 +1,6 @@
 import AppKit
 import MessagePack
+import SillEditor
 import SillNvim
 
 /// Source control in the sidebar: git's changed files, grouped as git groups them. Return (or a click) opens a file;

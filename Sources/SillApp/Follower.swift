@@ -1,6 +1,7 @@
 import AppKit
 import MessagePack
 import SillCore
+import SillEditor
 import SillNvim
 
 /// Following an agent (after M9): the files changing on disk that the person did not write from sill, each marked in

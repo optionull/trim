@@ -1,5 +1,6 @@
 import AppKit
 import SillCore
+import SillEditor
 
 /// The settings file and its window (M9). The file is the truth: the window writes one value into it (comments and
 /// layout kept) and the watcher reads it back, as it does an edit made by hand. ⌘, opens the window.

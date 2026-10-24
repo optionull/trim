@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+import SillEditor
 
 // SILL_FONTS: a directory of font files to use without installing them, registered for this process only.
 if let directory = ProcessInfo.processInfo.environment["SILL_FONTS"],

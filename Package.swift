@@ -24,6 +24,9 @@ var targets: [Target] = [
     .testTarget(name: "SillSidecarTests", dependencies: ["SillSidecar"], exclude: ["Fixtures"]),
     // The agent bridge: sill's MCP server on a Unix socket.
     .target(name: "SillAgent"),
+    // The editor surface any nvim front end of sill's makes: the Metal grid and its input, nvim's command line,
+    // completion and messages as native views, the design's tokens and the grid's font. sill and the shell use it.
+    .target(name: "SillEditor", dependencies: ["SillCore", "SillNvim", "SillRender", "SillInput", messagePack]),
     .testTarget(name: "SillAgentTests", dependencies: ["SillAgent"]),
     // The Metal grid: glyph atlas, instanced passes, and the render thread that draws screens.
     .target(
@@ -33,6 +36,7 @@ var targets: [Target] = [
     .testTarget(name: "SillRenderTests", dependencies: ["SillRender", "SillCore", "SillNvim", messagePack]),
 ]
 var appDependencies: [Target.Dependency] = [
+    "SillEditor",
     "SillCore",
     "SillNvim",
     "SillRender",

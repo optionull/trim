@@ -1,6 +1,7 @@
 import AppKit
 import MessagePack
 import SillCore
+import SillEditor
 import SillNvim
 import SillRender
 

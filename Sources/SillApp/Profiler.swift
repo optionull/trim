@@ -1,5 +1,6 @@
 import AppKit
 import SillCore
+import SillEditor
 import SillNvim
 import SillSidecar
 

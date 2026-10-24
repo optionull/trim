@@ -9,30 +9,30 @@ import SillRender
 /// The view is backed by a `CAMetalLayer` that a render thread draws into (`RenderLoop`); the main thread only hands
 /// it frames. Nothing here waits on nvim: screens are handed in, and input is queued.
 @MainActor
-final class EditorView: NSView {
-    private(set) var screen = Screen()
+package final class EditorView: NSView {
+    package private(set) var screen = Screen()
     private let channel: NvimChannel
     /// The grid's font and cell size, as the settings (and ⌘+, ⌘-) have them now.
-    var metrics: CellMetrics { EditorFont.metrics }
+    package var metrics: CellMetrics { EditorFont.metrics }
     /// Called with the new size in cells when the view is resized.
-    var onResize: ((_ cols: Int, _ rows: Int) -> Void)?
+    package var onResize: ((_ cols: Int, _ rows: Int) -> Void)?
     /// Called when the editor takes the keyboard back (a click on it).
-    var onFocus: (() -> Void)?
+    package var onFocus: (() -> Void)?
     /// Called for every key the editor gets, before nvim does.
-    var onKey: (() -> Void)?
+    package var onKey: (() -> Void)?
     /// Sees keys before nvim, after `onKey`; true when it took the key (a tool view whose window is current).
-    var keyInterceptor: ((NSEvent) -> Bool)?
+    package var keyInterceptor: ((NSEvent) -> Bool)?
     /// Grids not to draw: those under a terminal pane.
-    var coveredGrids: Set<Int> = [] {
+    package var coveredGrids: Set<Int> = [] {
         didSet { if coveredGrids != oldValue { submit() } }
     }
 
     private let metalLayer = CAMetalLayer()
-    private(set) var loop: RenderLoop?
+    package private(set) var loop: RenderLoop?
     /// Tags the frames handed to the render loop, so a measurement can tell which screen reached the display.
-    private(set) var frameTag: UInt64 = 0
+    package private(set) var frameTag: UInt64 = 0
 
-    init(channel: NvimChannel) {
+    package init(channel: NvimChannel) {
         self.channel = channel
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 700))
         wantsLayer = true
@@ -41,19 +41,19 @@ final class EditorView: NSView {
         startRenderer(scale: NSScreen.main?.backingScaleFactor ?? 2)
     }
 
-    override func makeBackingLayer() -> CALayer { metalLayer }
+    override package func makeBackingLayer() -> CALayer { metalLayer }
 
     @available(*, unavailable)
-    required init?(coder _: NSCoder) { fatalError("not used") }
+    package required init?(coder _: NSCoder) { fatalError("not used") }
 
-    override var isFlipped: Bool { true }
-    override var acceptsFirstResponder: Bool { true }
+    override package var isFlipped: Bool { true }
+    override package var acceptsFirstResponder: Bool { true }
 
-    var gridSize: (cols: Int, rows: Int) {
+    package var gridSize: (cols: Int, rows: Int) {
         (max(Int(bounds.width / metrics.width), 1), max(Int(bounds.height / metrics.height), 1))
     }
 
-    func show(_ screen: Screen) {
+    package func show(_ screen: Screen) {
         startScrolls(from: self.screen, to: screen)
         self.screen = screen
         submit()
@@ -62,7 +62,7 @@ final class EditorView: NSView {
     // MARK: Smooth scrolling
 
     /// How long a slide takes. nvim has already moved; this only shows the move.
-    static let scrollDuration: CFTimeInterval = 0.12
+    package static let scrollDuration: CFTimeInterval = 0.12
     private struct Slide {
         var previous: GridBuffer
         var lines: Int
@@ -117,14 +117,14 @@ final class EditorView: NSView {
     }
 
     /// The rectangle of a run of cells on grid 1, in points.
-    func rect(row: Int, col: Int, width: Int, height: Int) -> NSRect {
+    package func rect(row: Int, col: Int, width: Int, height: Int) -> NSRect {
         NSRect(
             x: CGFloat(col) * metrics.width, y: CGFloat(row) * metrics.height,
             width: CGFloat(width) * metrics.width, height: CGFloat(height) * metrics.height
         )
     }
 
-    override func setFrameSize(_ newSize: NSSize) {
+    override package func setFrameSize(_ newSize: NSSize) {
         let before = gridSize
         super.setFrameSize(newSize)
         updateDrawableSize()
@@ -159,14 +159,14 @@ final class EditorView: NSView {
 
     /// The font changed (`EditorFont`): the glyph atlas made again at the new size, and nvim told how many cells now
     /// fit.
-    func fontChanged() {
+    package func fontChanged() {
         startRenderer(scale: rendererScale > 0 ? rendererScale : (window?.backingScaleFactor ?? 2))
         scroll = ScrollAccumulator(lineHeight: metrics.height, columnWidth: metrics.width)
         let size = gridSize
         onResize?(size.cols, size.rows)
     }
 
-    override func viewDidChangeBackingProperties() {
+    override package func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         guard let scale = window?.backingScaleFactor else { return }
         if scale != rendererScale {
@@ -187,14 +187,14 @@ final class EditorView: NSView {
     }
 
     /// What the render thread is drawing now.
-    var currentFrame: Frame {
+    package var currentFrame: Frame {
         var frame = Frame(screen: screen, covered: coveredGrids, cursor: cursor)
         frame.scrolls = currentScrolls()
         return frame
     }
 
     /// Whether a window is sliding now.
-    var isSliding: Bool { !slides.isEmpty }
+    package var isSliding: Bool { !slides.isEmpty }
 
     /// Hands the current screen to the render thread.
     private func submit() {
@@ -221,7 +221,7 @@ final class EditorView: NSView {
     /// Set while `interpretKeyEvents` runs, so a key the input method did not take is sent as it is.
     private var handledByInputMethod = false
 
-    override func keyDown(with event: NSEvent) {
+    override package func keyDown(with event: NSEvent) {
         onKey?()
         if markedText.isEmpty, keyInterceptor?(event) == true { return }
         // While composing, every key is the input method's: Backspace shortens, Return commits, Escape cancels.
@@ -246,7 +246,7 @@ final class EditorView: NSView {
     }
 
     /// Control chords come here before `keyDown`; they are nvim's, unless the menu took them first.
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    override package func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard window?.firstResponder === self, event.type == .keyDown,
               event.modifierFlags.contains(.control), !event.modifierFlags.contains(.command)
         else { return super.performKeyEquivalent(with: event) }
@@ -255,7 +255,7 @@ final class EditorView: NSView {
     }
 
     /// The cursor's cell, in this view's coordinates: where marked text is shown and input methods put candidates.
-    var cursorRect: NSRect {
+    package var cursorRect: NSRect {
         let origin = screen.cursorGrid == 1 ? (row: 0, col: 0) :
             screen.placements[screen.cursorGrid].map { (row: $0.row, col: $0.col) } ?? (row: 0, col: 0)
         return rect(row: origin.row + screen.cursorRow, col: origin.col + screen.cursorCol, width: 1, height: 1)
@@ -274,17 +274,17 @@ final class EditorView: NSView {
     // MARK: Edit menu
 
     /// ⌘V: the pasteboard's text through `nvim_paste`, which works in every mode.
-    @objc func paste(_: Any?) {
+    @objc package func paste(_: Any?) {
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
         channel.send(.paste(text))
     }
 
     /// ⌘C and ⌘X: in Visual mode, yank or delete into the `+` register, which nvim keeps in the system clipboard.
-    @objc func copy(_: Any?) {
+    @objc package func copy(_: Any?) {
         if isVisual { channel.send(keys: "\"+y") }
     }
 
-    @objc func cut(_: Any?) {
+    @objc package func cut(_: Any?) {
         if isVisual { channel.send(keys: "\"+d") }
     }
 
@@ -296,19 +296,19 @@ final class EditorView: NSView {
     /// The grid a button was pressed in: drags and the release go to it, in its coordinates, wherever the pointer is.
     private var pressed: (grid: Int, rowOffset: Int, colOffset: Int)?
 
-    override func mouseDown(with event: NSEvent) {
+    override package func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         onFocus?()
         mouse(event, button: "left", action: "press")
     }
 
-    override func mouseDragged(with event: NSEvent) { mouse(event, button: "left", action: "drag") }
-    override func mouseUp(with event: NSEvent) { mouse(event, button: "left", action: "release") }
+    override package func mouseDragged(with event: NSEvent) { mouse(event, button: "left", action: "drag") }
+    override package func mouseUp(with event: NSEvent) { mouse(event, button: "left", action: "release") }
     /// The right-click menu, made by the app (it knows the folder and runs commands in a terminal).
-    var contextMenu: (() -> NSMenu)?
+    package var contextMenu: (() -> NSMenu)?
 
     /// Right-click: the cursor goes where the click is (unless a selection is being made), then sill's menu.
-    override func rightMouseDown(with event: NSEvent) {
+    override package func rightMouseDown(with event: NSEvent) {
         guard let contextMenu else {
             mouse(event, button: "right", action: "press")
             return
@@ -320,13 +320,13 @@ final class EditorView: NSView {
         NSMenu.popUpContextMenu(contextMenu(), with: event, for: self)
     }
 
-    override func otherMouseDown(with event: NSEvent) { mouse(event, button: "middle", action: "press") }
-    override func otherMouseDragged(with event: NSEvent) { mouse(event, button: "middle", action: "drag") }
-    override func otherMouseUp(with event: NSEvent) { mouse(event, button: "middle", action: "release") }
+    override package func otherMouseDown(with event: NSEvent) { mouse(event, button: "middle", action: "press") }
+    override package func otherMouseDragged(with event: NSEvent) { mouse(event, button: "middle", action: "drag") }
+    override package func otherMouseUp(with event: NSEvent) { mouse(event, button: "middle", action: "release") }
 
     // Separators: nvim resizes windows when their separators are dragged (grid 1 holds them); the pointer says so.
 
-    override func updateTrackingAreas() {
+    override package func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(
@@ -336,16 +336,16 @@ final class EditorView: NSView {
         ))
     }
 
-    override func mouseMoved(with event: NSEvent) {
+    override package func mouseMoved(with event: NSEvent) {
         separatorCursor(event)?.set() ?? NSCursor.iBeam.set()
         hover(event)
     }
 
     /// The pointer rested on an expression (the debugger shows its value while paused): the expression and the cells
     /// it is drawn in, in this view's coordinates.
-    var onHover: ((_ expression: String, _ rect: NSRect) -> Void)?
+    package var onHover: ((_ expression: String, _ rect: NSRect) -> Void)?
     /// The pointer left it.
-    var onHoverEnd: (() -> Void)?
+    package var onHoverEnd: (() -> Void)?
     private var hovered: String?
     private var hoverWait: Task<Void, Never>?
 
@@ -379,7 +379,7 @@ final class EditorView: NSView {
     }
 
     /// The resize cursor over a separator nvim draws: │ between side-by-side windows, ─ between stacked ones.
-    func separatorCursor(_ event: NSEvent) -> NSCursor? {
+    package func separatorCursor(_ event: NSEvent) -> NSCursor? {
         let point = convert(event.locationInWindow, from: nil)
         let row = Int(point.y / metrics.height), col = Int(point.x / metrics.width)
         guard screen.hit(row: row, col: col).grid == 1, let grid = screen.grids[1], row < grid.rows, col < grid.cols
@@ -391,7 +391,7 @@ final class EditorView: NSView {
         }
     }
 
-    override func scrollWheel(with event: NSEvent) {
+    override package func scrollWheel(with event: NSEvent) {
         if event.phase == .began { scroll.reset() }
         let steps = scroll.steps(
             deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas
@@ -406,13 +406,13 @@ final class EditorView: NSView {
         }
     }
 
-    override func becomeFirstResponder() -> Bool {
+    override package func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         submit()
         return accepted
     }
 
-    override func resignFirstResponder() -> Bool {
+    override package func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
         DispatchQueue.main.async { [weak self] in self?.submit() }
         return resigned
@@ -450,7 +450,7 @@ final class EditorView: NSView {
 /// marked text and the cached screen's cursor: input methods ask on the main thread and wait, so nothing here asks
 /// nvim.
 extension EditorView: @preconcurrency NSTextInputClient {
-    func insertText(_ string: Any, replacementRange _: NSRange) {
+    package func insertText(_ string: Any, replacementRange _: NSRange) {
         handledByInputMethod = true
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
         markedText = ""
@@ -459,41 +459,44 @@ extension EditorView: @preconcurrency NSTextInputClient {
         channel.send(keys: text.replacingOccurrences(of: "<", with: "<lt>"))
     }
 
-    func setMarkedText(_ string: Any, selectedRange _: NSRange, replacementRange _: NSRange) {
+    package func setMarkedText(_ string: Any, selectedRange _: NSRange, replacementRange _: NSRange) {
         handledByInputMethod = true
         markedText = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
         showMarkedText()
     }
 
-    func unmarkText() {
+    package func unmarkText() {
         markedText = ""
         showMarkedText()
     }
 
-    func selectedRange() -> NSRange { NSRange(location: NSNotFound, length: 0) }
+    package func selectedRange() -> NSRange { NSRange(location: NSNotFound, length: 0) }
 
-    func markedRange() -> NSRange {
+    package func markedRange() -> NSRange {
         markedText.isEmpty ? NSRange(location: NSNotFound, length: 0) :
             NSRange(location: 0, length: (markedText as NSString).length)
     }
 
-    func hasMarkedText() -> Bool { !markedText.isEmpty }
+    package func hasMarkedText() -> Bool { !markedText.isEmpty }
 
-    func attributedSubstring(forProposedRange _: NSRange, actualRange _: NSRangePointer?) -> NSAttributedString? {
+    package func attributedSubstring(
+        forProposedRange _: NSRange,
+        actualRange _: NSRangePointer?
+    ) -> NSAttributedString? {
         nil
     }
 
-    func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
+    package func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
 
     /// Where the input method puts its candidate window: under the cursor's cell, on screen.
-    func firstRect(forCharacterRange _: NSRange, actualRange _: NSRangePointer?) -> NSRect {
+    package func firstRect(forCharacterRange _: NSRange, actualRange _: NSRangePointer?) -> NSRect {
         guard let window else { return .zero }
         return window.convertToScreen(convert(cursorRect, to: nil))
     }
 
-    func characterIndex(for _: NSPoint) -> Int { NSNotFound }
+    package func characterIndex(for _: NSPoint) -> Int { NSNotFound }
 
-    override func doCommand(by _: Selector) {
+    override package func doCommand(by _: Selector) {
         // Keys AppKit turns into editing commands (Return, arrows) were already sent by keyDown; leaving this empty
         // also keeps the system beep away.
         handledByInputMethod = true
@@ -501,20 +504,20 @@ extension EditorView: @preconcurrency NSTextInputClient {
 }
 
 /// Marked text at the cursor while an input method composes, underlined as macOS shows composition.
-final class MarkedTextView: NSView {
+package final class MarkedTextView: NSView {
     private var metrics: CellMetrics { EditorFont.metrics }
-    var text = "" {
+    package var text = "" {
         didSet { needsDisplay = true }
     }
 
-    init() {
+    package init() {
         super.init(frame: .zero)
     }
 
     @available(*, unavailable)
-    required init?(coder _: NSCoder) { fatalError("not used") }
+    package required init?(coder _: NSCoder) { fatalError("not used") }
 
-    override var isFlipped: Bool { true }
+    override package var isFlipped: Bool { true }
 
     private var attributed: NSAttributedString {
         NSAttributedString(string: text, attributes: [
@@ -523,11 +526,11 @@ final class MarkedTextView: NSView {
         ])
     }
 
-    override var fittingSize: NSSize {
+    override package var fittingSize: NSSize {
         NSSize(width: ceil(attributed.size().width) + 2, height: metrics.height)
     }
 
-    override func draw(_: NSRect) {
+    override package func draw(_: NSRect) {
         NSColor(white: 0.15, alpha: 1).setFill()
         bounds.fill()
         attributed.draw(at: NSPoint(x: 1, y: metrics.textOffset))

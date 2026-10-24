@@ -1,5 +1,6 @@
 import AppKit
 import SillCore
+import SillEditor
 import SillNvim
 #if SILL_GHOSTTY
     import SillTerminal
@@ -161,3 +162,19 @@ final class TerminalPanes {
         }
     }
 #endif
+
+extension TerminalPanes {
+    /// Terminal panes take the grid's font (a point smaller), now and as it changes: set before the font is first
+    /// read.
+    static func followGridFont() {
+        EditorFont.onTerminalFont = { family, size in
+            #if SILL_GHOSTTY
+                if GhosttyRuntime.started {
+                    GhosttyRuntime.shared.setFont(family: family, size: size)
+                } else {
+                    GhosttyRuntime.font = (family, size)
+                }
+            #endif
+        }
+    }
+}

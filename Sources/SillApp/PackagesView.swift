@@ -1,5 +1,6 @@
 import AppKit
 import SillCore
+import SillEditor
 import SillNvim
 
 /// The packages of the open solution (board 3, M9): what the SDK says is vulnerable, outdated and deprecated, worst

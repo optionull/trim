@@ -1,6 +1,7 @@
 import AppKit
 import SillAgent
 import SillCore
+import SillEditor
 
 /// Agents in the sidebar: heed's sessions, a thin view over its control socket (plan §7). Those that need you come
 /// first, then this project's, then the rest by when they last did something. Return (or a click) opens one in heed.

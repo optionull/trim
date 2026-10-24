@@ -1,5 +1,6 @@
 import AppKit
 import SillCore
+import SillEditor
 
 /// The review pane: the baselines to compare against, the files that changed since, and the selected file's hunks,
 /// each to keep, take back or comment on; the comments go to the agent as one review.

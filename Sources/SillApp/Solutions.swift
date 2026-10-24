@@ -1,6 +1,7 @@
 import AppKit
 import MessagePack
 import SillCore
+import SillEditor
 import SillNvim
 
 /// The folder's .slnx and the folders on disk (owner, 2026-10-23): how it differs is shown on it in Problems, and

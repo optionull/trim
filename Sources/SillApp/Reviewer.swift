@@ -1,6 +1,7 @@
 import AppKit
 import MessagePack
 import SillCore
+import SillEditor
 import SillNvim
 
 /// Reviewing what an agent changed (after M9): the worktree against a baseline, file by file and hunk by hunk; a

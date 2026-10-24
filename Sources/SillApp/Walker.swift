@@ -1,6 +1,7 @@
 import AppKit
 import MessagePack
 import SillCore
+import SillEditor
 import SillNvim
 
 /// Walkthroughs (after M9): a `*.walk.md` opened in its pane, step by step, each anchor shown as the code it points at

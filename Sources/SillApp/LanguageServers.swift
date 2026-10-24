@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import MessagePack
 import SillCore
+import SillEditor
 import SillNvim
 
 /// The language servers beside Roslyn (M7), found or provisioned when nvim first asks for one (a file it serves
