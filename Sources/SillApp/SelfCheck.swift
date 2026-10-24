@@ -813,12 +813,21 @@ final class SelfCheck {
         view.display()
         try expect(view.blocksDrawn > 3, "\(view.blocksDrawn) blocks")
         try expect(view.cpuPayload(hot).contains("runtime: \(kind.rawValue)"), "the payload names the runtime")
+        // CPU over time, from the samples' own times: a stretch rebuilt here, not asked of anyone.
+        try expect(document.timeline?.reduce(0, +) == document.samples, "every sample on the strip")
+        view.pick(from: 0, to: 0.5)
+        let half = try await waitFor("the first half", timeout: .seconds(30)) {
+            view.stretch != nil ? view.document : nil
+        }
+        try expect(half.samples > 0 && half.samples < document.samples, "the first half: \(half.samples)")
+        view.display()
         if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             try self.shot(to: shot)
             step("saved \(shot)")
         }
         step("stopped: \(document.samples) samples; the hot frame \(name) at " +
-            "\((source.file as NSString).lastPathComponent):\(source.line), in the flame graph")
+            "\((source.file as NSString).lastPathComponent):\(source.line), in the flame graph; the first half of " +
+            "the run alone is \(half.samples) samples")
     }
 
     /// The explorer and the .slnx (`SILL_CHECK=solution`, run in a copy of Tests/SillCoreTests/Fixtures/Solution): the
@@ -1240,13 +1249,23 @@ final class SelfCheck {
         try expect(view.tiles.contains { $0.name == "Order" }, "Order has a tile: \(view.tiles.map(\.name))")
         view.select(type: "Order")
         try expect(view.agentPrompt()?.headline == "Stop Order growing", "\(view.agentPrompt()?.headline ?? "")")
+        // Who keeps them alive: the shortest paths from a GC root, read from the snapshot's graph.
+        let kept = try await waitFor("what keeps Order alive", timeout: .seconds(30)) { view.retainers["Order"] }
+        let path = try require(kept.first, "a retention path")
+        try expect(
+            path.steps.contains { $0.contains("OrderCache") } || path.root.contains("OrderCache"),
+            "OrderCache keeps them: \(path)"
+        )
+        try expect(view.heapPayload()?.contains("retainer: ") == true, "the agent is told the retainer")
+        view.display()
         if let shot = environment["SILL_CHECK_SHOT"] {
             let heap = (shot as NSString).deletingPathExtension + "-heap.png"
             try self.shot(to: heap)
             step("saved \(heap)")
         }
         step("two heap snapshots, compared object by object: Order +\(orders.objectsDelta.formatted()) objects, " +
-            "\(comparison.newObjects.formatted()) new in all")
+            "\(comparison.newObjects.formatted()) new in all; kept by " +
+            ([path.root] + path.steps).joined(separator: " → "))
 
         _ = try await session.channel.lua("vim.cmd('SillProfile stop')")
         let document = try await waitFor("the CPU profile", timeout: .seconds(30)) { view.document }
@@ -1259,12 +1278,24 @@ final class SelfCheck {
         view.display()
         try expect(view.blocksDrawn > 3, "\(view.blocksDrawn) blocks")
         try expect(view.cpuPayload(hot).contains("file: \(source.file):\(source.line)"), "the payload says where")
+        // CPU over time: the strip, and a stretch of the run read from the sidecar.
+        let strip = try require(document.timeline, "the strip's samples")
+        try expect(strip.count == 120 && strip.reduce(0, +) > 0, "120 stretches: \(strip.reduce(0, +)) samples")
+        view.pick(from: 0.25, to: 0.5)
+        let part = try await waitFor("the stretch", timeout: .seconds(30)) {
+            view.stretch != nil ? view.document : nil
+        }
+        try expect(part.samples > 0 && part.samples < document.samples, "a quarter of the run: \(part.samples)")
+        view.display()
         if let shot = environment["SILL_CHECK_SHOT"] {
             try self.shot(to: shot)
             step("saved \(shot)")
         }
         step("stopped: \(document.samples) samples; the hot frame \(view.name(hot)) at " +
-            "\((source.file as NSString).lastPathComponent):\(source.line), the flame graph from the real call tree")
+            "\((source.file as NSString).lastPathComponent):\(source.line), the flame graph from the real call tree; " +
+            "the CPU over time strip, and 25% to 50% of the run is \(part.samples) samples")
+        view.clearStretch()
+        try expect(view.stretch == nil && view.document?.samples == document.samples, "the whole run again")
 
         // The hot spot's source, from the call tree.
         view.select(tab: .callTree)

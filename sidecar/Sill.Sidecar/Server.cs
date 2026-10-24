@@ -80,6 +80,8 @@ public sealed class Server(TextWriter protocol)
                     cancel.Token),
                 Methods.ProfileSnapshot => await Sidecar.Profile.Snapshot(Read<ProfileRunParams>(request), cancel.Token),
                 Methods.ProfileStop => Sidecar.Profile.Stop(Read<ProfileRunParams>(request)),
+                Methods.ProfileWithin => await Sidecar.Profile.Within(Read<ProfileWithinParams>(request), cancel.Token),
+                Methods.ProfileRetainers => await Sidecar.Profile.Retainers(Read<ProfileRetainersParams>(request), cancel.Token),
                 Methods.Roslyn => await Sidecar.Roslyn.Ensure(Read<RoslynParams>(request), progress =>
                     Write(new Reply { Id = request.Id, Partial = JsonSerializer.SerializeToElement(progress, Json.Options) }),
                     cancel.Token),

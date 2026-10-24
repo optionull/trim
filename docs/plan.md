@@ -469,6 +469,19 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   - Found on the way: detaching killed the program: the disconnect read whether it was attached after the session
     had already forgotten. The adapter calls a function breakpoint's stop a "breakpoint", and every breakpoint is
     "not processed" until the program loads its code, which is not worth a warning.
+- Profiler depth (after M9, 2026-10-24): board 7's CPU over time and board 8's retainer path.
+  - CPU over time: the document carries samples per 120 stretches of the run (`timeline`); dragging on the strip
+    above the flame graph shows that stretch alone, a click or 0 the whole run. For .NET the sidecar answers
+    `profile.within` from the run's snapshot (Passenger's `Snapshot.Within`), kept for the last two runs after they
+    end; native documents carry each sample's time and leaf frame, and `ProfileDocument.within` rebuilds the tree
+    and hot spots in sill itself.
+  - Who keeps them alive: `profile.retainers` answers a type's key retention paths from the last heap snapshot's
+    graph (Passenger's `KeyRetentionPaths`), read when the type is selected; the first is shown root to type, and
+    the agent's payload says it (`retainer:`).
+  - Checked in `SILL_CHECK=m6`: Order is kept by Static reference: OrderCache.orders → List<Order>._items → Order[]
+    elements → Order; 25% to 50% of the run is 280 of 1809 samples, and the strip shows the program stopped while
+    each heap snapshot was written. `SILL_CHECK=m7`: the first half of the Rust run is 1236 of 2472 samples, the
+    Swift one's 1823 of 3628. Unit tests cover a stretch's tree, totals and hot spots.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

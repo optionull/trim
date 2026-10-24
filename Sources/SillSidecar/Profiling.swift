@@ -50,6 +50,15 @@ public struct HeapDocument: Decodable, Sendable, Equatable {
     }
 }
 
+/// A key retention path: the GC root ("Static variable: OrderCache.orders"), the holders from it to the type, and
+/// what it keeps.
+public struct Retainer: Decodable, Sendable, Equatable {
+    public var root: String
+    public var steps: [String]
+    public var objects: Int
+    public var retainedBytes: Int64
+}
+
 public extension Sidecar {
     /// Starts a profiling run of `project` (a folder or project file, built in Release) and returns its id at once;
     /// `profileResult(run:)` waits for its CPU profile, which comes once it is stopped or the program ends.
@@ -72,6 +81,25 @@ public extension Sidecar {
     /// A heap snapshot of a run now, compared with its previous one.
     func heapSnapshot(run: Int) async throws -> HeapDocument {
         try await request("profile.snapshot", RunParams(run: run), as: HeapDocument.self)
+    }
+
+    /// A stretch of a finished run's CPU profile (fractions of it, 0 to 1).
+    func profileWithin(run: Int, from: Double, to: Double) async throws -> ProfileDocument {
+        struct Params: Encodable {
+            var run: Int
+            var from: Double
+            var to: Double
+        }
+        return try await request("profile.within", Params(run: run, from: from, to: to), as: ProfileDocument.self)
+    }
+
+    /// What keeps a type's objects alive in the run's last heap snapshot: its key retention paths, root first.
+    func retainers(run: Int, type: String) async throws -> [Retainer] {
+        struct Params: Encodable {
+            var run: Int
+            var type: String
+        }
+        return try await request("profile.retainers", Params(run: run, type: type), as: [Retainer].self)
     }
 
     /// Ends a run's recording: its `profileResult` then comes.

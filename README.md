@@ -24,9 +24,9 @@ mise run lint
 
 ![The Agents sidebar over heed's sessions: two need you, one works, one is done](docs/showcase-agents-2026-10-23.png)
 
-![The CPU profile of a sample .NET program: the flame graph, the hot frame Pricing.Total with its source line, and what an agent gets](docs/showcase-profiler-2026-10-23.png)
+![The CPU profile of a sample .NET program: CPU over time with a stretch picked, the flame graph of that stretch, the hot frame Pricing.Total with its source line, and what an agent gets](docs/showcase-profiler-2026-10-23.png)
 
-![Two heap snapshots of the same run compared: a treemap of what grew, Order selected, the growth bars](docs/showcase-heap-2026-10-23.png)
+![Two heap snapshots of the same run compared: a treemap of what grew, Order selected, who keeps it alive (OrderCache.orders), the growth bars](docs/showcase-heap-2026-10-23.png)
 
 `SILL_SHOWCASE=<file.png>` renders a picture like that one (the window at 1440x900, off screen: a file beside a terminal pane running
 `git log`; `SILL_SHOWCASE_FILE` picks the file; `SILL_SHOWCASE_SCENE=profile` shows the profiler instead, `agents` the Agents sidebar over heed's sessions). `SILL_CHECK=project SILL_CWD=<a .NET repo>` measures a real project (load, Roslyn, build) and fails if the UI ever waits over 100 ms. `SILL_CHECK=1 build/Sill.app/Contents/MacOS/Sill` plays the first week in the real app, with key events sent through
@@ -81,7 +81,9 @@ Cargo package with samply, a Swift package with xctrace (Instruments' Time Profi
 profile: the flame graph and the hot spots with where they are written. For .NET (which needs the sidecar, on your
 dotnet 10) Take snapshot (`s`) records the heap while it runs; a second one is compared with the first, object by object,
 as a treemap of what grew, and the profile has allocations and collections too. Send to agent gives the hot frame or
-the growth to an agent.
+the growth to an agent. Above the flame graph, CPU over time: drag across it to see a stretch of the run alone,
+click (or 0) for all of it. Selecting a type in the heap diff shows who keeps its objects alive, the path from a GC
+root, and the agent is told it too.
 
 ![A Rust program's CPU profile from samply: rsample::pricing::total at main.rs:7](docs/showcase-rust-profile-2026-10-24.png)
 

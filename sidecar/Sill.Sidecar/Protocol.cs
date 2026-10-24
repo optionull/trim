@@ -48,6 +48,8 @@ public static class Methods
 
     /// <summary><see cref="ProfileRunParams"/>: ends a run's recording; true if it was recording.</summary>
     public const string ProfileStop = "profile.stop";
+    public const string ProfileWithin = "profile.within";
+    public const string ProfileRetainers = "profile.retainers";
 
     /// <summary><see cref="DbgshimParams"/>: <see cref="RoslynProgress"/> partials while downloading, then
     /// <see cref="DbgshimLibrary"/>: dbgshim on this machine, the newest version, downloaded if needed.</summary>
@@ -108,7 +110,21 @@ public sealed record ProfilePartial(string Stage, string? Text, bool? Error)
 /// the depth, the samples.</summary>
 public sealed record ProfileDocument(string Name, int Samples, double DurationMs, double SampleMs, bool Exited,
     IReadOnlyList<string> Names, IReadOnlyList<int> Frames, IReadOnlyList<HotFrame> HotSpots, IReadOnlyList<GcRow> Collections,
-    IReadOnlyList<AllocationRow> Allocations);
+    IReadOnlyList<AllocationRow> Allocations)
+{
+    /// <summary>Samples in each of <see cref="Profile.TimelineBuckets"/> equal stretches of the run, first to last: the CPU
+    /// over time strip.</summary>
+    public IReadOnlyList<int>? Timeline { get; init; }
+}
+
+/// <summary>A stretch of a run, as fractions of it (0 its start, 1 its end).</summary>
+public sealed record ProfileWithinParams(int Run, double From, double To);
+
+/// <summary>A type of the run's last heap snapshot, by name.</summary>
+public sealed record ProfileRetainersParams(int Run, string Type);
+
+/// <summary>A key retention path: the GC root, the holders from it to the type, and what it keeps.</summary>
+public sealed record RetainerRow(string Root, IReadOnlyList<string> Steps, int Objects, long RetainedBytes);
 
 public sealed record HotFrame(string Name, string Module, int Self, int Total, string? File, int? Line);
 

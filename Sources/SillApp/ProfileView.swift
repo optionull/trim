@@ -35,6 +35,20 @@ final class ProfileView: NSView, ToolContent {
     /// Send to agent: the prompt's first line (the session's title in heed) and the rest.
     var onSendToAgent: ((_ headline: String, _ prompt: String) -> Void)?
     var onOpenSource: ((_ file: String, _ line: Int) -> Void)?
+    /// A stretch of the run picked on the CPU over time strip (fractions of it): the controller answers with
+    /// `showStretch`.
+    var onWithin: ((_ from: Double, _ to: Double) -> Void)?
+    /// A heap type selected whose retainers are not read yet: the controller answers with `show(retainers:for:)`.
+    var onRetainers: ((_ type: String) -> Void)?
+
+    /// The whole run's profile, while a stretch of it is shown.
+    private(set) var whole: ProfileDocument?
+    /// The stretch shown, as fractions of the run; nil for all of it.
+    private(set) var stretch: (from: Double, to: Double)?
+    /// A stretch being dragged out on the strip.
+    private var picking: (start: Double, end: Double)?
+    /// What keeps each type alive in the last snapshot, as read.
+    private(set) var retainers: [String: [Retainer]] = [:]
 
     private var parents: [Int] = []
     private var names: [String] = []
@@ -163,17 +177,48 @@ final class ProfileView: NSView, ToolContent {
 
     func add(_ heap: HeapDocument) {
         heaps.append(heap)
+        retainers = [:]
         selectedType = heap.comparison?.types.first?.name ?? heap.types.first?.name
         tab = .heapDiff
         busy = nil
+        if let selectedType { onRetainers?(selectedType) }
+    }
+
+    func show(retainers paths: [Retainer], for type: String) {
+        retainers[type] = paths
+        changed()
+    }
+
+    /// A stretch of the run shown in place of all of it; the strip still shows the whole run.
+    func showStretch(_ part: ProfileDocument, from: Double, to: Double) {
+        let whole = whole ?? document
+        show(document: part)
+        self.whole = whole
+        stretch = (from, to)
+        busy = nil
+    }
+
+    /// The whole run again.
+    func clearStretch() {
+        guard let whole, stretch != nil else { return }
+        show(document: whole)
+        changed()
     }
 
     /// The CPU profile: the flame graph, its hottest frame selected.
     func finish(_ document: ProfileDocument) {
-        self.document = document
         phase = .done
         ticker?.invalidate()
         busy = nil
+        show(document: document)
+        if heaps.count < 2 { tab = .flameGraph }
+        changed()
+    }
+
+    private func show(document: ProfileDocument) {
+        self.document = document
+        whole = nil
+        stretch = nil
         names = document.names
         show(FlameGraph(preorder: document.preorder))
         // The hottest frame that is the program's own (its source is known), else the hottest: a system library's
@@ -182,8 +227,6 @@ final class ProfileView: NSView, ToolContent {
             selected = profile.nodes.indices.filter { names[profile.nodes[$0].name] == hot.name }
                 .max { profile.nodes[$0].samples < profile.nodes[$1].samples }
         }
-        if heaps.count < 2 { tab = .flameGraph }
-        changed()
     }
 
     private func show(_ graph: FlameGraph) {
@@ -305,7 +348,50 @@ final class ProfileView: NSView, ToolContent {
     }
 
     private var graphRect: NSRect {
-        NSRect(x: 0, y: Self.header, width: max(bounds.width - side, 100), height: bounds.height - Self.header)
+        let top = Self.header + (stripRect == nil ? 0 : Self.strip)
+        return NSRect(x: 0, y: top, width: max(bounds.width - side, 100), height: bounds.height - top)
+    }
+
+    private static let strip: CGFloat = 104
+
+    /// Board 7's CPU over time, above the flame graph, when the run has samples in time.
+    private var stripRect: NSRect? {
+        guard tab == .flameGraph, ((whole ?? document)?.timeline?.isEmpty ?? true) == false else { return nil }
+        return NSRect(x: 16, y: Self.header + 30, width: max(bounds.width - side, 100) - 32, height: Self.strip - 42)
+    }
+
+    /// The strip: samples per stretch of the run as bars, the stretch shown (or being picked) in the accent.
+    private func drawStrip(_ rect: NSRect) {
+        guard let buckets = (whole ?? document)?.timeline, !buckets.isEmpty else { return }
+        let picked = picking.map { (min($0.start, $0.end), max($0.start, $0.end)) } ?? stretch.map { ($0.from, $0.to) }
+        attributed("CPU OVER TIME", 11, Design.textMuted, weight: .semibold).draw(at: NSPoint(
+            x: rect.minX,
+            y: rect.minY - 22
+        ))
+        let hint = picked == nil ? "drag to look at a stretch" :
+            "\(Int((picked!.0 * 100).rounded()))% to \(Int((picked!.1 * 100).rounded()))% of the run · click or 0 for all"
+        let hintText = attributed(hint, 11, Design.textFaint)
+        hintText.draw(at: NSPoint(x: rect.maxX - hintText.size().width, y: rect.minY - 22))
+        Design.chrome.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+        let most = CGFloat(buckets.max() ?? 1)
+        let width = (rect.width - 16) / CGFloat(buckets.count)
+        for (index, count) in buckets.enumerated() where count > 0 {
+            let fraction = (Double(index) + 0.5) / Double(buckets.count)
+            let inside = picked.map { fraction >= $0.0 && fraction <= $0.1 } ?? false
+            (inside ? Design.accent : Design.cool).setFill()
+            let height = max((rect.height - 12) * CGFloat(count) / max(most, 1), 1)
+            NSRect(
+                x: rect.minX + 8 + CGFloat(index) * width,
+                y: rect.maxY - 6 - height,
+                width: max(width - 1, 1),
+                height: height
+            ).fill()
+        }
+    }
+
+    private func stripFraction(_ point: NSPoint, in rect: NSRect) -> Double {
+        min(max(Double((point.x - rect.minX - 8) / (rect.width - 16)), 0), 1)
     }
 
     // MARK: Drawing
@@ -441,6 +527,7 @@ final class ProfileView: NSView, ToolContent {
     }
 
     private func drawFlameGraph() {
+        if let strip = stripRect { drawStrip(strip) }
         let graph = graphRect
         let blocks = profile.blocks(from: from, to: to, pixels: Double(graph.width - 16))
         blocksDrawn = blocks.count
@@ -583,7 +670,9 @@ final class ProfileView: NSView, ToolContent {
             "compared: \(comparison.title)",
             "top_growth: \(grew.name) \(signed(grew.bytesDelta)) (\(grew.objectsDelta.formatted()) objects, " +
                 "\(grew.newObjects.formatted()) new)",
-        ] + others.map { "also: \($0.name) \(signed($0.bytesDelta))" } + [
+        ] + (retainers[grew.name]?.first.map {
+            ["retainer: " + ([$0.root] + $0.steps).joined(separator: " → ")]
+        } ?? []) + others.map { "also: \($0.name) \(signed($0.bytesDelta))" } + [
             "ask: find what keeps these alive and bound it, or let them go",
         ]).joined(separator: "\n")
     }
@@ -805,6 +894,34 @@ final class ProfileView: NSView, ToolContent {
                 weight: .semibold
             ))
         }
+        if let type = selectedType {
+            side.y += 8
+            label(side, "WHO KEEPS THEM ALIVE")
+            if let paths = retainers[type] {
+                if let path = paths.first {
+                    side.write(attributed("GC root: " + path.root, 12, Design.textMuted, mono: true))
+                    for (index, step) in path.steps.enumerated() {
+                        side.write(attributed(
+                            "↳ " + Self.shortType(step),
+                            12,
+                            index == path.steps.count - 1 ? Design.hot : Design.textMuted,
+                            mono: true
+                        ))
+                    }
+                    if paths.count > 1 {
+                        side.write(attributed(
+                            "and \(paths.count - 1) more path\(paths.count == 2 ? "" : "s")",
+                            11,
+                            Design.textFaint
+                        ))
+                    }
+                } else {
+                    side.write(attributed("Nothing keeps them: they go at the next collection.", 12, Design.textFaint))
+                }
+            } else {
+                side.write(attributed("Reading the paths from the GC roots…", 12, Design.textFaint))
+            }
+        }
         guard let comparison = last.comparison else { return }
         side.y += 8
         let older = heaps.count > 1 ? heaps[heaps.count - 2].name : "the last"
@@ -867,6 +984,7 @@ final class ProfileView: NSView, ToolContent {
 
     func select(type name: String) {
         selectedType = name
+        if retainers[name] == nil { onRetainers?(name) }
         changed()
     }
 
@@ -883,6 +1001,11 @@ final class ProfileView: NSView, ToolContent {
             if event.clickCount >= 2 { openRow() }
             needsDisplay = true
         case .flameGraph:
+            if let strip = stripRect, strip.insetBy(dx: 0, dy: -4).contains(point) {
+                let at = stripFraction(point, in: strip)
+                picking = (at, at)
+                return needsDisplay = true
+            }
             let graph = graphRect
             guard graph.contains(point) else { return }
             dragStart = (point.x, from, to)
@@ -896,8 +1019,12 @@ final class ProfileView: NSView, ToolContent {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let start = dragStart else { return }
         let point = convert(event.locationInWindow, from: nil)
+        if let started = picking, let strip = stripRect {
+            picking = (started.start, stripFraction(point, in: strip))
+            return needsDisplay = true
+        }
+        guard let start = dragStart else { return }
         let samplesPerPoint = (start.to - start.from) / Double(graphRect.width)
         let shift = Double(point.x - start.x) * samplesPerPoint
         let span = start.to - start.from
@@ -906,7 +1033,24 @@ final class ProfileView: NSView, ToolContent {
         needsDisplay = true
     }
 
-    override func mouseUp(with _: NSEvent) { dragStart = nil }
+    override func mouseUp(with _: NSEvent) {
+        dragStart = nil
+        guard let picked = picking else { return }
+        picking = nil
+        // A click is the whole run; a drag, the stretch dragged over.
+        if abs(picked.end - picked.start) < 0.01 {
+            clearStretch()
+        } else {
+            pick(from: min(picked.start, picked.end), to: max(picked.start, picked.end))
+        }
+        needsDisplay = true
+    }
+
+    /// Asks for a stretch of the run (fractions of it), as dragging on the strip does.
+    func pick(from: Double, to: Double) {
+        busy = "reading \(Int((from * 100).rounded()))% to \(Int((to * 100).rounded()))% of the run…"
+        onWithin?(from, to)
+    }
 
     private func openRow() {
         guard tab == .callTree, let hot = document?.hotSpots[safe: row], let file = hot.file else { return }
@@ -930,6 +1074,7 @@ final class ProfileView: NSView, ToolContent {
         case "k", String(UnicodeScalar(NSUpArrowFunctionKey)!): row = max(row - 1, 0)
         case "\r": openRow()
         case "0":
+            if stretch != nil { clearStretch() }
             from = 0
             to = Double(profile.totalSamples)
         case "\u{1B}":

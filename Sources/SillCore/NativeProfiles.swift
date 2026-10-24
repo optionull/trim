@@ -22,6 +22,8 @@ public struct CallTreeBuilder {
     private final class Node {
         var name: Int
         var samples = 0
+        /// Its number in the document's preorder.
+        var order = 0
         var children: [Int: Node] = [:]
 
         init(name: Int) { self.name = name }
@@ -61,6 +63,10 @@ public struct CallTreeBuilder {
         return out
     }
 
+    /// Every sample's time, leaf node and weight, while times are known: the timeline and stretches come from them.
+    private var timed: [(time: Double, leaf: Node, weight: Int)] = []
+    private var untimed = false
+
     /// A sample: its thread, its frames root first, its weight (samples), and when (ms), if known.
     public mutating func add(thread: String, frames: [SampledFrame], weight: Int = 1, at time: Double? = nil) {
         guard weight > 0 else { return }
@@ -81,6 +87,7 @@ public struct CallTreeBuilder {
             child.samples += weight
             node = child
         }
+        if let time { timed.append((time, node, weight)) } else { untimed = true }
         if let leaf = frames.last { selfSamples[leaf.name, default: 0] += weight }
         for frame in Set(frames.map(\.name)) {
             totals[frame, default: 0] += weight
@@ -94,6 +101,7 @@ public struct CallTreeBuilder {
     public func document(name: String, sampleMs: Double, exited: Bool) -> ProfileDocument {
         var frames: [Int] = []
         func walk(_ node: Node, _ depth: Int) {
+            node.order = frames.count / 3
             frames += [node.name, depth, node.samples]
             for child in node.children.values.sorted(by: {
                 $0.samples != $1.samples ? $0.samples > $1.samples : names[$0.name] < names[$1.name]
@@ -111,10 +119,19 @@ public struct CallTreeBuilder {
                 )
             }
         let duration = last > first ? last - first : Double(samples) * sampleMs
-        return ProfileDocument(
+        var document = ProfileDocument(
             name: name, samples: samples, durationMs: duration, sampleMs: sampleMs, exited: exited, names: names,
             frames: frames, hotSpots: hot
         )
+        if !untimed, !timed.isEmpty {
+            let times = timed.map { $0.time - first }
+            let weights = timed.contains { $0.weight != 1 } ? timed.map(\.weight) : nil
+            document.sampleTimes = times
+            document.sampleFrames = timed.map(\.leaf.order)
+            document.sampleWeights = weights
+            document.timeline = ProfileDocument.timeline(times: times, weights: weights)
+        }
+        return document
     }
 }
 

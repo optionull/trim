@@ -24,6 +24,26 @@ public static class Profile
 
     private static readonly ConcurrentDictionary<int, Run> Runs = new();
 
+    /// <summary>Stretches the timeline strip is cut into.</summary>
+    public const int TimelineBuckets = 120;
+
+    /// <summary>What a run that ended leaves to look into: its CPU profile, for a stretch of it, and its last heap snapshot,
+    /// for what keeps a type alive. The last two runs only: a heap graph is large.</summary>
+    private sealed record Finished(Snapshot Cpu, string Name, bool Exited, MemorySnapshot? Heap);
+
+    private static readonly ConcurrentDictionary<int, Finished> Done = new();
+    private static readonly ConcurrentQueue<int> DoneOrder = new();
+
+    private static void Keep(int id, Finished finished)
+    {
+        Done[id] = finished;
+        DoneOrder.Enqueue(id);
+        while (DoneOrder.Count > 2 && DoneOrder.TryDequeue(out int old))
+        {
+            Done.TryRemove(old, out _);
+        }
+    }
+
     public static async Task<ProfileDocument> Start(int id, ProfileParams asked, Action<ProfilePartial> partial, CancellationToken cancel)
     {
         string folder = asked.Folder ?? Path.Combine(Path.GetTempPath(), "sill-profiles");
@@ -62,7 +82,8 @@ public static class Profile
                 run.Snapshotting.Release();
             }
             partial(new ProfilePartial("reading", null, null));
-            return Document(snapshot, target.Name, session.HasExited);
+            Keep(id, new Finished(snapshot, target.Name, session.HasExited, run.Last));
+            return Document(snapshot, target.Name, session.HasExited) with { Timeline = Timeline(snapshot) };
         }
         finally
         {
@@ -104,6 +125,59 @@ public static class Profile
         {
             run.Snapshotting.Release();
         }
+    }
+
+    /// <summary>A stretch of a finished run's CPU profile, as selecting it on the timeline strip asks.</summary>
+    public static Task<ProfileDocument> Within(ProfileWithinParams asked, CancellationToken cancel)
+    {
+        if (!Done.TryGetValue(asked.Run, out Finished? finished))
+        {
+            throw new InvalidOperationException("no such run: it is still recording, or too old");
+        }
+        Snapshot whole = finished.Cpu;
+        double length = whole.EndMs - whole.StartMs;
+        double from = whole.StartMs + (Math.Clamp(Math.Min(asked.From, asked.To), 0, 1) * length);
+        double to = whole.StartMs + (Math.Clamp(Math.Max(asked.From, asked.To), 0, 1) * length);
+        return Task.Run(() => Document(whole.Within(from, to), finished.Name, finished.Exited), cancel);
+    }
+
+    /// <summary>What keeps a type's objects alive in the run's last heap snapshot: its key retention paths, the most
+    /// retained first, root first.</summary>
+    public static Task<IReadOnlyList<RetainerRow>> Retainers(ProfileRetainersParams asked, CancellationToken cancel)
+    {
+        MemorySnapshot? heap = Runs.TryGetValue(asked.Run, out Run? run) ? run.Last :
+            Done.TryGetValue(asked.Run, out Finished? finished) ? finished.Heap : null;
+        if (heap is null)
+        {
+            throw new InvalidOperationException("no heap snapshot of that run");
+        }
+        HeapType type = heap.Types.FirstOrDefault(t => t.Name == asked.Type)
+            ?? throw new InvalidOperationException($"no {asked.Type} in the snapshot");
+        return Task.Run<IReadOnlyList<RetainerRow>>(() => [.. heap.ObjectsOf(type).KeyRetentionPaths().Take(5)
+            .Select(p => new RetainerRow(p.Root.Text, p.Steps, p.Objects, p.RetainedBytes))], cancel);
+    }
+
+    /// <summary>Samples in each stretch of the run, every thread's, for the CPU over time strip.</summary>
+    internal static int[] Timeline(Snapshot snapshot)
+    {
+        int[] buckets = new int[TimelineBuckets];
+        double start = snapshot.StartMs, length = Math.Max(snapshot.EndMs - start, 1e-6);
+        double width = length / TimelineBuckets;
+        foreach (SampleRun sampled in snapshot.Timeline.SelectMany(t => t.Runs))
+        {
+            int first = Math.Clamp((int)((sampled.FromMs - start) / width), 0, TimelineBuckets - 1);
+            int last = Math.Clamp((int)((sampled.ToMs - start) / width), 0, TimelineBuckets - 1);
+            if (first == last)
+            {
+                buckets[first] += sampled.Count;
+                continue;
+            }
+            for (int bucket = first; bucket <= last; bucket++)
+            {
+                buckets[bucket] += sampled.Within(start + (bucket * width), start + ((bucket + 1) * width) - 1e-9);
+            }
+        }
+        return buckets;
     }
 
     /// <summary>Builds the project in Release and says where its program is.</summary>

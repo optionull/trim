@@ -12,6 +12,8 @@ final class Profiler {
     private let directory: String
     /// The run in progress: its request id with the sidecar.
     private(set) var run: Int?
+    /// The last .NET run that ended: the sidecar still answers for a stretch of it and for its last heap.
+    private(set) var finishedRun: Int?
     /// The project being profiled, for Profile again.
     private(set) var project: String?
 
@@ -30,6 +32,31 @@ final class Profiler {
         view.onOpenSource = { [weak self] file, line in
             guard let self else { return }
             Nvim.lua(channel, "require'sill'.open(...)", [.string(file), .int(Int64(line))])
+        }
+        view.onWithin = { [weak self, weak view] from, to in
+            guard let self, let view, let whole = view.whole ?? view.document else { return }
+            Task {
+                // A native profile carries its samples' times; the sidecar answers for a .NET one.
+                let part: ProfileDocument? = if whole.sampleTimes != nil {
+                    await Task.detached { whole.within(from: from, to: to) }.value
+                } else if let run = self.finishedRun, let sidecar = self.app?.sidecar {
+                    try? await sidecar.profileWithin(run: run, from: from, to: to)
+                } else {
+                    nil
+                }
+                guard let part else {
+                    view.busy = nil
+                    return self.say("That stretch of the run could not be read.", warn: true)
+                }
+                view.showStretch(part, from: from, to: to)
+            }
+        }
+        view.onRetainers = { [weak self, weak view] type in
+            guard let self, let run = run ?? finishedRun, let sidecar = app?.sidecar else { return }
+            Task {
+                let paths = await (try? sidecar.retainers(run: run, type: type)) ?? []
+                view?.show(retainers: paths, for: type)
+            }
         }
     }
 
@@ -81,6 +108,7 @@ final class Profiler {
                 run = id
                 let document = try await sidecar.profileResult(run: id)
                 run = nil
+                finishedRun = id
                 view?.finish(document)
             } catch {
                 run = nil
