@@ -48,10 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // The self-check's first part runs as days 1 to 5 had sill: no frame, no sidebar, no panel.
         chrome = Settings.shared.value("SILL_CHROME") != "0" && environment["SILL_CHECK"] != "1"
 
-        let settings = Settings.shared.current
-        editor = EditorView(channel: session.channel, metrics: CellMetrics(
-            font: settings.font, size: settings.size, lineHeight: settings.lineHeight
-        ))
+        EditorFont.load(Settings.shared.current)
+        editor = EditorView(channel: session.channel)
         panes = TerminalPanes(editor: editor, channel: session.channel, directory: workingDirectory)
         tools = ToolPanes(editor: editor, channel: session.channel, directory: workingDirectory)
         splitTabs = SplitTabs(editor: editor, channel: session.channel)
@@ -110,6 +108,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let session = session
         editor.onResize = { cols, rows in Task { await session.resize(cols: cols, rows: rows) } }
         editor.onFocus = { [weak self] in self?.panes.focusEditor() }
+        EditorFont.onChange = { [weak self] in
+            guard let self else { return }
+            editor.fontChanged()
+            for view in [root as NSView?, tools?.sidebar, tools?.panel].compactMap(\.self) {
+                view.needsLayout = true
+                view.needsDisplay = true
+            }
+        }
         editor.onKey = { [weak self] in self?.externalUI.keyPressed() }
         editor.keyInterceptor = { [weak self] event in self?.tools.handleKey(event) ?? false }
 
@@ -499,6 +505,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.terminate(nil)
     }
 
+    @objc func fontBigger(_: Any?) { EditorFont.zoom(1) }
+    @objc func fontSmaller(_: Any?) { EditorFont.zoom(-1) }
+    @objc func fontActual(_: Any?) { EditorFont.zoom(0) }
+
     @objc func showSettings(_: Any?) {
         settings.onOpenFile = { [weak self] path in
             guard let self else { return }
@@ -526,6 +536,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editItem.submenu = editMenu
+        // The grid's font for this session: bigger, smaller, back to the settings' size.
+        let viewItem = NSMenuItem()
+        menu.addItem(viewItem)
+        let viewMenu = NSMenu(title: "View")
+        viewMenu.addItem(withTitle: "Bigger", action: #selector(fontBigger(_:)), keyEquivalent: "+")
+        let bigger = viewMenu.addItem(withTitle: "Bigger", action: #selector(fontBigger(_:)), keyEquivalent: "=")
+        bigger.isHidden = true
+        bigger.allowsKeyEquivalentWhenHidden = true
+        viewMenu.addItem(withTitle: "Smaller", action: #selector(fontSmaller(_:)), keyEquivalent: "-")
+        viewMenu.addItem(withTitle: "Actual Size", action: #selector(fontActual(_:)), keyEquivalent: "0")
+        viewItem.submenu = viewMenu
         let projectItem = NSMenuItem()
         menu.addItem(projectItem)
         let projectMenu = NSMenu(title: "Project")

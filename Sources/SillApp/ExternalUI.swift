@@ -23,9 +23,9 @@ final class ExternalUI {
 
     init(editor: EditorView) {
         self.editor = editor
-        commandLine = CmdlineView(metrics: editor.metrics)
-        popup = PopupMenuView(metrics: editor.metrics)
-        output = OutputPanel(metrics: editor.metrics)
+        commandLine = CmdlineView()
+        popup = PopupMenuView()
+        output = OutputPanel()
         for view in [output, commandLine, popup] as [NSView] {
             view.isHidden = true
             overlay.addSubview(view)
@@ -126,7 +126,7 @@ final class ExternalUI {
         var bottom = (output.isHidden ? bounds.maxY : output.frame.minY) - 12
         for message in live.reversed() {
             let view = toasts[message.serial] ?? {
-                let view = ToastView(metrics: editor.metrics)
+                let view = ToastView()
                 overlay.addSubview(view, positioned: .below, relativeTo: commandLine)
                 toasts[message.serial] = view
                 return view
@@ -186,13 +186,12 @@ class PanelView: NSView {
 /// The command line: `:`, `/` or a prompt, then what is typed with nvim's highlights, and the cursor.
 final class CmdlineView: PanelView {
     static let padding: CGFloat = 12
-    private let metrics: CellMetrics
+    private var metrics: CellMetrics { EditorFont.metrics }
     private var line: Cmdline?
     private var block: [[StyledChunk]] = []
     private var screen = Screen()
 
-    init(metrics: CellMetrics) {
-        self.metrics = metrics
+    init() {
         super.init(frame: .zero)
     }
 
@@ -262,13 +261,12 @@ final class CmdlineView: PanelView {
 final class PopupMenuView: PanelView {
     static let padding: CGFloat = 8
     static let maxRows = 12
-    private let metrics: CellMetrics
+    private var metrics: CellMetrics { EditorFont.metrics }
     private var items: PopupMenu?
     /// The first item shown: the list scrolls to keep the selection in view.
     private var top = 0
 
-    init(metrics: CellMetrics) {
-        self.metrics = metrics
+    init() {
         super.init(frame: .zero)
     }
 
@@ -330,14 +328,13 @@ final class PopupMenuView: PanelView {
 
 /// A short message: a notification with a bar in its kind's colour.
 final class ToastView: PanelView {
-    private let metrics: CellMetrics
+    private var metrics: CellMetrics { EditorFont.metrics }
     private var text = NSAttributedString()
     private var bar = Design.textFaint
     private var maxWidth: CGFloat = 520
     private(set) var message: Message?
 
-    init(metrics: CellMetrics) {
-        self.metrics = metrics
+    init() {
         super.init(frame: .zero)
     }
 
@@ -377,11 +374,10 @@ final class ToastView: PanelView {
 
 /// Listings and `:messages`: a panel along the bottom, newest last, read until a key is pressed.
 final class OutputPanel: NSView {
-    private let metrics: CellMetrics
+    private var metrics: CellMetrics { EditorFont.metrics }
     private var lines: [NSAttributedString] = []
 
-    init(metrics: CellMetrics) {
-        self.metrics = metrics
+    init() {
         super.init(frame: .zero)
     }
 

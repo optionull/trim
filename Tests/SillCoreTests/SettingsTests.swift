@@ -54,7 +54,7 @@ struct SettingsTests {
     @Test("setting a value: in place, else on its commented-out line, else added; comments kept")
     func edit() throws {
         let set = try SettingsEdit.setting(["editor", "size"], to: .integer(15), in: SettingsLoader.defaultSource)
-        #expect(set.contains("# Its size in points, 6 to 72.\nsize = 15\n"))
+        #expect(set.contains("⌘0 comes back to this.\nsize = 15\n"))
         #expect(!set.contains("# size = 13"))
         let again = try SettingsEdit.setting(["editor", "size"], to: .integer(16), in: set)
         #expect(again.contains("size = 16\n") && SettingsLoader.decode(again).settings?.size == 16)

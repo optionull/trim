@@ -354,13 +354,40 @@ final class SelfCheck {
         }
         let written = text()
         try expect(
-            written.contains("# Its size in points, 6 to 72.\nsize = 15\n") &&
+            written.contains("⌘0 comes back to this.\nsize = 15\n") &&
                 written.contains("command = \"codex\"") && written.contains("# sill's settings."),
             "set in place, comments kept:\n\(written)"
         )
         step(
             "the window wrote size = 15 and command = \"codex\" in place, comments kept; read back, the agent is codex"
         )
+
+        // The font, live: the size from the file reaches the grid, and nvim gets fewer, taller rows.
+        func lines() async throws -> Int {
+            try await Int(session.channel.lua("return vim.o.lines").int64Value ?? 0)
+        }
+        try await waitFor("the grid at 15 points") { EditorFont.metrics.regular.pointSize == 15 ? true : nil }
+        let at15 = try await (cell: EditorFont.metrics.height, lines: lines())
+        app.fontBigger(nil)
+        app.fontBigger(nil)
+        try expect(EditorFont.metrics.regular.pointSize == 17 && EditorFont.metrics.height > at15.cell, "⌘+ twice")
+        var at17 = 0
+        for _ in 0 ..< 50 {
+            at17 = try await lines()
+            if at17 < at15.lines { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try expect(at17 < at15.lines, "nvim told of the bigger cells: \(at15.lines) lines, then \(at17)")
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT_GRID"] {
+            _ = try await session.channel.lua("vim.cmd('edit ' .. vim.fn.fnameescape(...))", args: [.string(file.path)])
+            try await Task.sleep(for: .milliseconds(500))
+            try self.shot(to: shot)
+            step("saved \(shot): the grid at 17 points")
+        }
+        app.fontActual(nil)
+        try expect(EditorFont.metrics.regular.pointSize == 15, "⌘0 back to the settings' size")
+        step("the font live: 15 pt from the file reached the grid (\(at15.lines) lines); ⌘+ twice made it 17 pt " +
+            "(\(at17) lines); ⌘0 back to 15")
 
         // By hand, as in nvim: a smooth-scroll change and a typo.
         try (written + "\n[editor2]\nsize = 1\n").replacingOccurrences(

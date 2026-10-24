@@ -47,7 +47,7 @@ final class ExplorerView: NSView, ToolContent {
 
     let root: String
     private let channel: NvimChannel
-    private let metrics: CellMetrics
+    private var metrics: CellMetrics { EditorFont.metrics }
     private(set) var rows: [Row] = []
     private(set) var selected = 0
     private(set) var expanded: Set<String>
@@ -71,10 +71,9 @@ final class ExplorerView: NSView, ToolContent {
     private var modeFrames: [(Mode, NSRect)] = []
     var onSolutionRead: ((String, Slnx, [Slnx.Drift]) -> Void)?
 
-    init(channel: NvimChannel, root: String, metrics: CellMetrics) {
+    init(channel: NvimChannel, root: String) {
         self.channel = channel
         self.root = realPath(root)
-        self.metrics = metrics
         expanded = [self.root]
         super.init(frame: .zero)
         refresh()

@@ -41,8 +41,8 @@ final class ToolPanes {
 
     init(editor: EditorView, channel: NvimChannel, directory: String) {
         self.editor = editor
-        sidebar = SidebarView(channel: channel, directory: directory, metrics: editor.metrics)
-        panel = BottomPanelView(channel: channel, metrics: editor.metrics)
+        sidebar = SidebarView(channel: channel, directory: directory)
+        panel = BottomPanelView(channel: channel)
         for view in [sidebar, panel] as [NSView] {
             view.isHidden = true
             editor.addSubview(view)
@@ -123,9 +123,9 @@ final class SidebarView: NSView {
         didSet { if focused != oldValue { needsDisplay = true; content.needsDisplay = true } }
     }
 
-    init(channel: NvimChannel, directory: String, metrics: CellMetrics) {
+    init(channel: NvimChannel, directory: String) {
         self.channel = channel
-        explorer = ExplorerView(channel: channel, root: directory, metrics: metrics)
+        explorer = ExplorerView(channel: channel, root: directory)
         sourceControl = SourceControlView(channel: channel, root: directory)
         agents = AgentsView(root: directory)
         content = explorer
@@ -242,7 +242,7 @@ final class BottomPanelView: NSView {
     }
 
     private let channel: NvimChannel
-    private let metrics: CellMetrics
+    private var metrics: CellMetrics { EditorFont.metrics }
     private(set) var tab: Tab = .problems
     private(set) var problems: [Diagnostic] = []
     private(set) var selected = 0
@@ -257,10 +257,9 @@ final class BottomPanelView: NSView {
         didSet { if focused != oldValue { needsDisplay = true } }
     }
 
-    init(channel: NvimChannel, metrics: CellMetrics) {
+    init(channel: NvimChannel) {
         self.channel = channel
-        self.metrics = metrics
-        debug = DebugPanelView(metrics: metrics)
+        debug = DebugPanelView()
         super.init(frame: .zero)
         debug.isHidden = true
         addSubview(debug)

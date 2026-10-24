@@ -97,7 +97,7 @@ variables. F10 steps over, F11 in, Shift-F11 out, F5 continues, Shift-F5 stops (
 
 ⌘, opens the settings window. It writes `~/.config/sill/settings.toml`, which you can also edit by hand ("Open
 settings.toml" opens it in sill): the window changes one value in place and keeps your comments, and an edit to the
-file applies as soon as it is saved. The first start writes every setting commented out at its default. A key sill
+file applies as soon as it is saved, the font included. ⌘+ and ⌘- change the font's size for the session, ⌘0 goes back. The first start writes every setting commented out at its default. A key sill
 does not know, or a value it cannot use, is named at the top of the window. Settings cover what only sill has (the
 font, the chrome, which nvim config, the agents, dotnet, heed); what nvim has an option for stays in your nvim config.
 

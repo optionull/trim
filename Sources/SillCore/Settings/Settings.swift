@@ -158,7 +158,7 @@ public enum SettingsLoader {
     [editor]
     # The grid's font, a monospaced one installed on this Mac.
     # font = "JetBrains Mono"
-    # Its size in points, 6 to 72.
+    # Its size in points, 6 to 72. ⌘+ and ⌘- change it for a session, ⌘0 comes back to this.
     # size = 13
     # A line's height as a multiple of the font's, 1 to 2.
     # line_height = 1.2

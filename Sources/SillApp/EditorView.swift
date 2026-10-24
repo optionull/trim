@@ -12,7 +12,8 @@ import SillRender
 final class EditorView: NSView {
     private(set) var screen = Screen()
     private let channel: NvimChannel
-    let metrics: CellMetrics
+    /// The grid's font and cell size, as the settings (and ⌘+, ⌘-) have them now.
+    var metrics: CellMetrics { EditorFont.metrics }
     /// Called with the new size in cells when the view is resized.
     var onResize: ((_ cols: Int, _ rows: Int) -> Void)?
     /// Called when the editor takes the keyboard back (a click on it).
@@ -31,9 +32,8 @@ final class EditorView: NSView {
     /// Tags the frames handed to the render loop, so a measurement can tell which screen reached the display.
     private(set) var frameTag: UInt64 = 0
 
-    init(channel: NvimChannel, metrics: CellMetrics) {
+    init(channel: NvimChannel) {
         self.channel = channel
-        self.metrics = metrics
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 700))
         wantsLayer = true
         layerContentsRedrawPolicy = .never
@@ -157,6 +157,15 @@ final class EditorView: NSView {
 
     private var rendererScale: CGFloat = 0
 
+    /// The font changed (`EditorFont`): the glyph atlas made again at the new size, and nvim told how many cells now
+    /// fit.
+    func fontChanged() {
+        startRenderer(scale: rendererScale > 0 ? rendererScale : (window?.backingScaleFactor ?? 2))
+        scroll = ScrollAccumulator(lineHeight: metrics.height, columnWidth: metrics.width)
+        let size = gridSize
+        onResize?(size.cols, size.rows)
+    }
+
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         guard let scale = window?.backingScaleFactor else { return }
@@ -208,7 +217,7 @@ final class EditorView: NSView {
 
     /// Text an input method is composing, shown at the cursor until it is committed.
     private var markedText = ""
-    private lazy var markedView = MarkedTextView(metrics: metrics)
+    private lazy var markedView = MarkedTextView()
     /// Set while `interpretKeyEvents` runs, so a key the input method did not take is sent as it is.
     private var handledByInputMethod = false
 
@@ -455,13 +464,12 @@ extension EditorView: @preconcurrency NSTextInputClient {
 
 /// Marked text at the cursor while an input method composes, underlined as macOS shows composition.
 final class MarkedTextView: NSView {
-    private let metrics: CellMetrics
+    private var metrics: CellMetrics { EditorFont.metrics }
     var text = "" {
         didSet { needsDisplay = true }
     }
 
-    init(metrics: CellMetrics) {
-        self.metrics = metrics
+    init() {
         super.init(frame: .zero)
     }
 

@@ -26,7 +26,10 @@ final class SettingsController {
         guard let file = Self.file else { return }
         let watcher = SettingsWatcher(file: file) { source in
             Settings.shared.load(source)
-            Task { @MainActor [weak self] in self?.window?.refresh() }
+            Task { @MainActor [weak self] in
+                EditorFont.load(Settings.shared.current)
+                self?.window?.refresh()
+            }
         }
         Settings.shared.load(watcher.start())
         self.watcher = watcher
@@ -115,7 +118,7 @@ final class SettingsWindow: NSWindow {
 
         section("Editor", in: stack)
         let families = Self.monospacedFamilies()
-        row("Font", "A monospaced font installed on this Mac. Applies when sill starts again.", in: stack) {
+        row("Font", "A monospaced font installed on this Mac.", in: stack) {
             let popup = NSPopUpButton()
             popup.addItems(withTitles: families)
             self.bind(["editor", "font"], popup) { popup.selectItem(withTitle: $0.font) } write: {
@@ -123,10 +126,10 @@ final class SettingsWindow: NSWindow {
             }
             return popup
         }
-        row("Size", "In points. Applies when sill starts again.", in: stack) {
+        row("Size", "In points. ⌘+ and ⌘- change it for this session, ⌘0 comes back.", in: stack) {
             self.stepper(["editor", "size"], range: 6 ... 72, step: 1, read: \.size) { .integer(Int($0)) }
         }
-        row("Line height", "A multiple of the font's own. Applies when sill starts again.", in: stack) {
+        row("Line height", "A multiple of the font's own.", in: stack) {
             self.stepper(["editor", "line_height"], range: 1 ... 2, step: 0.05, read: \.lineHeight) {
                 .float(($0 * 100).rounded() / 100)
             }

@@ -326,13 +326,12 @@ final class Debugger {
 /// variables on the right, opened as they are clicked.
 final class DebugPanelView: NSView {
     weak var debugger: Debugger?
-    private let metrics: CellMetrics
+    private var metrics: CellMetrics { EditorFont.metrics }
     /// The variable rows as drawn: depth, the variable, where.
     private var rows: [(depth: Int, variable: Dap.Variable, rect: NSRect)] = []
     private var frameRects: [(Int, NSRect)] = []
 
-    init(metrics: CellMetrics) {
-        self.metrics = metrics
+    init() {
         super.init(frame: .zero)
     }
 

@@ -442,13 +442,17 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   commented-out line, and the watcher reads the file back, so a hand edit and the window take the same path. Each
   setting stands for an environment variable sill already read (SILL_AGENT, SILL_CHROME, …), and a variable set
   when sill starts wins, its row disabled; the checks run without a settings file unless they name one. Font,
-  size and line height (new: `CellMetrics(font:size:lineHeight:)`), the chrome and the nvim config apply when sill
+  size and line height (new: `CellMetrics(font:size:lineHeight:)`) apply at once: every view reads the grid's
+  metrics from `EditorFont`, and a change makes the glyph atlas again and tells nvim the new grid size; ⌘+ and ⌘-
+  change the size for the session, ⌘0 goes back to the file's. The chrome and the nvim config apply when sill
   starts again; the rest at once. Unknown keys are reported (a typo), a bad value keeps its default, a syntax error
   keeps the last good settings.
   - `SILL_CHECK=settings`: the default written on first start; the size stepper and agent field written in place
     with comments kept and read back (the agent becomes codex); a hand edit turning smooth scrolling off applied
     at once with a typo reported; a syntax error keeping the last good settings; HEED_CONTROL disabling its row.
-  - Not done: the font changing without a restart (the grid's metrics and glyph atlas are made once), ⌘+ and ⌘-.
+  - The check also sets 15 pt from the file and presses ⌘+ twice: nvim went from 37 lines to 32, and ⌘0 came back.
+  - Not done: terminal panes keep Ghostty's own font size. Sparkle and signing come last, once the owner no longer
+    codes from the phone (owner, 2026-10-24).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
