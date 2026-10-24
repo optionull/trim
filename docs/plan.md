@@ -338,7 +338,7 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     and showed each error ten times: in Razor files only Razor's own pull counts.
   - Paths are the file system's (`realpath`): sill's folder, the build's PWD, and build capture no longer shortens
     /private/tmp to /tmp, so a diagnostic's file is the buffer's.
-  - Not done: HTML, CSS and JavaScript in markup (VS Code's HTML server on Node, plan §5's bridge); Razor's semantic
+  - Not done (HTML, CSS and JavaScript in markup came after M9, below): Razor's semantic
     colours.
 - A real project (2026-10-23): `SILL_CHECK=project` in elastic/docs-builder (59 projects in one .slnx; `SILL_CWD`,
   `SILL_CHECK_CLEAN=1` for a full build). The main thread is watched throughout (a block every 10 ms, how late it
@@ -386,7 +386,7 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   - Once (2026-10-24), the Swift check, run straight after the Rust one, sat before recording until its 10-minute
     timeout; it passed in the full verification before and in every run since. Not explained; the check now says
     where it waits (building, or the recorder starting).
-  - Not done: Razor's HTML through the HTML server (plan §5's bridge), heap profiling for native programs, Xcode
+  - Not done: heap profiling for native programs, Xcode
     projects (only Swift packages), Cargo workspaces with several programs (the last one built is profiled).
 - M8 (done 2026-10-24): the debugger. Exit test `SILL_CHECK=m8` on Tests/SillSidecarTests/Fixtures/Sample, and the DAP
   client's end-to-end test (`DebuggerTests`) against the adapter.
@@ -482,6 +482,18 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     elements → Order; 25% to 50% of the run is 280 of 1809 samples, and the strip shows the program stopped while
     each heap snapshot was written. `SILL_CHECK=m7`: the first half of the Rust run is 1236 of 2472 samples, the
     Swift one's 1823 of 3628. Unit tests cover a stretch's tree, totals and hot spots.
+- Razor markup (after M9, 2026-10-24): plan §5's bridge. Razor, cohosted in Roslyn, sends each file's HTML as
+  `razor/updateHtml` (`{ textDocument, checksum, text }`: the file's text with its C# masked, line for line) and asks
+  the client what it would ask of HTML, as the request wrapped in `{ textDocument, checksum, request }` (found by
+  logging what Roslyn 5.11.0 sends). `sill.razor_html` keeps each file's HTML open as a virtual
+  `…razor__virtual.html` document in vscode-html-language-server (CSS and JavaScript in it included), started
+  without a buffer (`vim.lsp.start{…}, { attach = false }`) the first time a Razor file's HTML comes, with the
+  command sill provisions for .html files (`servers.want`). A question waits for the HTML at its checksum, then goes
+  to the HTML server about the virtual document; nvim runs a server's request in a coroutine, so the handler yields
+  for the answer without holding nvim. Without an HTML server Razor's questions get empty answers, as before. A
+  hover's inline SVG (a browser-support badge) is left out.
+  - `SILL_CHECK=razor`: `<h1>`'s hover says "The h1 element represents a section heading.", completion offers `div`
+    beside `PageTitle`, and `color` in a `<style>`. With the bridge taken out it fails.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

@@ -72,7 +72,9 @@ dimmed. In a folder with a .slnx it opens on the solution's tree (`s`, or Files 
 
 In a .NET folder sill downloads Roslyn's language server (nuget.org's `roslyn-language-server`, into
 `~/Library/Caches/sill/roslyn`), and nvim's own LSP client uses it for .cs, .razor and .cshtml files: Razor runs inside
-it. Markup gets Razor's answers (components, directives); plain HTML, CSS and JavaScript in it get none yet.
+it. Markup gets Razor's answers (components, directives) and the HTML server's: hover and completion for HTML, the CSS
+in a `<style>` and the JavaScript in a `<script>`, as VS Code's Razor extension has them (the HTML server is the one
+sill uses for .html files).
 
 ## Profiling
 

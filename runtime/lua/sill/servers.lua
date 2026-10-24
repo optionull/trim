@@ -75,10 +75,31 @@ local function opened(buf)
   end
 end
 
+-- Callers waiting for a server's command (Razor's HTML bridge), by server.
+local waiting = {}
+
+--- Calls `fn` with the command that runs `name`, at once when sill has it, else once sill has found or provisioned
+--- it (asked for `path`'s sake); with false when it could not be had.
+function M.want(name, path, fn)
+  if M.commands[name] ~= nil then
+    return fn(M.commands[name])
+  end
+  waiting[name] = waiting[name] or {}
+  table.insert(waiting[name], fn)
+  if not asked[name] then
+    asked[name] = true
+    notify('sill_server', name, path)
+  end
+end
+
 --- sill's answer: the command that runs `name` (a list), or nil when it could not be had; then every open file it
 --- serves gets it.
 function M.ready(name, cmd)
   M.commands[name] = cmd or false
+  for _, fn in ipairs(waiting[name] or {}) do
+    fn(cmd or false)
+  end
+  waiting[name] = nil
   if not cmd then
     return
   end

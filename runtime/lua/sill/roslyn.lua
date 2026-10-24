@@ -1,8 +1,9 @@
 -- C# and Razor through Roslyn's language server, which sill's sidecar downloads to the user's machine (plan §5: never in
 -- the app). nvim's own LSP client talks to it; on starting, the server is told which solution (or projects) to open, as
 -- roslyn.nvim does. Razor is cohosted in the server: .razor and .cshtml files go to it as `aspnetcorerazor`, and Razor's
--- questions about their HTML (which VS Code's HTML server answers) get empty answers, so Razor's own (components,
--- directives, the C#) stand alone. A config that already runs a C# server keeps its own.
+-- questions about their HTML go to the HTML server (`sill.razor_html`, as VS Code's Razor extension does), or get empty
+-- answers when there is none, so Razor's own (components, directives, the C#) stand alone. A config that already runs a
+-- C# server keeps its own.
 local M = {}
 
 M.filetypes = { 'cs', 'razor' }
@@ -27,12 +28,12 @@ local function from_razor(params)
   return type(params) == 'table' and params.checksum ~= nil
 end
 
---- A handler for a method Razor also asks the client: Razor's question answered `answer(params)`, anything else as
---- nvim would have handled it.
+--- A handler for a method Razor also asks the client: Razor's question answered by the HTML server, else
+--- `answer(params)`; anything else as nvim would have handled it.
 local function html(method, answer)
   return function(err, result, ctx, config)
     if from_razor(result) then
-      return answer(result)
+      return require('sill.razor_html').ask(method, result, answer(result))
     end
     local default = vim.lsp.handlers[method]
     if default then
@@ -43,7 +44,7 @@ end
 
 local function html_handlers()
   local handlers = {
-    ['razor/updateHtml'] = function() return vim.NIL end,
+    ['razor/updateHtml'] = function(_, params) return require('sill.razor_html').update(params) end,
     ['textDocument/completion'] = html('textDocument/completion', function()
       return { isIncomplete = false, items = {} }
     end),

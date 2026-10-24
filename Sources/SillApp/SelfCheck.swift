@@ -1206,6 +1206,57 @@ final class SelfCheck {
         try expect(found[.string("code")]?.boolValue == true, "currentCount offered in @code")
         step("hover names PageTitle; completion offers PageTitle in markup and currentCount in @code")
 
+        // The markup's HTML, and the CSS in a <style>, from the HTML server through Razor (plan §5's bridge).
+        let markup = try await session.channel.lua("""
+        local function at(pattern, offset)
+          local l = vim.fn.search(pattern, 'nw')
+          local c = vim.fn.getline(l):find(pattern, 1, true) - 1 + offset
+          return { textDocument = { uri = vim.uri_from_bufnr(0) }, position = { line = l - 1, character = c },
+                   context = { triggerKind = 1 } }
+        end
+        local function labels(params)
+          local found = {}
+          local result = vim.lsp.buf_request_sync(0, 'textDocument/completion', params, 30000)
+          for _, r in pairs(result or {}) do
+            for _, item in ipairs(r.result and (r.result.items or r.result) or {}) do found[item.label] = true end
+          end
+          return found
+        end
+        local hover = ''
+        for _ = 1, 30 do
+          local result = vim.lsp.buf_request_sync(0, 'textDocument/hover', at('<h1>', 2), 30000)
+          for _, r in pairs(result or {}) do
+            if r.result and r.result.contents then hover = r.result.contents.value or '' end
+          end
+          if hover ~= '' then break end
+          vim.wait(1000)
+        end
+        local tags = labels(at('<h1>', 1))
+        -- A <style> under the heading, its property half typed.
+        local l = vim.fn.search('<h1>', 'nw')
+        vim.api.nvim_buf_set_lines(0, l, l, false, { '<style>', '    h1 { colo }', '</style>' })
+        local css = {}
+        for _ = 1, 20 do
+          vim.wait(1000)
+          css = labels(at('colo }', 4))
+          if css['color'] then break end
+        end
+        vim.api.nvim_buf_set_lines(0, l, l + 3, false, {})
+        return { hover = hover, div = tags['div'] == true, page = tags['PageTitle'] == true,
+                 color = css['color'] == true, svg = hover:find('data:image') ~= nil }
+        """)
+        let html = markup.dictionaryValue ?? [:]
+        let heading = html[.string("hover")]?.stringValue ?? ""
+        try expect(heading.contains("h1 element"), "HTML's hover on <h1>: \(heading.prefix(120))")
+        try expect(html[.string("svg")]?.boolValue == false, "no inline pictures in the hover")
+        try expect(
+            html[.string("div")]?.boolValue == true && html[.string("page")]?.boolValue == true,
+            "HTML's tags beside Razor's components"
+        )
+        try expect(html[.string("color")]?.boolValue == true, "CSS's color in a <style>")
+        step("the HTML server answers through Razor: <h1>'s hover (\"\(heading.prefix(44))\"), div among the " +
+            "components, and color in a <style>")
+
         // The build agrees, at the same line of the component.
         _ = try await session.channel.lua("vim.cmd('silent write')")
         app.builds.build()
