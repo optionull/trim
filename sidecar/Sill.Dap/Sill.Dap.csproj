@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Vendored from Passenger (https://github.com/Zaneris/passenger at 7686138, MIT), ported to .NET 10; see
+       THIRD_PARTY_NOTICES.md. -->
+  <!-- The Debug Adapter Protocol: the messages and the connection, for both ends (the IDE and the adapter). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <RootNamespace>Sill.Dap</RootNamespace>
+  </PropertyGroup>
+</Project>

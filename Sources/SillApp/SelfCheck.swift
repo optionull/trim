@@ -44,6 +44,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "m8" {
+                try await m8Steps()
+                print("sill check (M8): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "servers" {
                 try await serversSteps()
                 print("sill check (servers): passed")
@@ -260,6 +266,82 @@ final class SelfCheck {
         try shot(of: root, to: path, cursor: true)
         print("sill showcase: saved \(path)")
         fflush(stdout)
+    }
+
+    /// M8's exit (`SILL_CHECK=m8`, run in a copy of Tests/SillSidecarTests/Fixtures/Sample): breakpoints and stepping
+    /// in C#. A breakpoint in the loop, F5: the program built, launched under sill's debug adapter and paused there,
+    /// the
+    /// line marked, the stack and locals in the Debug tab; F10 steps, F5 runs to the breakpoint's next hit; a
+    /// breakpoint
+    /// removed while paused reaches the adapter; Shift-F5 ends it. `SILL_CHECK_SHOT` saves the paused window.
+    private func m8Steps() async throws {
+        let app = try require(app, "the app")
+        let debugger = try require(app.debugger, "the debugger")
+        let program = (app.workingDirectory as NSString).appendingPathComponent("Program.cs")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await waitFor("the sidecar", timeout: .seconds(20)) { app.sidecar }
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(program), .int(5)])
+        try await wait("Program.cs open") { $0.buffer.name == "Program.cs" }
+        _ = try await session.channel.lua("vim.cmd('SillBreakpoint')")
+        try await wait("the breakpoint") { $0.breakpoints[program] == [5] }
+        step("F9's command sets a breakpoint on line 5, a sign that moves with the text")
+
+        let started = CACurrentMediaTime()
+        session.channel.send(keys: "<F5>")
+        _ = try await waitFor("the program paused", timeout: .seconds(180)) {
+            if case .paused = debugger.state { return true }
+            return nil
+        }
+        let frame = try require(debugger.frames.first, "a frame")
+        try expect(
+            frame.line == 5 && frame.source?.path?.hasSuffix("Program.cs") == true,
+            "paused at Program.cs:5: \(frame.name) \(frame.line)"
+        )
+        func locals() -> [String: String] {
+            Dictionary(
+                (debugger.scopeReference.flatMap { debugger.variables[$0] } ?? []).map { ($0.name, $0.value) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }
+        _ = try await waitFor("the locals") { locals()["i"] }
+        try expect(locals()["i"] == "0", "i is 0: \(locals())")
+        let marked = try await session.channel.lua("return require'sill.debug'.where()")
+        try expect(marked.arrayValue?.last?.intValue == 5, "line 5 marked in the editor: \(marked)")
+        try expect(app.tools.panel.tab == .debug, "the Debug tab shows")
+        try expect(
+            app.root.statusBar.state.debug == "paused at Program.cs:5",
+            "\(app.root.statusBar.state.debug ?? "")"
+        )
+        step("F5 builds and launches it under the debugger, paused at the breakpoint in " +
+            "\(Bench.format(CACurrentMediaTime() - started)) s: line 5 marked, \(frame.name), i = 0")
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try await Task.sleep(for: .milliseconds(300))
+            try self.shot(to: shot)
+            step("saved \(shot)")
+        }
+
+        session.channel.send(keys: "<F10>")
+        _ = try await waitFor("the step", timeout: .seconds(30)) {
+            debugger.state == .paused(reason: "step") ? true : nil
+        }
+        step("F10 steps")
+        session.channel.send(keys: "<F5>")
+        _ = try await waitFor("the next hit", timeout: .seconds(30)) {
+            debugger.state == .paused(reason: "breakpoint") && locals()["i"] == "2000" ? true : nil
+        }
+        step("F5 runs to the breakpoint's next hit: i = 2000")
+
+        _ = try await session.channel.lua("vim.cmd('SillBreakpoint')")
+        _ = try await waitFor("the adapter told", timeout: .seconds(10)) {
+            debugger.answered[program]?.isEmpty == true ? true : nil
+        }
+        step("removed while paused, the breakpoint is removed in the program")
+
+        session.channel.send(keys: "<S-F5>")
+        _ = try await waitFor("the session over", timeout: .seconds(20)) { debugger.state == .idle ? true : nil }
+        let after = try await session.channel.lua("return require'sill.debug'.where()")
+        try expect(after == .nil, "no line marked: \(after)")
+        step("Shift-F5 ends it: no line marked")
     }
 
     /// M7's language servers (`SILL_CHECK=servers`, run in a copy of Tests/SillCoreTests/Fixtures/Polyglot): each kind

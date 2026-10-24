@@ -72,6 +72,9 @@ public sealed class Server(TextWriter protocol)
                     typeof(Server).Assembly.GetName().Version?.ToString() ?? "0"),
                 Methods.Count => await CountTo(request.Id, Read<CountParams>(request), cancel.Token),
                 Methods.Cancel => Cancel(Read<CancelParams>(request)),
+                Methods.Dbgshim => await Sidecar.Dbgshim.Ensure(Read<DbgshimParams>(request), progress =>
+                    Write(new Reply { Id = request.Id, Partial = JsonSerializer.SerializeToElement(progress, Json.Options) }),
+                    cancel.Token),
                 Methods.Profile => await Sidecar.Profile.Start(request.Id, Read<ProfileParams>(request), progress =>
                     Write(new Reply { Id = request.Id, Partial = JsonSerializer.SerializeToElement(progress, Json.Options) }),
                     cancel.Token),

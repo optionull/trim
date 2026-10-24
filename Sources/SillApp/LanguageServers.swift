@@ -130,7 +130,7 @@ final class LanguageServers {
 
     /// Whether a found program runs: a proxy for a missing tool does not.
     nonisolated static func answers(_ path: String, _ argument: String) async -> Bool {
-        await (try? NativeRecorder.capture(path, [argument], in: NSHomeDirectory()))?.code == 0
+        await (try? NativeRecorder.capture(path, [argument], in: NSHomeDirectory(), timeout: .seconds(20)))?.code == 0
     }
 
     nonisolated static let rustAnalyzerVersion = "2026-10-19"
@@ -168,8 +168,13 @@ final class LanguageServers {
     }
 
     nonisolated static func onPath(_ tool: String) async -> String? {
-        guard let found = try? await NativeRecorder.capture("/usr/bin/env", ["which", tool], in: NSHomeDirectory()),
-              found.code == 0 else { return nil }
+        guard let found = try? await NativeRecorder.capture(
+            "/usr/bin/env",
+            ["which", tool],
+            in: NSHomeDirectory(),
+            timeout: .seconds(10)
+        ),
+            found.code == 0 else { return nil }
         let path = found.output.trimmingCharacters(in: .whitespacesAndNewlines)
         return path.isEmpty ? nil : path
     }

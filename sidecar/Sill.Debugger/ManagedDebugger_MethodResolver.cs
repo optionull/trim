@@ -1,0 +1,184 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using Sill.Debugger.Interop;
+
+namespace Sill.Debugger;
+
+public partial class ManagedDebugger
+{
+    internal ICorDebugFunction? FindMethodOnType(
+        ICorDebugType type,
+        string methodName,
+        ICorDebugValue[] args,
+        bool searchStatic,
+        bool idsEmpty)
+    {
+        ICorDebugClass typeClass = type.Class;
+        ICorDebugModule module = typeClass.Module;
+        IMetaDataImport metadataImport = module.GetMetaDataInterface<IMetaDataImport>();
+
+        foreach (mdMethodDef methodToken in metadataImport.EnumMethods(typeClass.Token))
+        {
+            (string szMethod, mdTypeDef pClass, CorMethodAttr pdwAttr, nint ppvSigBlob, int pcbSigBlob, int pulCodeRVA, int pdwImplFlags) methodProps = metadataImport.GetMethodProps(methodToken);
+            if (methodProps.szMethod != methodName)
+            {
+                continue;
+            }
+
+            bool isStatic = methodProps.pdwAttr.IsMdStatic();
+            if ((searchStatic && !isStatic) || (!searchStatic && isStatic && !idsEmpty))
+            {
+                continue;
+            }
+
+            ICorDebugFunction method = module.GetFunctionFromToken(methodToken);
+            if (IsMethodParameterMatch(method, args))
+            {
+                return method;
+            }
+        }
+
+        ICorDebugType? baseType = type.Base;
+        if (baseType is not null)
+        {
+            ICorDebugFunction? baseMethod = FindMethodOnType(baseType, methodName, args, searchStatic, idsEmpty);
+            if (baseMethod is not null)
+            {
+                return baseMethod;
+            }
+        }
+
+        // Extension methods are declared on static classes, not the receiver type, so only look them up once instance member search has failed.
+        if (searchStatic is false)
+        {
+            return FindExtensionMethod(type, methodName, args);
+        }
+
+        return null;
+    }
+
+    private ICorDebugFunction? FindExtensionMethod(ICorDebugType receiverType, string methodName, ICorDebugValue[] args)
+    {
+        foreach (ModuleInfo moduleInfo in _modules.Values)
+        {
+            ICorDebugModule module = moduleInfo.Module;
+            IMetaDataImport metadataImport = module.GetMetaDataInterface<IMetaDataImport>();
+
+            foreach (mdTypeDef typeToken in metadataImport.EnumTypeDefs())
+            {
+                // Extension methods are declared in static classes marked with [Extension], so skip everything else up front
+                if (metadataImport.HasAnyAttribute(typeToken, [AttributeConstants.ExtensionMethodAttributeName]) is false)
+                {
+                    continue;
+                }
+
+                foreach (mdMethodDef methodToken in metadataImport.EnumMethodsWithName(typeToken, methodName))
+                {
+                    (string szMethod, mdTypeDef pClass, CorMethodAttr pdwAttr, nint ppvSigBlob, int pcbSigBlob, int pulCodeRVA, int pdwImplFlags) methodProps = metadataImport.GetMethodProps(methodToken);
+                    if (methodProps.pdwAttr.IsMdStatic() is false)
+                    {
+                        continue;
+                    }
+
+                    if (metadataImport.HasAnyAttribute(methodToken, [AttributeConstants.ExtensionMethodAttributeName]) is false)
+                    {
+                        continue;
+                    }
+
+                    ICorDebugFunction method = module.GetFunctionFromToken(methodToken);
+                    if (IsMethodParameterMatch(method, args, receiverType.Type))
+                    {
+                        return method;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+
+    private bool IsMethodParameterMatch(ICorDebugFunction method, ICorDebugValue[] args, CorElementType? extensionReceiverType = null)
+    {
+        Handle handle = MetadataTokens.Handle(method.Token);
+        if (handle.Kind is not HandleKind.MethodDefinition)
+        {
+            return false;
+        }
+
+        MetadataReader metadataReader = GetModuleInfoForModule(method.Class.Module).MetadataReader.PeMetadataReader;
+        MethodDefinition methodDefinition = metadataReader.GetMethodDefinition((MethodDefinitionHandle)handle);
+        ImmutableArray<CorElementType> parameterTypes = methodDefinition.DecodeSignature(CorElementTypeSignatureProvider.Instance, null).ParameterTypes;
+
+        int expectedParameterCount = args.Length + (extensionReceiverType is not null ? 1 : 0);
+        if (parameterTypes.Length != expectedParameterCount)
+        {
+            return false;
+        }
+
+        if (extensionReceiverType is not null && parameterTypes[0] != extensionReceiverType.Value)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < args.Length; i++)
+        {
+            CorElementType argType = args[i].ExactType?.Type ?? args[i].Type;
+            if (parameterTypes[i + (extensionReceiverType is not null ? 1 : 0)] != argType)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private sealed class CorElementTypeSignatureProvider : ISignatureTypeProvider<CorElementType, object?>
+    {
+        public static CorElementTypeSignatureProvider Instance { get; } = new();
+
+        public CorElementType GetArrayType(CorElementType elementType, ArrayShape shape) => CorElementType.ARRAY;
+        public CorElementType GetByReferenceType(CorElementType elementType) => CorElementType.BYREF;
+        public CorElementType GetFunctionPointerType(MethodSignature<CorElementType> signature) => CorElementType.FNPTR;
+        public CorElementType GetGenericInstantiation(CorElementType genericType, ImmutableArray<CorElementType> typeArguments) => CorElementType.GENERICINST;
+        public CorElementType GetGenericMethodParameter(object? genericContext, int index) => CorElementType.MVAR;
+        public CorElementType GetGenericTypeParameter(object? genericContext, int index) => CorElementType.VAR;
+        public CorElementType GetModifiedType(CorElementType modifier, CorElementType unmodifiedType, bool isRequired) => unmodifiedType;
+        public CorElementType GetPinnedType(CorElementType elementType) => elementType;
+        public CorElementType GetPointerType(CorElementType elementType) => CorElementType.PTR;
+        public CorElementType GetSZArrayType(CorElementType elementType) => CorElementType.SZARRAY;
+
+        public CorElementType GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode switch
+        {
+            PrimitiveTypeCode.Void => CorElementType.VOID,
+            PrimitiveTypeCode.Boolean => CorElementType.BOOLEAN,
+            PrimitiveTypeCode.Char => CorElementType.CHAR,
+            PrimitiveTypeCode.SByte => CorElementType.I1,
+            PrimitiveTypeCode.Byte => CorElementType.U1,
+            PrimitiveTypeCode.Int16 => CorElementType.I2,
+            PrimitiveTypeCode.UInt16 => CorElementType.U2,
+            PrimitiveTypeCode.Int32 => CorElementType.I4,
+            PrimitiveTypeCode.UInt32 => CorElementType.U4,
+            PrimitiveTypeCode.Int64 => CorElementType.I8,
+            PrimitiveTypeCode.UInt64 => CorElementType.U8,
+            PrimitiveTypeCode.Single => CorElementType.R4,
+            PrimitiveTypeCode.Double => CorElementType.R8,
+            PrimitiveTypeCode.String => CorElementType.STRING,
+            PrimitiveTypeCode.TypedReference => CorElementType.TYPEDBYREF,
+            PrimitiveTypeCode.IntPtr => CorElementType.I,
+            PrimitiveTypeCode.UIntPtr => CorElementType.U,
+            PrimitiveTypeCode.Object => CorElementType.OBJECT,
+            _ => CorElementType.END
+        };
+
+        public CorElementType GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) =>
+            rawTypeKind == (byte)SignatureTypeKind.ValueType ? CorElementType.VALUETYPE : CorElementType.CLASS;
+
+        public CorElementType GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) =>
+            rawTypeKind == (byte)SignatureTypeKind.ValueType ? CorElementType.VALUETYPE : CorElementType.CLASS;
+
+        public CorElementType GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind) =>
+            reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    }
+}

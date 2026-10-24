@@ -211,6 +211,8 @@ final class StatusBarView: NSView {
         var modified = false
         /// A merge: conflicts left, and the current one.
         var merge: (left: Int, current: Int)?
+        /// The debugger, when a session is on: "paused at Program.cs:5".
+        var debug: String?
 
         static func == (lhs: State, rhs: State) -> Bool {
             lhs.mode == rhs.mode && lhs.branch == rhs.branch && lhs.pending == rhs.pending &&
@@ -218,7 +220,7 @@ final class StatusBarView: NSView {
                 lhs.services.map(\.ready) == rhs.services.map(\.ready) && lhs.filetype == rhs.filetype &&
                 lhs.position?.line == rhs.position?.line && lhs.position?.column == rhs.position?.column &&
                 lhs.modified == rhs.modified && lhs.merge?.left == rhs.merge?.left &&
-                lhs.merge?.current == rhs.merge?.current
+                lhs.merge?.current == rhs.merge?.current && lhs.debug == rhs.debug
         }
     }
 
@@ -273,6 +275,7 @@ final class StatusBarView: NSView {
                 color: merge.left == 0 ? Design.accent : Design.text
             )
         }
+        if let debug = state.debug { left("● " + debug, color: Design.modified) }
         left(state.branch.isEmpty ? "" : state.branch)
         left(state.pending, color: Design.modified)
 

@@ -218,6 +218,10 @@ public struct Screen: Sendable {
     public private(set) var merge: (left: Int, current: Int, file: String)?
     /// What nvim asked of the agents last (`:SillAgent next|send|list`), numbered so the same ask twice is two.
     public private(set) var agentAsk: (action: String, serial: Int)?
+    /// What nvim asked of the debugger (`:SillDebug …`), in order.
+    public private(set) var debugAsks: [String] = []
+    /// The breakpoints nvim has, by file, the lines as they are now.
+    public private(set) var breakpoints: [String: [Int]] = [:]
     /// The language servers nvim asked sill for (`sill_server`), in order: each the first time a file it serves opened.
     public private(set) var serverAsks: [String] = []
     /// What nvim asked of the solution last (`:SillSlnx sync|apply`), numbered likewise.
@@ -352,6 +356,15 @@ public struct Screen: Sendable {
                 }
             }
             merge = (left, current, file)
+        case let .notification(method, args) where method == "sill_debug":
+            if let action = args.first?.stringValue { debugAsks.append(action) }
+        case let .notification(method, args) where method == "sill_breakpoints":
+            var found: [String: [Int]] = [:]
+            for (key, value) in args.first?.dictionaryValue ?? [:] {
+                guard let path = key.stringValue else { continue }
+                found[path] = (value.arrayValue ?? []).map(\.intValue)
+            }
+            breakpoints = found
         case let .notification(method, args) where method == "sill_server":
             if let name = args.first?.stringValue { serverAsks.append(name) }
         case let .notification(method, args) where method == "sill_slnx":

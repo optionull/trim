@@ -355,3 +355,30 @@ public extension Sidecar {
         }
     }
 }
+
+/// dbgshim on this machine, as the sidecar provisioned it: what the debug adapter starts processes with.
+public struct DbgshimLibrary: Decodable, Sendable, Equatable {
+    public var path: String
+    public var version: String
+    public var downloaded: Bool
+}
+
+public extension Sidecar {
+    /// Where provisioned dbgshim versions are kept.
+    static var dbgshimCache: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("sill/dbgshim")
+    }
+
+    /// dbgshim: the newest stable on nuget.org, downloaded into `cache` if it is not there yet; offline, the newest
+    /// cached.
+    func dbgshim(cache: URL = Sidecar.dbgshimCache, feed: String? = nil) async throws -> DbgshimLibrary {
+        struct Params: Encodable {
+            var cacheDirectory: String
+            var rid: String
+            var feed: String?
+        }
+        return try await request(
+            "dbgshim", Params(cacheDirectory: cache.path, rid: Sidecar.rid, feed: feed), as: DbgshimLibrary.self
+        )
+    }
+}

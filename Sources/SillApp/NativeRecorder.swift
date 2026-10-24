@@ -201,9 +201,13 @@ final class NativeRecorder {
         return environment
     }
 
-    /// A command's whole output, off the main thread; its standard error streamed to `errors` when given.
+    /// A command's whole output, off the main thread; its standard error streamed to `errors` when given. Nothing
+    /// blocks a thread while it runs; one that outlives `timeout` is killed and fails, so a command that hangs (or
+    /// leaves
+    /// something behind holding its output open) never holds up what waits on it.
     nonisolated static func capture(
-        _ tool: String, _ arguments: [String], in directory: String, errors: (@MainActor (String) -> Void)? = nil
+        _ tool: String, _ arguments: [String], in directory: String, timeout: Duration = .seconds(600),
+        errors: (@MainActor @Sendable (String) -> Void)? = nil
     ) async throws -> (code: Int32, output: String, data: Data) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
@@ -214,19 +218,65 @@ final class NativeRecorder {
         process.standardOutput = out
         process.standardError = err
         process.standardInput = FileHandle.nullDevice
-        if let errors {
-            err.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                guard !data.isEmpty else { return }
-                let text = String(decoding: data, as: UTF8.self)
-                Task { @MainActor in errors(text) }
+        let collected = Collected()
+        out.fileHandleForReading.readabilityHandler = { handle in collected.append(handle.availableData) }
+        err.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let errors else { return }
+            let text = String(decoding: data, as: UTF8.self)
+            Task { @MainActor in errors(text) }
+        }
+        let code: Int32 = try await withCheckedThrowingContinuation { continuation in
+            let once = Once()
+            process.terminationHandler = { ended in
+                once.run { continuation.resume(returning: ended.terminationStatus) }
+            }
+            do {
+                try process.run()
+            } catch {
+                once.run { continuation.resume(throwing: error) }
+                return
+            }
+            Task.detached {
+                try? await Task.sleep(for: timeout)
+                once.run {
+                    process.terminate()
+                    continuation.resume(throwing: RecordFailure.failed(
+                        "\((tool as NSString).lastPathComponent) \(arguments.prefix(2).joined(separator: " ")) " +
+                            "did not finish in \(timeout)"
+                    ))
+                }
             }
         }
-        try process.run()
-        let data = await Task.detached { out.fileHandleForReading.readDataToEndOfFile() }.value
-        process.waitUntilExit()
+        // What is still in the pipe once it ended, then no more reading: a child left holding it changes nothing.
+        out.fileHandleForReading.readabilityHandler = nil
         err.fileHandleForReading.readabilityHandler = nil
-        return (process.terminationStatus, String(decoding: data, as: UTF8.self), data)
+        if let rest = try? out.fileHandleForReading.read(upToCount: 1 << 24) { collected.append(rest) }
+        let data = collected.data
+        return (code, String(decoding: data, as: UTF8.self), data)
+    }
+
+    /// A pipe's bytes as they come, from whichever thread reads them.
+    private final class Collected: @unchecked Sendable {
+        private let lock = NSLock()
+        private var bytes = Data()
+
+        func append(_ data: Data) { lock.withLock { bytes.append(data) } }
+        var data: Data { lock.withLock { bytes } }
+    }
+
+    /// Runs its work the first time only: the process's end or its timeout, whichever comes first.
+    private final class Once: @unchecked Sendable {
+        private let lock = NSLock()
+        private var done = false
+
+        func run(_ work: () -> Void) {
+            let first = lock.withLock { () -> Bool in
+                defer { done = true }
+                return !done
+            }
+            if first { work() }
+        }
     }
 
     /// A process's children.

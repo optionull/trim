@@ -501,6 +501,7 @@ function M.setup()
   end
   vim.g.loaded_sill = true
   require('sill.servers').setup()
+  require('sill.debug').setup()
   -- Files an agent edits on disk are read again (sill runs :checktime after its tool calls).
   vim.o.autoread = true
   -- heed's sessions (M5): the next one that needs you opens in heed; send gives an agent the problems.

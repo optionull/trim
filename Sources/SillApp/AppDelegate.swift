@@ -45,6 +45,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         tools.onProfileMade = { [weak self] view in self?.profiler.attach(view) }
         solutions = Solutions(app: self, channel: session.channel, directory: workingDirectory)
         servers = LanguageServers(channel: session.channel, directory: workingDirectory)
+        debugger = Debugger(app: self, channel: session.channel, directory: workingDirectory)
+        tools.panel.debug.debugger = debugger
+        debugger.onChange = { [weak self] in
+            self?.tools.panel.debug.needsDisplay = true
+            self?.tools.panel.needsDisplay = true
+            if let screen = self?.tools.screen { self?.updateFrame(screen) }
+        }
         tools.sidebar.explorer.onSolutionRead = { [weak self] path, slnx, drift in
             self?.solutions.read(path, slnx, drift)
         }
@@ -159,6 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var profiler: Profiler!
     private(set) var solutions: Solutions!
     private(set) var servers: LanguageServers!
+    private(set) var debugger: Debugger!
     /// Roslyn's provisioning: what the status bar says while it downloads.
     private(set) var roslynStatus: String?
     private(set) var roslyn: RoslynServer?
@@ -179,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if screen.buffer.kind.isEmpty, !screen.buffer.path.isEmpty { tools.sidebar.explorer.reveal(screen.buffer.path) }
         updateFrame(screen)
         servers.answer(screen.serverAsks)
+        debugger.update(screen)
         if let ask = screen.slnxAsk, ask.serial != slnxAskSeen {
             slnxAskSeen = ask.serial
             solutions.answer(ask.action)
@@ -259,6 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         state.position = screen.buffer.kind.isEmpty ? screen.cursorPosition : nil
         state.modified = screen.buffer.modified
         state.merge = screen.merge.map { ($0.left, $0.current) }
+        state.debug = debugger?.status
         root.statusBar.state = state
         root.activityBar.selected = screen.paneRects.contains { $0.kind == "sidebar" } ? tools.sidebar.activity : nil
     }

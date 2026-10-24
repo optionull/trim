@@ -118,7 +118,7 @@ All four are MIT per GitHub's licence detection, checked 2026-10-22: [Veil](http
 | M5 (done) | heed bridge (needs heed's control socket) | Send to heed and see the session in the editor |
 | M6 (done) | .NET profiler in sidecar, Razor | CPU and heap diff on a sample app |
 | M7 (done) | Rust and Swift profiling, remaining language servers | samply and xctrace sessions viewable |
-| M8 | Debugger (DAP) | Breakpoints and stepping in C# |
+| M8 (done) | Debugger (DAP) | Breakpoints and stepping in C# |
 | M9 | Polish: diff/merge tool modes, packages view, settings, Sparkle updates | Beta release |
 
 ### M2
@@ -388,6 +388,24 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     where it waits (building, or the recorder starting).
   - Not done: Razor's HTML through the HTML server (plan §5's bridge), heap profiling for native programs, Xcode
     projects (only Swift packages), Cargo workspaces with several programs (the last one built is profiled).
+- M8 (done 2026-10-24): the debugger. Exit test `SILL_CHECK=m8` on Tests/SillSidecarTests/Fixtures/Sample, and the DAP
+  client's end-to-end test (`DebuggerTests`) against the adapter.
+  - Passenger's debug adapter (ICorDebug through dbgshim, Roslyn's expression evaluator, ILSpy for code without
+    source), vendored as `sidecar/Sill.DebugAdapter` and its libraries, ported from .NET 11 to .NET 10 (its Windows
+    start dropped) and run on the person's dotnet as a process of its own. The app carries it as managed code only
+    (no apphost); dbgshim, its native part, is Microsoft's package for this Mac, downloaded by the sidecar into
+    `~/Library/Caches/sill/dbgshim` and loaded from there.
+  - sill's side: a DAP client (`SillSidecar/DapClient`), the session (`Debugger`): the project built in Debug and
+    launched, nvim's breakpoints sent once the adapter is initialized and as they change, and a pause shown: the line
+    marked (▶ and a highlight), the call stack and the variables (opened as clicked) in the panel's Debug tab, "paused
+    at Program.cs:5" in the status bar. Keys: F9 breakpoint, F5 start/continue, F10 over, F11 in, Shift-F11 out,
+    Shift-F5 stop; `:SillDebug`, `:SillBreakpoint`. On the sample: paused at the breakpoint 2 s after F5.
+  - Found on the way: the helper that runs commands (builds, finding language servers) blocked a thread until a
+    command's output closed, with no limit; something a command left behind holding it open (a mise shim's, likely)
+    held up a server's start for good about one run in three. It now reads without blocking, waits on the process's
+    end, and kills what outlives its time; the servers check passed four runs out of four after, in 5 to 7 s.
+  - Not done: conditional and function breakpoints in the UI (the adapter has them), the expression evaluator (watch,
+    hover), exceptions, attaching to a running process, Rust and Swift (lldb-dap).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

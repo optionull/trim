@@ -219,7 +219,9 @@ final class EmptyStateView: NSView, ToolContent {
 /// The bottom panel: Problems (nvim's diagnostics), Tests and Output, and Send all to agent.
 final class BottomPanelView: NSView {
     static let header: CGFloat = 36
-    enum Tab: String, CaseIterable { case problems = "Problems", tests = "Tests", output = "Output" }
+    enum Tab: String, CaseIterable {
+        case problems = "Problems", tests = "Tests", output = "Output", debug = "Debug"
+    }
 
     private let channel: NvimChannel
     private let metrics: CellMetrics
@@ -228,6 +230,8 @@ final class BottomPanelView: NSView {
     private(set) var selected = 0
     private var tabFrames: [(Tab, NSRect)] = []
     private let send = PillButton(title: "Send all to agent")
+    /// The Debug tab's content: the paused program's stack and variables.
+    let debug: DebugPanelView
     /// The Output tab: the last build's log.
     private(set) var output: [String] = []
     private var outputCommand = ""
@@ -238,7 +242,10 @@ final class BottomPanelView: NSView {
     init(channel: NvimChannel, metrics: CellMetrics) {
         self.channel = channel
         self.metrics = metrics
+        debug = DebugPanelView(metrics: metrics)
         super.init(frame: .zero)
+        debug.isHidden = true
+        addSubview(debug)
         send.target = self
         send.action = #selector(sendAll)
         addSubview(send)
@@ -263,6 +270,7 @@ final class BottomPanelView: NSView {
 
     func select(_ tab: Tab) {
         self.tab = tab
+        needsLayout = true
         needsDisplay = true
     }
 
@@ -338,7 +346,12 @@ final class BottomPanelView: NSView {
             drawEmpty("No output", "Build (⌘B) and its output shows here.", in: list)
         case .output:
             drawOutput(in: list)
+        case .debug:
+            break
         }
+        debug.isHidden = tab != .debug
+        debug.frame = list
+        debug.needsDisplay = true
     }
 
     func startOutput(_ command: String) {

@@ -122,6 +122,113 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## The debugger (Passenger's)
+
+https://github.com/Zaneris/passenger at 7686138 (MIT, the licence above). The debug adapter (`sidecar/Sill.Dap`,
+`sidecar/Sill.Debugger`, `sidecar/Sill.Debugger.Interop`, `sidecar/Sill.DebugAdapter`) is Passenger's
+`src/Passenger.Dap`, `Passenger.Debugger`, `Passenger.Debugger.Interop` and `Passenger.DebugAdapter`, with its namespaces
+renamed, ported from .NET 11 to .NET 10 (its Windows start, which uses .NET 11's suspended process start, left out:
+sill is macOS's), Passenger.Core's `PathNames` carried along, and dbgshim loaded from where sill downloads it.
+
+## The debugger: SharpDbg and ICorDebugSharp (by way of Passenger)
+
+sill's debugger is Passenger's (below), which began as a copy of two MIT-licensed projects by Matthew Parker
+(MattParkerDev). As Passenger's notices say, with its paths as sill has them (`sidecar/Sill.Debugger`,
+`sidecar/Sill.DebugAdapter`, `sidecar/Sill.Debugger.Interop`):
+
+- `src/Passenger.Debugger` (the engine), `src/Passenger.DebugAdapter` (its adapter), `tests/Debuggees` and the tests
+  under `tests/Passenger.Tests/Debugging` started from SharpDbg, https://github.com/MattParkerDev/sharpdbg, at commit
+  93b25ac (September 15, 2026).
+- `src/Passenger.Debugger.Interop` (the ICorDebug, IMetaDataImport and dbgshim declarations) started from ICorDebugSharp
+  0.1.8, whose package declares the MIT licence. Its source is not published, so this copy was recovered from the
+  package's assembly with ILSpy, keeping only what its author wrote: the source generators' output was dropped, since
+  the build generates it again. It has since been cut to what Passenger's debugger uses: the declarations the engine
+  names, and those they name in turn. Its declarations were generated from Microsoft's MIT-licensed `cordebug.h` and
+  `cor.h` (https://github.com/dotnet/runtime), and its documentation comments are adapted from the Microsoft .NET
+  documentation (https://github.com/dotnet/docs), licensed under the Creative Commons Attribution 4.0 International
+  Public License (https://creativecommons.org/licenses/by/4.0/), changed from Markdown into XML documentation comments,
+  a reference to a declaration cut since left as plain text.
+
+```
+MIT License
+
+Copyright (c) 2026 Matthew Parker
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Code from ILSpy and ClrDebug
+
+Two of the debugger's files came with SharpDbg from projects of their own:
+
+- `src/Passenger.Debugger/Decompilation/PortablePdbWriter2.cs` is ILSpy's `PortablePdbWriter`
+  (`ICSharpCode.Decompiler/DebugInfo/PortablePdbWriter.cs`, https://github.com/icsharpcode/ILSpy), changed to decompile
+  its files in parallel and return their text: MIT, Copyright (c) 2018 Siegfried Pammer, as the file's header in ILSpy
+  says.
+- `src/Passenger.Debugger/ClrDebugExtensions.cs` began as ClrDebug's .NET Core sample (`Samples/NetCore/Program.cs` at
+  commit 5f46218, https://github.com/lordmilko/ClrDebug): its automatic attach, and its manual one kept in comments.
+  MIT, Copyright (c) 2022 lordmilko.
+
+```
+Copyright (c) 2018 Siegfried Pammer
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons
+to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
+```
+MIT License
+
+Copyright (c) 2022 lordmilko
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## NuGet packages in the sidecar
 
 The profiler's packages, and what they bring, all under the MIT licence: Microsoft.Diagnostics.Tracing.TraceEvent
@@ -139,4 +246,11 @@ Fetched on the user's machine into `~/Library/Caches/sill`, at pinned versions, 
 (https://github.com/mstange/samply, MIT or Apache-2.0), rust-analyzer 2026-10-19 (https://github.com/rust-lang/rust-analyzer,
 MIT or Apache-2.0), marksman 2026-02-08 (https://github.com/artempyanykh/marksman, MIT), and with npm
 vscode-langservers-extracted 4.10.0 (MIT) and TypeScript 7.0.2 (Apache-2.0).
+
+The debugger's packages, all MIT: Microsoft.CodeAnalysis.CSharp (https://github.com/dotnet/roslyn),
+MP.Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.ExpressionCompiler (Roslyn's expression evaluator as published by
+https://github.com/MattParkerDev/roslyn), ICSharpCode.Decompiler (https://github.com/icsharpcode/ILSpy), ZLinq
+(https://github.com/Cysharp/ZLinq), Microsoft.Diagnostics.NETCore.Client, and Krafs.Publicizer (at build only). dbgshim
+(Microsoft.Diagnostics.DbgShim, MIT, https://github.com/dotnet/diagnostics) is downloaded on the user's machine into
+`~/Library/Caches/sill/dbgshim`, not carried in the app.
 

@@ -49,6 +49,10 @@ public static class Methods
     /// <summary><see cref="ProfileRunParams"/>: ends a run's recording; true if it was recording.</summary>
     public const string ProfileStop = "profile.stop";
 
+    /// <summary><see cref="DbgshimParams"/>: <see cref="RoslynProgress"/> partials while downloading, then
+    /// <see cref="DbgshimLibrary"/>: dbgshim on this machine, the newest version, downloaded if needed.</summary>
+    public const string Dbgshim = "dbgshim";
+
     /// <summary><see cref="CancelParams"/>: ends a running request; true if one was running.</summary>
     public const string Cancel = "cancel";
 }
@@ -81,6 +85,10 @@ public sealed record RoslynParams(string CacheDirectory, string Rid, string? Fee
 public sealed record RoslynProgress(string Stage, long Bytes, long Total);
 
 public sealed record RoslynServer(string Dll, string Version, bool Downloaded);
+
+public sealed record DbgshimParams(string CacheDirectory, string Rid, string? Feed);
+
+public sealed record DbgshimLibrary(string Path, string Version, bool Downloaded);
 
 /// <summary>A project (folder or project file) to build and run, or a program; its arguments; where traces go.</summary>
 public sealed record ProfileParams(string? Project, string? Program, string[]? Arguments, string? WorkingDirectory, string? Folder);

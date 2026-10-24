@@ -120,7 +120,7 @@ public static partial class Roslyn
         throw new InvalidOperationException("the feed has no package base address");
     }
 
-    private static async Task<IEnumerable<string>> Versions(string feed, string id, CancellationToken cancel)
+    internal static async Task<IEnumerable<string>> Versions(string feed, string id, CancellationToken cancel)
     {
         string root = await FlatContainer(feed, cancel);
         JsonElement versions = Directory.Exists(feed)
@@ -129,7 +129,7 @@ public static partial class Roslyn
         return versions.GetProperty("versions").EnumerateArray().Select(v => v.GetString()!).ToList();
     }
 
-    private static async Task Download(string feed, string id, string version, string target,
+    internal static async Task Download(string feed, string id, string version, string target,
         Action<RoslynProgress> progress, CancellationToken cancel)
     {
         string root = await FlatContainer(feed, cancel);

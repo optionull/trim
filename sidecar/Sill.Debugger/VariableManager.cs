@@ -1,0 +1,146 @@
+using Sill.Debugger.Interop;
+
+namespace Sill.Debugger;
+
+public enum StoredReferenceKind
+{
+    Scope,
+    SyntheticAsyncScope,
+    StackVariable,
+    StaticClassVariable, // This reference was stored as a pseudo variable for the static members of a "StackVariable" class
+    RawView,
+    EnumerableResults,
+    ArrayRange,
+}
+
+public readonly record struct ThreadId
+{
+    public readonly int Value;
+    public ThreadId() => throw new ArgumentException("ThreadId must be initialized with a valid value");
+    public ThreadId(int value)
+    {
+        if (value <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), "ThreadId value must be greater than zero");
+        }
+
+        Value = value;
+    }
+};
+public readonly record struct FrameStackDepth
+{
+    public readonly int Value;
+    public FrameStackDepth() => throw new ArgumentException("FrameStackDepth must be initialized with a valid value");
+    public FrameStackDepth(int value)
+    {
+        if (value < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), "FrameStackDepth value must be zero or greater");
+        }
+
+        Value = value;
+    }
+};
+public record struct VariablesReference(StoredReferenceKind ReferenceKind, ICorDebugValue? ObjectValue, ThreadId ThreadId, FrameStackDepth FrameStackDepth, ICorDebugValue? DebuggerProxyInstance, uint[]? ArrayIndices = null, uint? ArrayStartOffset = null, uint? ArrayCount = null);
+/// <summary>The references of a stop's scopes and values. Each is numbered above every one before it in the session, and a
+/// stop's are let go when the program goes on, so one from an earlier stop is refused rather than naming whatever value
+/// took its number at this one.</summary>
+public class VariableManager
+{
+    private int _nextReference = 1;
+
+    /// <summary>The first reference of the stop the program is at: any below it was an earlier stop's.</summary>
+    private int _firstOfStop = 1;
+    private readonly Dictionary<int, VariablesReference> _references = new();
+    private readonly Lock _lock = new();
+
+    /// <summary>
+    /// Create a reference for an object
+    /// </summary>
+    public int CreateReference(VariablesReference obj)
+    {
+        lock (_lock)
+        {
+            int reference = _nextReference++;
+            _references[reference] = obj;
+            return reference;
+        }
+    }
+
+    /// <summary>
+    /// Get an object by reference
+    /// </summary>
+    public VariablesReference? GetReference(int reference)
+    {
+        lock (_lock)
+        {
+            if (_references.TryGetValue(reference, out VariablesReference obj))
+            {
+                return obj;
+            }
+            return null;
+        }
+    }
+
+    /// <summary>Whether a reference no longer held was given at an earlier stop, rather than never given.</summary>
+    public bool IsFromEarlierStop(int reference)
+    {
+        lock (_lock)
+        {
+            return reference > 0 && reference < _firstOfStop;
+        }
+    }
+
+    /// <summary>
+    /// Clear all references
+    /// </summary>
+    public void ClearAndDisposeHandleValues()
+    {
+        lock (_lock)
+        {
+            // Distinct because if an ICorDebugHandleValue (result of property or eval) has static members, we store the same ICorDebugHandleValue as a 'Static Members' alias variable.
+            // Meaning that without distinct, we would attempt to dispose the same ICorDebugHandleValue twice.
+            List<ICorDebugHandleValue> handleReferences = _references.Values.SelectMany(GetHandleValues).Distinct().ToList();
+            handleReferences.ForEach(h => h.Dispose());
+            _references.Clear();
+            _firstOfStop = _nextReference;
+        }
+    }
+
+    /// <summary>Forgets every reference without releasing its handles, for a process that has exited and
+    /// took its handles with it.</summary>
+    public void Clear()
+    {
+        lock (_lock)
+        {
+            _references.Clear();
+            _firstOfStop = _nextReference;
+        }
+    }
+
+    public void ClearAndTryDisposeHandleValues()
+    {
+        lock (_lock)
+        {
+            // Distinct because if an ICorDebugHandleValue (result of property or eval) has static members, we store the same ICorDebugHandleValue as a 'Static Members' alias variable.
+            // Meaning that without distinct, we would attempt to dispose the same ICorDebugHandleValue twice.
+            List<ICorDebugHandleValue> handleReferences = _references.Values.SelectMany(GetHandleValues).Distinct().ToList();
+            handleReferences.ForEach(h => h.TryDispose());
+            _references.Clear();
+            _firstOfStop = _nextReference;
+        }
+    }
+
+    private static IEnumerable<ICorDebugHandleValue> GetHandleValues(VariablesReference r)
+    {
+        if (r.ObjectValue is ICorDebugHandleValue ov)
+        {
+            yield return ov;
+        }
+
+        if (r.DebuggerProxyInstance is ICorDebugHandleValue dp)
+        {
+            yield return dp;
+        }
+    }
+}

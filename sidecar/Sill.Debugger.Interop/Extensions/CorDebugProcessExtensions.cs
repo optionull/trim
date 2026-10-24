@@ -1,0 +1,64 @@
+#nullable enable
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
+namespace Sill.Debugger.Interop.Extensions;
+
+public static class CorDebugProcessExtensions
+{
+    extension(ICorDebugProcess instance)
+    {
+        /// <inheritdoc cref="M:Sill.Debugger.Interop.ICorDebugProcess.TryEnumerateAppDomains(Sill.Debugger.Interop.ICorDebugAppDomainEnum@)" />
+        public IEnumerable<ICorDebugAppDomain> EnumerateAppDomains()
+        {
+            Marshal.ThrowExceptionForHR(instance.TryEnumerateAppDomains(out ICorDebugAppDomainEnum ppAppDomains));
+            return EnumerateAppDomainsCore(ppAppDomains);
+        }
+
+        /// <inheritdoc cref="M:Sill.Debugger.Interop.ICorDebugProcess.TryReadMemory(Sill.Debugger.Interop.CORDB_ADDRESS,System.UInt32,System.Byte[],System.UIntPtr@)" />
+        public (byte[] buffer, nuint read) ReadMemory(CORDB_ADDRESS address, int size)
+        {
+            byte[] array = new byte[size];
+            Marshal.ThrowExceptionForHR(instance.TryReadMemory(address, checked((uint)size), array, out var read));
+            return (buffer: array, read: read);
+        }
+
+        /// <inheritdoc cref="M:Sill.Debugger.Interop.ICorDebugProcess.TryGetThread(System.UInt32,Sill.Debugger.Interop.ICorDebugThread@)" />
+        public ICorDebugThread GetThread(int dwThreadId)
+        {
+            Marshal.ThrowExceptionForHR(instance.TryGetThread(checked((uint)dwThreadId), out ICorDebugThread ppThread));
+            return ppThread;
+        }
+
+        /// <inheritdoc cref="M:Sill.Debugger.Interop.ICorDebugProcess.TryWriteMemory(Sill.Debugger.Interop.CORDB_ADDRESS,System.UInt32,System.Byte[],System.UIntPtr@)" />
+        public nuint WriteMemory(CORDB_ADDRESS address, int size, byte[] buffer)
+        {
+            Marshal.ThrowExceptionForHR(instance.TryWriteMemory(address, checked((uint)size), buffer, out var written));
+            return written;
+        }
+    }
+
+    private static IEnumerable<ICorDebugAppDomain> EnumerateAppDomainsCore(ICorDebugAppDomainEnum enumerator)
+    {
+        while (true)
+        {
+            ICorDebugAppDomain[] array = new ICorDebugAppDomain[1];
+            int errorCode = enumerator.TryNext(1u, array, out var pceltFetched);
+            if (pceltFetched == 0)
+            {
+                yield break;
+            }
+            Marshal.ThrowExceptionForHR(errorCode);
+            if (pceltFetched != 1)
+            {
+                break;
+            }
+            yield return array[0];
+        }
+        throw new InvalidOperationException("Native debugger enumerator returned an invalid item count.");
+    }
+}

@@ -82,6 +82,14 @@ the growth to an agent.
 
 ![A Rust program's CPU profile from samply: rsample::pricing::total at main.rs:7](docs/showcase-rust-profile-2026-10-24.png)
 
+## Debugging
+
+F9 puts a breakpoint on the line; F5 builds the project's .NET program and runs it under the debugger (Passenger's
+adapter, on your dotnet); when it stops, the line is marked and the panel's Debug tab shows the call stack and the
+variables. F10 steps over, F11 in, Shift-F11 out, F5 continues, Shift-F5 stops (`:SillDebug`, `:SillBreakpoint`).
+
+![Paused at a breakpoint: the line marked, the call stack and the variables in the Debug tab](docs/showcase-debugger-2026-10-24.png)
+
 ## Language servers
 
 Beside Roslyn, sill starts rust-analyzer, sourcekit-lsp, marksman, the HTML, CSS and JSON servers and TypeScript's own
