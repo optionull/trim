@@ -533,6 +533,13 @@ function M.setup()
   require('sill.servers').setup()
   require('sill.debug').setup()
   require('sill.walk').setup()
+  -- What the person writes is theirs: sill does not follow it as an agent's change.
+  vim.api.nvim_create_autocmd('BufWritePost', {
+    group = vim.api.nvim_create_augroup('sill_wrote', {}),
+    callback = function(args) notify('sill_wrote', vim.fn.resolve(vim.api.nvim_buf_get_name(args.buf))) end,
+  })
+  vim.api.nvim_create_user_command('SillFollow', function() notify('sill_follow') end,
+    { desc = "Follow an agent: what changes on disk opens in the Follow tab as it lands; again stops" })
   -- Files an agent edits on disk are read again (sill runs :checktime after its tool calls).
   vim.o.autoread = true
   -- heed's sessions (M5): the next one that needs you opens in heed; send gives an agent the problems.

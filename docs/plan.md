@@ -553,6 +553,16 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     shows Program.cs 20–25; the question went to the agent and walkthrough_answer wrote the answer under it; the
     skill installed. Without a server the text fallback finds the same lines. Found on the way: git grep's
     extended expressions have no `\b` or `\s`. Unit tests for the format and the write-back.
+- Following an agent (2026-10-24): `SillCore.FileEvents` (FSEvents, file by file, a quarter second late) less
+  .git, build folders, temporary files (an atomic write's `.sb-`, swap and backup files, vim's `4913`) and what git
+  ignores (`git check-ignore --stdin` in a batch). `Follower` holds each event half a second so nvim's word of the
+  person's own write (`BufWritePost`) lands first, and their write is the file's known content, so it is not
+  followed; a changed file is marked in the explorer, and with `:SillFollow` opens in a Follow tab at its first
+  changed line (against what sill saw, else git's HEAD). MCP's read_file names what the agent reads.
+  - `SILL_CHECK=follow`: a.txt opened at line 15 (from git), then at 3 (from what sill saw), marked in the explorer;
+    b.txt written from sill, obj/out.txt and an ignored run.log not followed, c.txt followed. Found on the way: URL's
+    symlink resolving takes /private off again (realpath instead), and atomic writes' temporary files. With the
+    person's write not recorded, b.txt is followed and the check fails.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

@@ -480,6 +480,7 @@ final class AgentBridge {
             }
             let path = asked.path.hasPrefix("/") ? asked.path : (bridge.directory as NSString)
                 .appendingPathComponent(asked.path)
+            bridge.app?.follower?.read(path)
             let lines = try? await bridge.channel.lua("""
             local path = ...
             local buf = vim.fn.bufnr(path)

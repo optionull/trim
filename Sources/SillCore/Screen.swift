@@ -218,6 +218,11 @@ public struct Screen: Sendable {
     public private(set) var merge: (left: Int, current: Int, file: String)?
     /// What nvim asked of the agents last (`:SillAgent next|send|list`), numbered so the same ask twice is two.
     public private(set) var agentAsk: (action: String, serial: Int)?
+    /// The files the person wrote from nvim, the latest last (at most 50), and how many writes in all.
+    public private(set) var written: [String] = []
+    public private(set) var writes = 0
+    /// How many times `:SillFollow` was asked.
+    public private(set) var followAsks = 0
     /// `:SillWalk` asks: open a walkthrough, install the skill.
     public private(set) var walkAsks: [(action: String, argument: String)] = []
     /// `:SillReview` asks: "show" or "mark".
@@ -386,6 +391,14 @@ public struct Screen: Sendable {
             merge = (left, current, file)
         case let .notification(method, args) where method == "sill_zen":
             zen = args.first?.boolValue ?? false
+        case let .notification(method, args) where method == "sill_wrote":
+            if let path = args.first?.stringValue {
+                writes += 1
+                written.append(path)
+                if written.count > 50 { written.removeFirst(written.count - 50) }
+            }
+        case let .notification(method, _) where method == "sill_follow":
+            followAsks += 1
         case let .notification(method, args) where method == "sill_walk":
             walkAsks.append((args.first?.stringValue ?? "", args.count > 1 ? args[1].stringValue ?? "" : ""))
         case let .notification(method, args) where method == "sill_review":

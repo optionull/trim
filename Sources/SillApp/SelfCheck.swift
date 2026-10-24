@@ -49,6 +49,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "follow" {
+                try await followSteps()
+                print("sill check (follow): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "walk" {
                 try await walkSteps()
                 print("sill check (walkthroughs): passed")
@@ -965,6 +971,70 @@ final class SelfCheck {
             FileManager.default.fileExists(atPath: skill) ? true : nil
         }
         step("step 2 shows Clock.Tick's first three lines; :SillWalk skill installed the skill at \(skill)")
+    }
+
+    /// Following an agent (`SILL_CHECK=follow`, in a git repository with a.txt of twenty lines and b.txt committed and
+    /// *.log ignored): changes on disk open in the Follow tab at their first changed line and are marked in the
+    /// explorer; the person's own writes, build output and ignored files are not followed.
+    private func followSteps() async throws {
+        let app = try require(app, "the app")
+        let follower = try require(app.follower, "the follower")
+        let root = app.workingDirectory
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await session.channel.lua("vim.cmd('SillFollow')")
+        _ = try await waitFor("following") { follower.following ? true : nil }
+        func cursor() async throws -> (String, Int) {
+            let at = try await session.channel.lua("""
+            for _, t in ipairs(vim.api.nvim_list_tabpages()) do
+              if vim.t[t].sill_follow then
+                local win = vim.api.nvim_tabpage_get_win(t)
+                return { vim.fn.fnamemodify(vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(win)), ':t'),
+                         vim.api.nvim_win_get_cursor(win)[1] }
+              end
+            end
+            return { '', 0 }
+            """)
+            let pair = at.arrayValue ?? []
+            return (pair.first?.stringValue ?? "", Int(pair.last?.integerValue ?? 0))
+        }
+        // An agent's first change to a.txt (sill has not read it): its first changed line, from git.
+        var lines = (1 ... 20).map { "line \($0)" }
+        lines[14] = "line fifteen"
+        try (lines.joined(separator: "\n") + "\n").write(toFile: root + "/a.txt", atomically: true, encoding: .utf8)
+        for _ in 0 ..< 50 where try await cursor() != ("a.txt", 15) {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try await expect(try cursor() == ("a.txt", 15), try "the Follow tab at a.txt:15: \(cursor())")
+        try expect(
+            follower.touched.keys.contains("a.txt") && app.tools.sidebar.explorer.touched.contains("a.txt"),
+            "a.txt marked in the explorer"
+        )
+        // Its next change, against what sill saw.
+        lines[2] = "line three"
+        try (lines.joined(separator: "\n") + "\n").write(toFile: root + "/a.txt", atomically: true, encoding: .utf8)
+        for _ in 0 ..< 50 where try await cursor() != ("a.txt", 3) {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try await expect(try cursor() == ("a.txt", 3), try "then at a.txt:3: \(cursor())")
+        try expect(app.root.statusBar.state.debug == "following · a.txt:3", "\(app.root.statusBar.state.debug ?? "")")
+        step("an agent's changes open in the Follow tab as they land: a.txt:15, then a.txt:3; marked in the explorer")
+
+        // Not followed: the person's own write, build output, an ignored file.
+        _ = try await session.channel.lua("""
+        vim.cmd('tabnew ' .. vim.fn.fnameescape(...))
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'mine' })
+        vim.cmd('silent write')
+        """, args: [.string(root + "/b.txt")])
+        try FileManager.default.createDirectory(atPath: root + "/obj", withIntermediateDirectories: true)
+        try "built\n".write(toFile: root + "/obj/out.txt", atomically: true, encoding: .utf8)
+        try "noise\n".write(toFile: root + "/run.log", atomically: true, encoding: .utf8)
+        try "seen\n".write(toFile: root + "/c.txt", atomically: true, encoding: .utf8)
+        _ = try await waitFor("c.txt followed", timeout: .seconds(5)) { follower.touched["c.txt"] }
+        try expect(
+            Set(follower.touched.keys) == ["a.txt", "c.txt"],
+            "only the agent's: \(follower.touched.keys.sorted())"
+        )
+        step("not followed: b.txt (written from sill), obj/out.txt and run.log (ignored); c.txt is")
     }
 
     private func m8Steps() async throws {

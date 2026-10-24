@@ -135,6 +135,13 @@ it to an agent to update and run the tests. j/k move, 1 to 5 filter, u updates, 
 
 ![The packages of a sample project: two vulnerable, one deprecated, Newtonsoft.Json selected with its advisory, how it got there and Update to 13.0.1](docs/showcase-packages-2026-10-24.png)
 
+## Following an agent
+
+sill watches the worktree while an agent works: every file it changes is marked in the explorer for the session, and
+`:SillFollow` opens each change in a Follow tab at its first changed line as it lands (your own windows stay as they
+are). The status bar names the last change, or the file an agent is reading through sill's MCP server. Your own writes
+from sill, build output and what git ignores are not followed.
+
 ## Walkthroughs
 
 A walkthrough is a Markdown file ending in `.walk.md`, anywhere, that walks someone through code: `## steps` of prose,

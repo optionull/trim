@@ -62,3 +62,13 @@ struct ReviewTests {
         #expect(!Review.reject(diff.hunks[1], of: diff, in: folder), "taken back already: it no longer applies")
     }
 }
+
+@Suite("file events")
+struct FileEventsTests {
+    @Test("a file only written on the way to another is no one's change")
+    func temporary() {
+        #expect(FileEvents.temporary("/w/a.txt.sb-a7968322-gfH2Jc") && FileEvents.temporary("/w/4913"))
+        #expect(FileEvents.temporary("/w/.a.txt.swp") && FileEvents.temporary("/w/a.txt~"))
+        #expect(!FileEvents.temporary("/w/a.txt") && !FileEvents.temporary("/w/Program.cs"))
+    }
+}

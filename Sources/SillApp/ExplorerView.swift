@@ -502,6 +502,11 @@ final class ExplorerView: NSView, ToolContent {
         NSRect(x: 0, y: switchHeight - 1, width: bounds.width, height: 1).fill()
     }
 
+    /// Files an agent changed this session (relative): a bar in the accent at their row's edge.
+    var touched: Set<String> = [] {
+        didSet { if touched != oldValue { needsDisplay = true } }
+    }
+
     private func drawRows() {
         let footer = bounds.height - Self.footer
         let visible = max(Int((footer - listTop) / rowHeight), 1)
@@ -520,6 +525,10 @@ final class ExplorerView: NSView, ToolContent {
                     Design.accent.setFill()
                     NSRect(x: 0, y: rect.minY, width: 2, height: rect.height).fill()
                 }
+            }
+            if !row.isDirectory, row.path.hasPrefix(root), touched.contains(relative(row.path)) {
+                Design.accent.setFill()
+                NSRect(x: bounds.width - 4, y: rect.minY + 6, width: 3, height: rect.height - 12).fill()
             }
             var x = 12 + CGFloat(row.depth) * 14
             if row.opens {
