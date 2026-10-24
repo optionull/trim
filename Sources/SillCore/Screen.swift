@@ -222,8 +222,28 @@ public struct Screen: Sendable {
     public private(set) var packagesAsks = 0
     /// What nvim asked of the debugger (`:SillDebug …`), in order.
     public private(set) var debugAsks: [String] = []
-    /// The breakpoints nvim has, by file, the lines as they are now.
-    public private(set) var breakpoints: [String: [Int]] = [:]
+    /// A breakpoint: its line as it is now, and what it has beyond it.
+    public struct Breakpoint: Equatable, Sendable {
+        public var line: Int
+        /// Break only when this is true.
+        public var condition: String?
+        /// Break on these hits (`5`, `>=5`, `%5`).
+        public var hit: String?
+        /// Log this (expressions in braces) instead of breaking.
+        public var log: String?
+
+        public init(line: Int, condition: String? = nil, hit: String? = nil, log: String? = nil) {
+            self.line = line
+            self.condition = condition
+            self.hit = hit
+            self.log = log
+        }
+    }
+
+    /// The breakpoints nvim has, by file.
+    public private(set) var breakpoints: [String: [Breakpoint]] = [:]
+    /// Function breakpoints, by the method's name.
+    public private(set) var functionBreakpoints: [String] = []
     /// The language servers nvim asked sill for (`sill_server`), in order: each the first time a file it serves opened.
     public private(set) var serverAsks: [String] = []
     /// What nvim asked of the solution last (`:SillSlnx sync|apply`), numbered likewise.
@@ -363,12 +383,25 @@ public struct Screen: Sendable {
         case let .notification(method, args) where method == "sill_debug":
             if let action = args.first?.stringValue { debugAsks.append(action) }
         case let .notification(method, args) where method == "sill_breakpoints":
-            var found: [String: [Int]] = [:]
+            var found: [String: [Breakpoint]] = [:]
             for (key, value) in args.first?.dictionaryValue ?? [:] {
                 guard let path = key.stringValue else { continue }
-                found[path] = (value.arrayValue ?? []).map(\.intValue)
+                found[path] = (value.arrayValue ?? []).compactMap { entry in
+                    // A bare line (as before), or a map with the line and what it has beyond it.
+                    if let line = entry.integerValue { return Breakpoint(line: Int(line)) }
+                    guard let map = entry.dictionaryValue, let line = map[.string("line")]?.integerValue else {
+                        return nil
+                    }
+                    return Breakpoint(
+                        line: Int(line),
+                        condition: map[.string("condition")]?.stringValue,
+                        hit: map[.string("hit")]?.stringValue,
+                        log: map[.string("log")]?.stringValue
+                    )
+                }
             }
             breakpoints = found
+            functionBreakpoints = (args.count > 1 ? args[1].arrayValue ?? [] : []).compactMap(\.stringValue)
         case let .notification(method, args) where method == "sill_server":
             if let name = args.first?.stringValue { serverAsks.append(name) }
         case let .notification(method, args) where method == "sill_slnx":

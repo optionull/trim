@@ -67,6 +67,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.packages.makeView() ?? PackagesView(scanner: PackageScanner(directory: ""))
             }
         tools.panel.debug.debugger = debugger
+        // Paused, an expression under the pointer shows its value.
+        editor.onHover = { [weak self] expression, rect in
+            guard let self, case .paused = debugger.state else { return }
+            Task {
+                guard let value = await self.debugger.value(of: expression, context: "hover"),
+                      !value.hasPrefix("error:"), self.debugger.frames.isEmpty == false else { return }
+                self.showHover("\(expression) = \(value)", at: rect)
+            }
+        }
+        editor.onHoverEnd = { [weak self] in self?.hoverPopover?.close() }
         debugger.onChange = { [weak self] in
             self?.tools.panel.debug.needsDisplay = true
             self?.tools.panel.needsDisplay = true
@@ -504,6 +514,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         alert.runModal()
         NSApp.terminate(nil)
     }
+
+    private var hoverPopover: NSPopover?
+    /// What the debugger's hover showed last, for the self-check.
+    private(set) var hoverShown: String?
+
+    private func showHover(_ text: String, at rect: NSRect) {
+        hoverPopover?.close()
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = EditorFont.metrics.regular
+        label.textColor = Design.text
+        label.preferredMaxLayoutWidth = 520
+        let size = label.fittingSize
+        label.frame = NSRect(x: 10, y: 6, width: size.width, height: size.height)
+        let controller = NSViewController()
+        controller.view = NSView(frame: NSRect(x: 0, y: 0, width: size.width + 20, height: size.height + 12))
+        controller.view.addSubview(label)
+        let popover = NSPopover()
+        popover.contentViewController = controller
+        popover.appearance = NSAppearance(named: .darkAqua)
+        popover.behavior = .transient
+        hoverShown = text
+        if editor.window?.isVisible == true {
+            popover.show(relativeTo: rect, of: editor, preferredEdge: .maxY)
+        }
+        hoverPopover = popover
+    }
+
+    /// The self-check's way to rest the pointer on an expression.
+    func hover(_ expression: String, at rect: NSRect) { editor.onHover?(expression, rect) }
 
     @objc func fontBigger(_: Any?) { EditorFont.zoom(1) }
     @objc func fontSmaller(_: Any?) { EditorFont.zoom(-1) }

@@ -404,8 +404,7 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     command's output closed, with no limit; something a command left behind holding it open (a mise shim's, likely)
     held up a server's start for good about one run in three. It now reads without blocking, waits on the process's
     end, and kills what outlives its time; the servers check passed four runs out of four after, in 5 to 7 s.
-  - Not done: conditional and function breakpoints in the UI (the adapter has them), the expression evaluator (watch,
-    hover), exceptions, attaching to a running process, Rust and Swift (lldb-dap).
+  - Not done: Rust and Swift (lldb-dap). The rest of this list was done after M9, below.
 - M9, started 2026-10-24 without signing, Sparkle or a release (owner: "no releases yet"). Packages (board 3) done:
   `PackageScanner` restores the solution (the .slnx, else the .sln, else the first project) and asks the SDK
   `dotnet list package --include-transitive --format json`, plain, `--vulnerable` and `--deprecated`, in parallel;
@@ -453,6 +452,23 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   - The check also sets 15 pt from the file and presses ⌘+ twice: nvim went from 37 lines to 32, and ⌘0 came back.
   - Not done: terminal panes keep Ghostty's own font size. Sparkle and signing come last, once the owner no longer
     codes from the phone (owner, 2026-10-24).
+- After M9 (owner, 2026-10-24: all four of debugger depth, profiler depth, Razor markup and polish, in that order).
+  Debugger depth: breakpoints carry a condition, a hit count or a log message (`:SillBreakpoint if/hits/log`,
+  Shift-F9 asks for a condition; ◆ and ◇ signs), function breakpoints (`fn`), and the exceptions that stop the
+  program (`:SillDebug exceptions`, user-unhandled by default; the exception shown in the Debug tab from
+  `exceptionInfo`). Evaluating: `:SillEval` (the cursor's expression or the selection), `:SillWatch` (evaluated at
+  every pause), and the value of the expression the pointer rests on while paused (`HoverExpression`: the identifier
+  with the member accesses before it), in a popover, so no key is taken. `:SillDebug attach` lists .NET processes by
+  their diagnostics socket (`$TMPDIR/dotnet-diagnostic-<pid>-…-socket`, as dotnet's tools find them) and attaches;
+  Shift-F5 detaches and leaves it running.
+  - `SILL_CHECK=debug` in a copy of Tests/SillSidecarTests/Fixtures/Debuggee: the function breakpoint stops in
+    Pricing.Total (seed 0); removed, the condition stops line 10 at i == 3; `orders.Count` = 3 by `:SillEval` and the
+    hover, a watch `i * 10` = 30, `orders.Nope` says why; a logpoint writes "order 9 for 9" without stopping; the
+    handled exception does not stop it, the unhandled ArgumentException does; then the program run on its own is
+    attached to, paused in Clock.Tick, and detached, still running. Mutating the condition away fails it.
+  - Found on the way: detaching killed the program: the disconnect read whether it was attached after the session
+    had already forgotten. The adapter calls a function breakpoint's stop a "breakpoint", and every breakpoint is
+    "not processed" until the program loads its code, which is not worth a warning.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

@@ -338,6 +338,44 @@ final class EditorView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         separatorCursor(event)?.set() ?? NSCursor.iBeam.set()
+        hover(event)
+    }
+
+    /// The pointer rested on an expression (the debugger shows its value while paused): the expression and the cells
+    /// it is drawn in, in this view's coordinates.
+    var onHover: ((_ expression: String, _ rect: NSRect) -> Void)?
+    /// The pointer left it.
+    var onHoverEnd: (() -> Void)?
+    private var hovered: String?
+    private var hoverWait: Task<Void, Never>?
+
+    private func hover(_ event: NSEvent) {
+        guard onHover != nil else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let row = Int(point.y / metrics.height), col = Int(point.x / metrics.width)
+        let hit = screen.hit(row: row, col: col)
+        var expression: String?
+        if let grid = screen.grids[hit.grid], hit.row >= 0, hit.row < grid.rows, hit.col >= 0, hit.col < grid.cols {
+            let line = (0 ..< grid.cols).map { grid[hit.row, $0].text.first ?? " " }
+            expression = HoverExpression.at(line, col: hit.col)
+        }
+        guard expression != hovered else { return }
+        hovered = expression
+        hoverWait?.cancel()
+        onHoverEnd?()
+        guard let expression else { return }
+        let rect = NSRect(
+            x: CGFloat(col) * metrics.width,
+            y: CGFloat(row) * metrics.height,
+            width: metrics.width,
+            height: metrics.height
+        )
+        // Resting, not passing over: a moment before asking.
+        hoverWait = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, self?.hovered == expression else { return }
+            self?.onHover?(expression, rect)
+        }
     }
 
     /// The resize cursor over a separator nvim draws: │ between side-by-side windows, ─ between stacked ones.

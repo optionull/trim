@@ -93,6 +93,15 @@ variables. F10 steps over, F11 in, Shift-F11 out, F5 continues, Shift-F5 stops (
 
 ![Paused at a breakpoint: the line marked, the call stack and the variables in the Debug tab](docs/showcase-debugger-2026-10-24.png)
 
+A breakpoint can have a condition (`:SillBreakpoint if i == 3`, or Shift-F9 asks), a hit count (`hits >=5`) or be a
+logpoint that writes and goes on (`log order {i}`); `:SillBreakpoint fn Pricing.Total` stops in a method. Paused,
+point at a name to see its value, `:SillEval` evaluates the expression under the cursor or the selection, and
+`:SillWatch` keeps one in the Debug tab, evaluated at every pause. Exceptions your code does not handle stop the
+program and show in the Debug tab (`:SillDebug exceptions all|unhandled|none`). `:SillDebug attach` lists the .NET
+processes running and debugs one; Shift-F5 then detaches and leaves it running.
+
+![Paused where the condition i == 3 holds: a watch, an evaluation and its error in the Debug tab](docs/showcase-debugger-depth-2026-10-24.png)
+
 ## Settings
 
 ⌘, opens the settings window. It writes `~/.config/sill/settings.toml`, which you can also edit by hand ("Open

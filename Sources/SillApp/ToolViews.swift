@@ -371,6 +371,9 @@ final class BottomPanelView: NSView {
         debug.needsDisplay = true
     }
 
+    /// The Output tab's text, for the self-check.
+    var outputText: String { output.joined(separator: "\n") }
+
     func startOutput(_ command: String) {
         outputCommand = command
         output = ["$ " + command]

@@ -229,6 +229,27 @@ public enum Dap {
 
     public struct Exited: Decodable, Sendable { public var exitCode: Int }
 
+    /// What `exceptionInfo` says of the exception a program stopped on.
+    public struct ExceptionInfo: Decodable, Sendable, Equatable {
+        public var exceptionId: String
+        public var description: String?
+        public var breakMode: String?
+        public var details: Details?
+
+        public struct Details: Decodable, Sendable, Equatable {
+            public var message: String?
+            public var typeName: String?
+            public var stackTrace: String?
+        }
+    }
+
+    /// An `evaluate` answer.
+    public struct Evaluated: Decodable, Sendable, Equatable {
+        public var result: String
+        public var type: String?
+        public var variablesReference: Int
+    }
+
     public struct Thread: Decodable, Sendable { public var id: Int; public var name: String }
 
     public struct Threads: Decodable, Sendable { public var threads: [Thread] }

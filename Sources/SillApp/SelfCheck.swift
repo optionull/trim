@@ -49,6 +49,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "debug" {
+                try await debugSteps()
+                print("sill check (debug): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "settings" {
                 try await settingsSteps()
                 print("sill check (settings): passed")
@@ -515,6 +521,138 @@ final class SelfCheck {
     /// line marked, the stack and locals in the Debug tab; F10 steps, F5 runs to the breakpoint's next hit; a
     /// breakpoint
     /// removed while paused reaches the adapter; Shift-F5 ends it. `SILL_CHECK_SHOT` saves the paused window.
+    /// The debugger past M8 (`SILL_CHECK=debug`, in a copy of Tests/SillSidecarTests/Fixtures/Debuggee): a function
+    /// breakpoint, a conditional one, evaluating (`:SillEval`, a watch, the hover), a logpoint, the exception the
+    /// program does not handle (the one it handles does not stop it), then attaching to the program running on its own
+    /// and detaching, which leaves it running.
+    private func debugSteps() async throws {
+        let app = try require(app, "the app")
+        let debugger = try require(app.debugger, "the debugger")
+        let program = (app.workingDirectory as NSString).appendingPathComponent("Program.cs")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await waitFor("the sidecar", timeout: .seconds(20)) { app.sidecar }
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(program), .int(10)])
+        try await wait("Program.cs open") { $0.buffer.name == "Program.cs" }
+        _ = try await session.channel.lua("vim.cmd('SillBreakpoint if i == 3')")
+        _ = try await session.channel.lua("vim.cmd('SillBreakpoint fn Pricing.Total')")
+        try await wait("the breakpoints") {
+            $0.breakpoints[program] == [Screen.Breakpoint(line: 10, condition: "i == 3")] &&
+                $0.functionBreakpoints == ["Pricing.Total"]
+        }
+        let sign = try await session.channel.lua("""
+        local marks = vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_get_namespaces()['sill.breakpoints'], 0, -1,
+          { details = true })
+        return marks[1][4].sign_text
+        """)
+        try expect(sign.stringValue?.hasPrefix("◆") == true, "a conditional breakpoint's sign: \(sign)")
+        step("a conditional breakpoint (◆, if i == 3) on line 10 and a function breakpoint on Pricing.Total")
+
+        func locals() -> [String: String] {
+            Dictionary(
+                (debugger.scopeReference.flatMap { debugger.variables[$0] } ?? []).map { ($0.name, $0.value) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }
+        session.channel.send(keys: "<F5>")
+        _ = try await waitFor("a pause", timeout: .seconds(180)) {
+            if case .paused = debugger.state { return true }
+            return nil
+        }
+        // The adapter calls a function breakpoint's stop a breakpoint.
+        try expect(
+            debugger.state == .paused(reason: "breakpoint"),
+            "paused by the function breakpoint: \(debugger.state)"
+        )
+        try expect(
+            debugger.frames.first?.name.contains("Total") == true,
+            "in Pricing.Total: \(debugger.frames.first?.name ?? "")"
+        )
+        _ = try await waitFor("its locals") { locals()["seed"] }
+        try expect(locals()["seed"] == "0", "seed 0: \(locals())")
+        step("F5 stops in Pricing.Total first (the function breakpoint), seed = 0")
+
+        _ = try await session.channel.lua("vim.cmd('SillBreakpoint fn Pricing.Total')")
+        try await wait("the function breakpoint gone") { $0.functionBreakpoints.isEmpty }
+        session.channel.send(keys: "<F5>")
+        _ = try await waitFor("the condition", timeout: .seconds(30)) {
+            debugger.state == .paused(reason: "breakpoint") && locals()["i"] != nil ? true : nil
+        }
+        try expect(locals()["i"] == "3" && debugger.frames.first?.line == 10, "stopped where i == 3: \(locals())")
+        step("removed, it no longer stops there; the condition stops line 10 only when i == 3")
+
+        _ = try await session.channel.lua("vim.cmd('SillEval orders.Count')")
+        let evaluated = try await waitFor("the evaluation", timeout: .seconds(10)) { debugger.evaluated }
+        try expect(evaluated.value == "3", "orders.Count = 3: \(evaluated)")
+        _ = try await session.channel.lua("vim.cmd('SillWatch i * 10')")
+        _ = try await waitFor("the watch", timeout: .seconds(10)) {
+            debugger.watches.first?.value == "30" ? true : nil
+        }
+        app.hover("orders.Count", at: NSRect(x: 100, y: 100, width: 8, height: 16))
+        _ = try await waitFor("the hover", timeout: .seconds(10)) {
+            app.hoverShown == "orders.Count = 3" ? true : nil
+        }
+        _ = try await session.channel.lua("vim.cmd('SillEval orders.Nope')")
+        _ = try await waitFor("the error", timeout: .seconds(10)) {
+            debugger.evaluated?.expression == "orders.Nope" && debugger.evaluated?.value.hasPrefix("error:") == true
+                ? true : nil
+        }
+        step("evaluated where it paused: :SillEval orders.Count = 3, a watch i * 10 = 30, the hover over " +
+            "orders.Count, and orders.Nope says why it has no value")
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try await Task.sleep(for: .milliseconds(300))
+            try self.shot(to: shot)
+            step("saved \(shot)")
+        }
+
+        // A logpoint instead: it writes and goes on.
+        _ = try await session.channel.lua("vim.cmd('SillBreakpoint log order {i} for {orders.Count}')")
+        try await wait("the logpoint") { $0.breakpoints[program]?.first?.log != nil }
+        session.channel.send(keys: "<F5>")
+        _ = try await waitFor("the unhandled exception", timeout: .seconds(60)) {
+            debugger.state == .paused(reason: "exception") && debugger.exception != nil ? true : nil
+        }
+        let output = app.tools.panel.outputText
+        try expect(output.contains("order 9 for 9"), "the logpoint wrote as the loop ran: \(output.suffix(400))")
+        let exception = try require(debugger.exception, "the exception")
+        try expect(exception.exceptionId.contains("ArgumentException"), "the unhandled ArgumentException: \(exception)")
+        // The watch is evaluated again at this pause, where i is out of scope.
+        _ = try await waitFor("the watch evaluated again", timeout: .seconds(10)) {
+            debugger.watches.first?.value.hasPrefix("error:") == true ? true : nil
+        }
+        step("a logpoint wrote \"order 9 for 9\" without stopping; the handled exception did not stop it, the " +
+            "unhandled one did: \(exception.exceptionId)")
+        session.channel.send(keys: "<S-F5>")
+        _ = try await waitFor("the session over", timeout: .seconds(20)) { debugger.state == .idle ? true : nil }
+
+        // Attaching: the program as built, running on its own.
+        let dll = (app.workingDirectory as NSString).appendingPathComponent("bin/Debug/net10.0/Debuggee.dll")
+        let running = Process()
+        running.executableURL = try Sidecar.findDotnet()
+        running.arguments = [dll, "--wait"]
+        running.standardOutput = FileHandle.nullDevice
+        try running.run()
+        defer { if running.isRunning { running.terminate() } }
+        let pid = running.processIdentifier
+        _ = try await waitFor("its diagnostics socket", timeout: .seconds(20)) {
+            Debugger.dotnetProcesses().contains { $0.pid == pid } ? true : nil
+        }
+        _ = try await session.channel.lua("vim.api.nvim_win_set_cursor(0, { 10, 0 }) vim.cmd('SillBreakpoint')")
+        _ = try await session.channel.lua("vim.api.nvim_win_set_cursor(0, { 33, 0 }) vim.cmd('SillBreakpoint')")
+        try await wait("the breakpoint in Tick") { $0.breakpoints[program]?.map(\.line) == [33] }
+        debugger.answer("attach \(pid)")
+        _ = try await waitFor("paused in the running program", timeout: .seconds(60)) {
+            debugger.state == .paused(reason: "breakpoint") && debugger.frames.first?.line == 33 ? true : nil
+        }
+        _ = try await waitFor("tick") { locals()["tick"] }
+        step("attached to the program running on its own (pid \(pid), found by its diagnostics socket): " +
+            "paused in Clock.Tick, tick = \(locals()["tick"] ?? "")")
+        session.channel.send(keys: "<S-F5>")
+        _ = try await waitFor("detached", timeout: .seconds(20)) { debugger.state == .idle ? true : nil }
+        try await Task.sleep(for: .seconds(1))
+        try expect(running.isRunning, "detaching leaves it running")
+        step("Shift-F5 detaches and the program goes on running")
+    }
+
     private func m8Steps() async throws {
         let app = try require(app, "the app")
         let debugger = try require(app.debugger, "the debugger")
@@ -524,7 +662,7 @@ final class SelfCheck {
         _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(program), .int(5)])
         try await wait("Program.cs open") { $0.buffer.name == "Program.cs" }
         _ = try await session.channel.lua("vim.cmd('SillBreakpoint')")
-        try await wait("the breakpoint") { $0.breakpoints[program] == [5] }
+        try await wait("the breakpoint") { $0.breakpoints[program]?.map(\.line) == [5] }
         step("F9's command sets a breakpoint on line 5, a sign that moves with the text")
 
         let started = CACurrentMediaTime()
