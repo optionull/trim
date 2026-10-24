@@ -41,6 +41,13 @@ final class Debugger {
     private(set) var evaluated: (expression: String, value: String)?
     /// Attached to a process sill did not start: stopping detaches and leaves it running.
     private(set) var attached: Int32?
+    /// An agent is driving (through sill's MCP tools): the Debug tab says so. The person's own keys still work.
+    var drivenByAgent = false {
+        didSet { changed() }
+    }
+
+    /// The project to start, when an agent named one; else the one near the open file.
+    var project: String?
     /// Breakpoints as the adapter answered them (verified or not), for the self-check.
     private(set) var answered: [String: [Dap.Breakpoint]] = [:]
     var onChange: (() -> Void)?
@@ -120,10 +127,11 @@ final class Debugger {
     // MARK: A session
 
     private func start() {
+        lastExit = nil
         guard let app, let sidecar = app.sidecar else {
             return say("The .NET sidecar is not running, so there is no debugger.", warn: true)
         }
-        guard let project = DotnetProjects.pick(in: directory, near: app.tools.screen.buffer.path) else {
+        guard let project = project ?? DotnetProjects.pick(in: directory, near: app.tools.screen.buffer.path) else {
             return say(
                 "No runnable .NET project here to debug (a program or web app, not a library or tests).",
                 warn: true
@@ -207,6 +215,7 @@ final class Debugger {
             app?.tools.panel.appendOutput(output.output)
         case "exited":
             if let exited = try? event.decode(Dap.Exited.self) {
+                lastExit = exited.exitCode
                 say("\(program ?? "The program") ended with exit code \(exited.exitCode).")
             }
         case "terminated":
@@ -283,6 +292,7 @@ final class Debugger {
         let trace = try? await client.request("stackTrace", Dap.Arguments([
             "threadId": .int(thread), "levels": 40,
         ]), as: Dap.StackTrace.self)
+        pauseRead = false
         frames = trace?.stackFrames ?? []
         exception = nil
         if stopped.reason == "exception" {
@@ -298,6 +308,7 @@ final class Debugger {
         }
         state = .paused(reason: stopped.reason)
         await select(frames.firstIndex { $0.source?.path != nil } ?? 0)
+        pauseRead = true
         app?.tools.panel.select(.debug)
     }
 
@@ -320,6 +331,71 @@ final class Debugger {
         await evaluateWatches()
         changed()
     }
+
+    // MARK: For an agent
+
+    /// Waits until the program pauses or the session ends (or `timeout` passes): what a tool that runs it answers
+    /// after.
+    func settle(timeout: Duration = .seconds(60)) async {
+        let end = ContinuousClock.now + timeout
+        // A step or continue just sent: give the adapter a moment to say it runs.
+        try? await Task.sleep(for: .milliseconds(150))
+        while ContinuousClock.now < end {
+            switch state {
+            case .paused:
+                // Its stack, variables and watches read too.
+                if pauseRead { return }
+            case .idle: return
+            default: break
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    /// The session as an agent reads it: where it paused and why, the exception, the stack, the variables and watches.
+    func summary() -> String {
+        switch state {
+        case .idle: return "Not debugging." + (lastExit.map { " The program ended with exit code \($0)." } ?? "")
+        case .building: return "Building the program to debug."
+        case .running: return "\(program ?? "The program") is running (no breakpoint hit yet)."
+        case let .paused(reason):
+            var lines: [String] = []
+            if let frame = frames.first(where: { $0.source?.path != nil }) ?? frames.first {
+                lines
+                    .append("paused (\(reason)) at \(frame.source?.path ?? "no source"):\(frame.line) in \(frame.name)")
+            }
+            if let exception {
+                lines
+                    .append(
+                        "exception: \(exception.exceptionId): \(exception.details?.message ?? exception.description ?? "")"
+                    )
+            }
+            lines.append("stack:")
+            for frame in frames.prefix(12) {
+                lines.append("  \(frame.name)" + (frame.source?.path.map { " at \($0):\(frame.line)" } ?? ""))
+            }
+            let locals = scopeReference.flatMap { variables[$0] } ?? []
+            if !locals.isEmpty {
+                lines.append("locals:")
+                for variable in locals.prefix(30) {
+                    lines.append("  \(variable.name) = \(variable.value)" + (variable.type.map { " (\($0))" } ?? ""))
+                }
+            }
+            if !watches.isEmpty {
+                lines.append("watches:")
+                for watch in watches {
+                    lines.append("  \(watch.expression) = \(watch.value)")
+                }
+            }
+            return lines.joined(separator: "\n")
+        }
+    }
+
+    /// The pause's frame, variables and watches are read: what `settle` waits for.
+    private var pauseRead = false
+
+    /// How the last program ended, for the summary.
+    private(set) var lastExit: Int?
 
     // MARK: Expressions
 
@@ -501,6 +577,7 @@ final class Debugger {
     }
 
     private func running() {
+        pauseRead = false
         state = .running
         frames = []
         variables = [:]
@@ -525,6 +602,7 @@ final class Debugger {
         client = nil
         configured = false
         attached = nil
+        drivenByAgent = false
         exception = nil
         sentFunctions = nil
         state = .idle
@@ -601,7 +679,7 @@ final class DebugPanelView: NSView {
             return
         }
         let split = (bounds.width * 0.42).rounded()
-        label("CALL STACK", at: NSPoint(x: 16, y: 6))
+        label(debugger.drivenByAgent ? "CALL STACK · AN AGENT IS DEBUGGING" : "CALL STACK", at: NSPoint(x: 16, y: 6))
         let watching = !debugger.watches.isEmpty || debugger.evaluated != nil
         label(watching ? "WATCH" : "VARIABLES", at: NSPoint(x: split + 16, y: 6))
         Design.border.setFill()

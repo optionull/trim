@@ -135,6 +135,20 @@ it to an agent to update and run the tests. j/k move, 1 to 5 filter, u updates, 
 
 ![The packages of a sample project: two vulnerable, one deprecated, Newtonsoft.Json selected with its advisory, how it got there and Update to 13.0.1](docs/showcase-packages-2026-10-24.png)
 
+## An agent debugging and profiling, in view
+
+sill's MCP server gives an agent the debugger and the profiler, and sill shows what it does as it does it:
+`debug_breakpoint` (a condition, a hit count, a log message) appears as a sign, `debug_start` and `debug_step` run the
+program to a pause and answer where it is, with the stack and the locals, `debug_evaluate` lands in the Debug tab, and
+`debug_attach` and `debug_stop` complete it. `profile_start`, `profile_snapshot` and `profile_stop` record a run in the
+profile tab; profile before a change and after it and `profile_compare` (and the Compare tab) show each function's
+time in both, with its share of each run. Starting a program asks you first, unless `allow` in the settings names
+`debug` or `profile`. Your own keys work all along: F5 takes it back.
+
+![An agent's breakpoint (i == 5) hit, its evaluation in the Debug tab](docs/showcase-agent-debugging-2026-10-24.png)
+
+![Two runs compared: each function's time before and after, and its share of each run](docs/showcase-profile-compare-2026-10-24.png)
+
 ## Language servers
 
 Beside Roslyn, sill starts rust-analyzer, sourcekit-lsp, marksman, the HTML, CSS and JSON servers and TypeScript's own

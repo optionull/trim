@@ -76,6 +76,19 @@ function M.toggle(buf, line, extra)
   M.report()
 end
 
+--- A breakpoint at `path`:`line` as an agent asks (`extra` its condition, hit count or message), or none there with
+--- `remove`: the file loaded if it is not, so the sign shows when it is opened.
+function M.set(path, line, extra, remove)
+  local buf = vim.fn.bufadd(path)
+  vim.fn.bufload(buf)
+  local marks = vim.api.nvim_buf_get_extmarks(buf, breakpoints, { line - 1, 0 }, { line - 1, -1 }, {})
+  if remove then
+    if #marks > 0 then M.toggle(buf, line) end
+  else
+    M.toggle(buf, line, extra or {})
+  end
+end
+
 --- A function breakpoint on `name`, or none if it had one.
 function M.toggle_function(name)
   functions[name] = not functions[name] or nil

@@ -8,7 +8,7 @@ import SillSidecar
 final class ProfileView: NSView, ToolContent {
     enum Tab: String, CaseIterable {
         case timeline = "Timeline", callTree = "Call tree", flameGraph = "Flame graph", allocations = "Allocations",
-             heapDiff = "Heap diff"
+             heapDiff = "Heap diff", compare = "Compare"
     }
 
     /// Where the run is.
@@ -47,6 +47,16 @@ final class ProfileView: NSView, ToolContent {
     private(set) var stretch: (from: Double, to: Double)?
     /// A stretch being dragged out on the strip.
     private var picking: (start: Double, end: Double)?
+    /// This run against the program's previous one, when there was one.
+    var comparison: ProfileComparison? {
+        didSet { changed() }
+    }
+
+    /// An agent is profiling (through sill's MCP tools): the bar says so.
+    var drivenByAgent = false {
+        didSet { changed() }
+    }
+
     /// What keeps each type alive in the last snapshot, as read.
     private(set) var retainers: [String: [Retainer]] = [:]
 
@@ -411,6 +421,7 @@ final class ProfileView: NSView, ToolContent {
         case .allocations: drawAllocations()
         case .timeline: drawTimeline()
         case .heapDiff: drawHeap()
+        case .compare: drawCompare()
         }
     }
 
@@ -445,14 +456,16 @@ final class ProfileView: NSView, ToolContent {
         case .building: return "\(title) · building in Release…"
         case let .running(since):
             let seconds = String(format: "%.1f", Date().timeIntervalSince(since))
-            return "\(title) · \(engine) · recording \(seconds) s" + (busy.map { " · \($0)" } ?? "")
+            return "\(title) · \(engine) · recording \(seconds) s" + (busy.map { " · \($0)" } ?? "") +
+                (drivenByAgent ? " · an agent is profiling" : "")
         case .reading: return "\(title) · reading the trace…"
         case let .failed(why): return "\(title) · \(why)"
         case .done:
             guard let document else { return title }
             let seconds = String(format: "%.1f", document.durationMs / 1000)
             return "\(title) · \(engine) · \(document.samples.formatted()) samples over \(seconds) s" +
-                (heaps.isEmpty ? "" : " · \(heaps.count) snapshot\(heaps.count == 1 ? "" : "s")")
+                (heaps.isEmpty ? "" : " · \(heaps.count) snapshot\(heaps.count == 1 ? "" : "s")") +
+                (drivenByAgent ? " · profiled by an agent" : "")
         }
     }
 
@@ -793,6 +806,38 @@ final class ProfileView: NSView, ToolContent {
         )
     }
 
+    /// This run against the previous one: each function's total and own time before and after, the biggest
+    /// change first.
+    private func drawCompare() {
+        guard let comparison else { return needsRun("Comparison (profile the program twice)") }
+        func ms(_ value: Double) -> String { String(format: "%.0f ms", value) }
+        func signed(_ value: Double) -> String { (value > 0 ? "+" : "") + ms(value) }
+        func share(_ value: Double) -> String { String(format: "%.0f%%", value * 100) }
+        let rows = comparison.rows.map { row in
+            [
+                row.name,
+                ms(row.totalBefore),
+                ms(row.totalAfter),
+                signed(row.totalChange),
+                signed(row.selfChange),
+                "\(share(row.shareBefore)) → \(share(row.shareAfter))",
+            ]
+        }
+        let change = comparison.cpuAfter - comparison.cpuBefore
+        drawTable(
+            [("Function", 340), ("Before", 100), ("After", 100), ("Total", 100), ("Own", 100), ("Share of run", 140)],
+            rows,
+            hint: "This run against the previous one: CPU \(ms(comparison.cpuBefore)) then \(ms(comparison.cpuAfter)) " +
+                "(\(signed(change))) over " +
+                String(
+                    format: "%.1f s then %.1f s",
+                    comparison.durationBefore / 1000,
+                    comparison.durationAfter / 1000
+                ) +
+                ". Runs of different lengths compare by their share."
+        )
+    }
+
     // MARK: Heap
 
     private func drawHeap() {
@@ -994,7 +1039,7 @@ final class ProfileView: NSView, ToolContent {
         switch tab {
         case .heapDiff:
             if let tile = tiles.first(where: { $0.rect.contains(point) }) { select(type: tile.name) }
-        case .callTree, .allocations, .timeline:
+        case .callTree, .allocations, .timeline, .compare:
             let index = Int(floor((point.y - Self.header - Self.tableTop + 3) / 24))
             guard index >= 0 else { return }
             row = index

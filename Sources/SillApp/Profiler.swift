@@ -109,7 +109,7 @@ final class Profiler {
                 let document = try await sidecar.profileResult(run: id)
                 run = nil
                 finishedRun = id
-                view?.finish(document)
+                finished(document)
             } catch {
                 run = nil
                 view?.failed("\(error)".replacingOccurrences(of: "profile failed in the sidecar: ", with: ""))
@@ -130,12 +130,121 @@ final class Profiler {
             do {
                 let document = try await recorder.record()
                 native = nil
-                view?.finish(document)
+                finished(document)
             } catch {
                 native = nil
                 view?.failed("\(error)")
             }
         }
+    }
+
+    /// The program's previous profile, for the next one to be compared with.
+    private(set) var previous: ProfileDocument?
+
+    /// A run's CPU profile shown, compared with the program's previous one.
+    private func finished(_ document: ProfileDocument) {
+        guard let view else { return }
+        view.comparison = previous
+            .flatMap { $0.name == document.name ? ProfileComparison(before: $0, after: document) : nil }
+        previous = document
+        view.finish(document)
+    }
+
+    // MARK: For an agent
+
+    /// Starts a run as an agent asks and waits until it records (or fails): what it says is the tool's answer.
+    func startForAgent(project: String?) async -> (text: String, failed: Bool) {
+        guard run == nil, native == nil else { return ("A profile is already recording: profile_stop ends it.", true) }
+        // Shown as it happens: the profile's tab opened where the person sees it.
+        _ = try? await channel.lua("require'sill'.show_profile()")
+        view?.drivenByAgent = true
+        start(project: project)
+        let end = ContinuousClock.now + .seconds(300)
+        while ContinuousClock.now < end {
+            guard let view else { break }
+            if view.isRecording { return ("Recording \(view.title) (\(view.engine)).", false) }
+            if case let .failed(why) = view.phase { return ("The profile did not start: \(why)", true) }
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        return ("The program did not start recording in time.", true)
+    }
+
+    /// A heap snapshot as an agent asks: its size, how it changed since the last one, and what keeps the type that
+    /// grew most alive.
+    func snapshotForAgent() async -> (text: String, failed: Bool) {
+        guard run != nil, let view else { return ("No .NET profile is recording: profile_start first.", true) }
+        let count = view.heaps.count
+        snapshot()
+        let end = ContinuousClock.now + .seconds(120)
+        while ContinuousClock.now < end, view.heaps.count == count {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        guard let heap = view.heaps.last, view.heaps.count > count else { return ("The snapshot failed.", true) }
+        var lines = ["snapshot #\(heap.number): \(heap.objects.formatted()) objects, \(heap.bytes.formatted()) bytes"]
+        if let comparison = heap.comparison {
+            lines
+                .append(
+                    "since the last: \(comparison.newObjects.formatted()) new, \(comparison.deadObjects.formatted()) died"
+                )
+            for delta in comparison.types.filter({ $0.bytesDelta > 0 }).prefix(8) {
+                lines
+                    .append(
+                        "  \(delta.name): +\(delta.bytesDelta.formatted()) bytes, \(delta.newObjects.formatted()) new"
+                    )
+            }
+            if let top = comparison.types.first(where: { $0.bytesDelta > 0 })?.name {
+                view.select(type: top)
+                let readBy = ContinuousClock.now + .seconds(60)
+                while ContinuousClock.now < readBy, view.retainers[top] == nil {
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+                if let path = view.retainers[top]?.first {
+                    lines.append("what keeps \(top) alive: " + ([path.root] + path.steps).joined(separator: " → "))
+                }
+            }
+        } else {
+            lines.append("largest types:")
+            for type in heap.types.prefix(8) {
+                lines.append("  \(type.name): \(type.count.formatted()) objects, \(type.bytes.formatted()) bytes")
+            }
+        }
+        return (lines.joined(separator: "\n"), false)
+    }
+
+    /// Stops the recording as an agent asks and waits for the CPU profile: its hottest functions, and how it compares
+    /// with the program's previous run.
+    func stopForAgent() async -> (text: String, failed: Bool) {
+        guard run != nil || native != nil, let view else { return ("No profile is recording.", true) }
+        stop()
+        let end = ContinuousClock.now + .seconds(300)
+        while ContinuousClock.now < end, view.phase != .done {
+            if case let .failed(why) = view.phase { return ("The profile failed: \(why)", true) }
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        guard let document = view.document,
+              view.phase == .done else { return ("The profile did not come in time.", true) }
+        return (
+            Self.summary(document) + (view.comparison.map { "\ncompared with the previous run:\n" + $0.text } ?? ""),
+            false
+        )
+    }
+
+    /// A CPU profile as an agent reads it: how much was sampled, and the hottest functions with where they are.
+    static func summary(_ document: ProfileDocument) -> String {
+        var lines = [String(
+            format: "%@: %d samples over %.1f s",
+            document.name,
+            document.samples,
+            document.durationMs / 1000
+        )]
+        lines.append("hottest (own time, then total):")
+        for hot in document.hotSpots.prefix(10) {
+            let own = 100 * Double(hot.selfSamples) / Double(max(document.samples, 1))
+            let total = 100 * Double(hot.total) / Double(max(document.samples, 1))
+            lines.append(String(format: "  %@ %.1f%% / %.1f%%", hot.name, own, total) +
+                (hot.file.map { " at \($0):\(hot.line ?? 0)" } ?? ""))
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func progress(_ partial: ProfilePartial) {

@@ -512,6 +512,20 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   `SILL_CHECK=settings` (the switch applies at once).
   - Open: the chrome check's zen step timed out once in five runs (in the full chain, not alone); it now says what
     it saw (zen, the panes, the current pane) if it happens again.
+- The agent driving the debugger and profiler (2026-10-24): MCP tools `debug_start`, `debug_attach`,
+  `debug_breakpoint`, `debug_step`, `debug_state`, `debug_evaluate`, `debug_stop`, `profile_start`,
+  `profile_snapshot`, `profile_stop`, `profile_compare`. They drive the same Debugger and Profiler the person sees
+  (breakpoints through nvim, so they are signs; the Debug tab and the profile tab as they go, marked as the agent's),
+  and a call that runs the program waits until it pauses or ends (`Debugger.settle`) and answers with a summary.
+  Starting or attaching asks the person (`debug`, `profile` in `allow`). `ProfileComparison` (SillCore): each
+  function's own and total time in milliseconds before and after, and its share of each run, which is what compares
+  when the runs were not as long; the Compare tab shows it after a program's second run.
+  - `SILL_CHECK=agentdebug` (copies of Debuggee and Sample side by side): the agent's conditional breakpoint as a
+    sign, debug_start to i == 5, orders.Count = 5 evaluated (in the Debug tab too), a step, continue to the unhandled
+    ArgumentException; profile_start, two snapshots (Order grows, kept by OrderCache), Pricing.Total hot, a second
+    run compared with the first. Dropping the condition in the tool fails it.
+  - Found on the way: `settle` answered once the program paused but before its frame's variables were read, so
+    the agent's answer could lack the locals (one run in the full chain); it now waits for the pause to be read.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

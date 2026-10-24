@@ -109,6 +109,231 @@ final class AgentBridge {
             ) { [weak self] arguments in
                 await self?.callOpen(arguments) ?? gone
             },
+        ] + debugTools(gone) + profileTools(gone)
+    }
+
+    // MARK: Debugging and profiling, seen live in sill
+
+    private struct DebugArguments: Decodable {
+        var project: String?
+        var pid: Int?
+        var path: String?
+        var line: Int?
+        var condition: String?
+        var hit_count: String?
+        var log_message: String?
+        var remove: Bool?
+        var action: String?
+        var expression: String?
+        var wait_seconds: Int?
+    }
+
+    private func decode(_ data: Data) -> DebugArguments {
+        (try? JSONDecoder().decode(DebugArguments.self, from: data)) ?? DebugArguments()
+    }
+
+    private func absolute(_ path: String) -> String {
+        path.hasPrefix("/") ? path : (directory as NSString).appendingPathComponent(path)
+    }
+
+    private func debugTools(_ gone: ToolResult) -> [Tool] {
+        let wait = ["type": "integer", "description": "How long to wait for it to pause or end (seconds, default 60)"]
+        return [
+            Tool(
+                name: "debug_start",
+                description: "Builds the project's .NET program in Debug and runs it under " +
+                    "sill's debugger, with the breakpoints set in sill; waits until it pauses or ends and says where. " +
+                    "The person watches it in sill and may be asked to allow it.",
+                properties: ["project": ["type": "string"], "wait_seconds": wait]
+            ) { [weak self] data in
+                await self?.call("debug_start") { bridge in
+                    let asked = bridge.decode(data)
+                    guard let debugger = bridge.app?.debugger else { return gone }
+                    guard debugger.state == .idle else {
+                        return ToolResult("Already debugging: debug_stop first.", isError: true)
+                    }
+                    guard await bridge.permit("debug", "build and run the program under the debugger") else {
+                        return ToolResult("The person did not allow it.", isError: true)
+                    }
+                    debugger.project = asked.project.map(bridge.absolute)
+                    debugger.drivenByAgent = true
+                    debugger.answer("start")
+                    await debugger.settle(timeout: .seconds(asked.wait_seconds ?? 60))
+                    return ToolResult(debugger.summary())
+                } ?? gone
+            },
+            Tool(
+                name: "debug_attach",
+                description: "Attaches sill's debugger to a running .NET process by its " +
+                    "pid; stopping detaches and leaves it running. May ask the person.",
+                properties: ["pid": ["type": "integer"], "wait_seconds": wait],
+                required: ["pid"]
+            ) { [weak self] data in
+                await self?.call("debug_attach") { bridge in
+                    let asked = bridge.decode(data)
+                    guard let debugger = bridge.app?.debugger, let pid = asked.pid else { return gone }
+                    guard await bridge.permit("debug", "attach the debugger to process \(pid)") else {
+                        return ToolResult("The person did not allow it.", isError: true)
+                    }
+                    debugger.drivenByAgent = true
+                    debugger.attach(Int32(pid))
+                    await debugger.settle(timeout: .seconds(asked.wait_seconds ?? 10))
+                    return ToolResult(debugger.summary())
+                } ?? gone
+            },
+            Tool(
+                name: "debug_breakpoint",
+                description: "Sets a breakpoint at path:line, shown in sill as the " +
+                    "person's would be: with a condition (C#, true to stop), a hit count (5, >=5, %5) or a log message " +
+                    "({expressions} in braces, which logs and goes on); remove: true takes it away.",
+                properties: [
+                    "path": ["type": "string"], "line": ["type": "integer"], "condition": ["type": "string"],
+                    "hit_count": ["type": "string"], "log_message": ["type": "string"], "remove": ["type": "boolean"],
+                ],
+                required: ["path", "line"]
+            ) { [weak self] data in
+                await self?.call("debug_breakpoint") { bridge in
+                    let asked = bridge.decode(data)
+                    guard let path = asked.path, let line = asked.line else {
+                        return ToolResult("debug_breakpoint needs a path and a line", isError: true)
+                    }
+                    var extra: [MessagePackValue: MessagePackValue] = [:]
+                    if let condition = asked.condition { extra[.string("condition")] = .string(condition) }
+                    if let hit = asked.hit_count { extra[.string("hit")] = .string(hit) }
+                    if let log = asked.log_message { extra[.string("log")] = .string(log) }
+                    _ = try? await bridge.channel.lua("require'sill.debug'.set(...)", args: [
+                        .string(bridge.absolute(path)), .int(Int64(line)), .map(extra),
+                        .bool(asked.remove ?? false),
+                    ])
+                    return ToolResult((asked.remove ?? false) ? "No breakpoint at \(path):\(line)." :
+                        "Breakpoint at \(path):\(line)" +
+                        (extra.isEmpty ? "." : " with \(extra.count) setting(s)."))
+                } ?? gone
+            },
+            Tool(
+                name: "debug_step",
+                description: "Resumes the paused program: continue (to the next breakpoint), " +
+                    "next (over), in or out; waits until it pauses again or ends and says where.",
+                properties: [
+                    "action": ["type": "string", "description": "continue, next, in or out"], "wait_seconds": wait,
+                ],
+                required: ["action"]
+            ) { [weak self] data in
+                await self?.call("debug_step") { bridge in
+                    let asked = bridge.decode(data)
+                    guard let debugger = bridge.app?.debugger else { return gone }
+                    guard case .paused = debugger.state else {
+                        return ToolResult("The program is not paused. " + debugger.summary(), isError: true)
+                    }
+                    let action = asked.action ?? "continue"
+                    guard ["continue", "next", "in", "out"].contains(action) else {
+                        return ToolResult("action: continue, next, in or out", isError: true)
+                    }
+                    debugger.drivenByAgent = true
+                    debugger.answer(action)
+                    await debugger.settle(timeout: .seconds(asked.wait_seconds ?? 60))
+                    return ToolResult(debugger.summary())
+                } ?? gone
+            },
+            Tool(
+                name: "debug_state",
+                description: "Where the program is: paused (where, why, the exception, the " +
+                    "stack, the locals and watches), running, or not debugged."
+            ) { [weak self] _ in
+                await self?.call("debug_state") { bridge in
+                    ToolResult(bridge.app?.debugger.summary() ?? "sill is gone")
+                } ?? gone
+            },
+            Tool(
+                name: "debug_evaluate",
+                description: "Evaluates a C# expression in the paused program's selected " +
+                    "frame and shows the answer in sill's Debug tab.",
+                properties: ["expression": ["type": "string"]],
+                required: ["expression"]
+            ) { [weak self] data in
+                await self?.call("debug_evaluate") { bridge in
+                    let asked = bridge.decode(data)
+                    guard let debugger = bridge.app?.debugger,
+                          let expression = asked.expression else { return gone }
+                    guard let value = await debugger.value(of: expression) else {
+                        return ToolResult("Evaluating needs the program paused.", isError: true)
+                    }
+                    debugger.answer("eval " + expression)
+                    return ToolResult("\(expression) = \(value)", isError: value.hasPrefix("error:"))
+                } ?? gone
+            },
+            Tool(
+                name: "debug_stop",
+                description: "Ends the debug session: a program sill started ends, one it " +
+                    "attached to goes on running."
+            ) { [weak self] _ in
+                await self?.call("debug_stop") { bridge in
+                    guard let debugger = bridge.app?.debugger else { return gone }
+                    debugger.stop()
+                    debugger.drivenByAgent = false
+                    return ToolResult("Stopped.")
+                } ?? gone
+            },
+        ]
+    }
+
+    private nonisolated static func answer(_ result: (text: String, failed: Bool)) -> ToolResult {
+        ToolResult(result.text, isError: result.failed)
+    }
+
+    private func profileTools(_ gone: ToolResult) -> [Tool] {
+        [
+            Tool(
+                name: "profile_start",
+                description: "Builds the project in Release and runs it under sill's " +
+                    "profiler (.NET: EventPipe; Rust: samply; Swift: xctrace), shown live in sill; profile_snapshot " +
+                    "takes heap snapshots (.NET), profile_stop ends it and answers with the CPU profile. May ask the " +
+                    "person.",
+                properties: ["project": ["type": "string"]]
+            ) { [weak self] data in
+                await self?.call("profile_start") { bridge in
+                    guard let profiler = bridge.app?.profiler else { return gone }
+                    guard await bridge.permit("profile", "build and run the program under the profiler") else {
+                        return ToolResult("The person did not allow it.", isError: true)
+                    }
+                    return await Self
+                        .answer(profiler.startForAgent(project: bridge.decode(data).project.map(bridge.absolute)))
+                } ?? gone
+            },
+            Tool(
+                name: "profile_snapshot",
+                description: "A heap snapshot of the .NET program being profiled: how " +
+                    "the heap changed since the last one, and what keeps the type that grew most alive."
+            ) { [weak self] _ in
+                await self?.call("profile_snapshot") { bridge in
+                    guard let profiler = bridge.app?.profiler else { return gone }
+                    return await Self.answer(profiler.snapshotForAgent())
+                } ?? gone
+            },
+            Tool(
+                name: "profile_stop",
+                description: "Ends the recording and answers with the CPU profile: the " +
+                    "hottest functions and where they are written, and how they compare with the program's previous " +
+                    "run (profile before a change and after it)."
+            ) { [weak self] _ in
+                await self?.call("profile_stop") { bridge in
+                    guard let profiler = bridge.app?.profiler else { return gone }
+                    return await Self.answer(profiler.stopForAgent())
+                } ?? gone
+            },
+            Tool(
+                name: "profile_compare",
+                description: "The last profile against the program's previous one: each " +
+                    "function's time before and after, the biggest change first."
+            ) { [weak self] _ in
+                await self?.call("profile_compare") { bridge in
+                    guard let comparison = bridge.app?.tools.profile?.comparison else {
+                        return ToolResult("Nothing to compare: profile the program twice.", isError: true)
+                    }
+                    bridge.app?.tools.profile?.select(tab: .compare)
+                    return ToolResult(comparison.text)
+                } ?? gone
+            },
         ]
     }
 

@@ -49,6 +49,12 @@ final class SelfCheck {
                 try await showcase(to: path)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "agentdebug" {
+                try await agentDebugSteps()
+                print("sill check (agent debugging and profiling): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "debug" {
                 try await debugSteps()
                 print("sill check (debug): passed")
@@ -678,6 +684,108 @@ final class SelfCheck {
         try await Task.sleep(for: .seconds(1))
         try expect(running.isRunning, "detaching leaves it running")
         step("Shift-F5 detaches and the program goes on running")
+    }
+
+    /// An agent debugging and profiling through sill's MCP tools while sill shows it (`SILL_CHECK=agentdebug`, in a
+    /// folder holding copies of Tests/SillSidecarTests/Fixtures/Debuggee and Sample, with
+    /// SILL_MCP_ALLOW=debug,profile):
+    /// a conditional breakpoint shown as a sign, the program run to it, an expression evaluated and a step taken, the
+    /// unhandled exception reached, all in sill's Debug tab as it goes; then the sample profiled twice, a heap snapshot
+    /// between, and the two runs compared.
+    private func agentDebugSteps() async throws {
+        let app = try require(app, "the app")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await waitFor("the sidecar", timeout: .seconds(20)) { app.sidecar }
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        let tools = try await agent.request("tools/list", [:])
+        let names = Set(((tools["tools"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String })
+        let wanted: Set = [
+            "debug_start",
+            "debug_attach",
+            "debug_breakpoint",
+            "debug_step",
+            "debug_state",
+            "debug_evaluate",
+            "debug_stop",
+            "profile_start",
+            "profile_snapshot",
+            "profile_stop",
+            "profile_compare",
+        ]
+        try expect(wanted.isSubset(of: names), "the debugging and profiling tools: \(names.sorted())")
+        let debuggee = (app.workingDirectory as NSString).appendingPathComponent("Debuggee")
+        let program = (debuggee as NSString).appendingPathComponent("Program.cs")
+        let debugger = try require(app.debugger, "the debugger")
+
+        _ = try await agent.call("debug_breakpoint", ["path": program, "line": 10, "condition": "i == 5"])
+        try await wait("the agent's breakpoint as a sign") {
+            $0.breakpoints[program] == [Screen.Breakpoint(line: 10, condition: "i == 5")]
+        }
+        let started = try await agent.call("debug_start", ["project": "Debuggee/Debuggee.csproj", "wait_seconds": 180])
+        try expect(
+            started.contains("paused (breakpoint) at \(program):10") && started.contains("i = 5"),
+            "debug_start says where it paused: \(started)"
+        )
+        try expect(debugger.drivenByAgent && app.tools.panel.tab == .debug, "sill shows it, marked as the agent's")
+        step("debug_breakpoint (i == 5) shows as a sign; debug_start runs to it: \(started.split(separator: "\n")[0])")
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try await Task.sleep(for: .milliseconds(300))
+            try self.shot(to: shot)
+            step("saved \(shot)")
+        }
+        let count = try await agent.call("debug_evaluate", ["expression": "orders.Count"])
+        try expect(count == "orders.Count = 5" && debugger.evaluated?.value == "5", "evaluated, in sill too: \(count)")
+        let stepped = try await agent.call("debug_step", ["action": "next"])
+        try expect(stepped.contains("paused (step)"), "a step: \(stepped.prefix(120))")
+        _ = try await agent.call("debug_breakpoint", ["path": program, "line": 10, "remove": true])
+        try await wait("the sign gone") { $0.breakpoints[program]?.isEmpty ?? true }
+        let thrown = try await agent.call("debug_step", ["action": "continue"])
+        try expect(thrown.contains("exception: CLR/System.ArgumentException"), "on to the exception: \(thrown)")
+        _ = try await agent.call("debug_stop")
+        _ = try await waitFor("the session over", timeout: .seconds(20)) { debugger.state == .idle ? true : nil }
+        step("debug_evaluate orders.Count = 5, a step, the breakpoint removed and continue to the unhandled " +
+            "ArgumentException; debug_stop ends it")
+
+        // Profiling the sample twice, a snapshot between, and comparing.
+        let sample = "Sample/Sample.csproj"
+        let recording = try await agent.call("profile_start", ["project": sample])
+        try expect(recording.hasPrefix("Recording Sample"), "profile_start: \(recording)")
+        let view = try require(app.tools.profile, "the profile pane")
+        try expect(view.drivenByAgent && view.subtitle.contains("an agent is profiling"), "marked: \(view.subtitle)")
+        try await Task.sleep(for: .seconds(1))
+        _ = try await agent.call("profile_snapshot")
+        try await Task.sleep(for: .seconds(1.5))
+        let heap = try await agent.call("profile_snapshot")
+        try expect(
+            heap.contains("Order") && heap.contains("what keeps") && heap.contains("OrderCache"),
+            "the growth and its retainer: \(heap)"
+        )
+        try await Task.sleep(for: .seconds(1))
+        let first = try await agent.call("profile_stop")
+        try expect(first.contains("Pricing.Total") && first.contains("Program.cs"), "the hot frame: \(first)")
+        _ = try await agent.call("profile_start", ["project": sample])
+        try await Task.sleep(for: .seconds(2))
+        let second = try await agent.call("profile_stop")
+        try expect(second.contains("compared with the previous run:\ncpu: "), "compared with the first: \(second)")
+        let compared = try await agent.call("profile_compare")
+        try expect(
+            compared.hasPrefix("cpu: ") && view.tab == .compare && view.comparison != nil,
+            "the Compare tab: \(compared.prefix(80))"
+        )
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            let compare = (shot as NSString).deletingPathExtension + "-compare.png"
+            view.display()
+            try self.shot(to: compare)
+            step("saved \(compare)")
+        }
+        step("profile_start, two snapshots (Order grows, kept by OrderCache), profile_stop with Pricing.Total hot; " +
+            "a second run compared with the first: \(compared.split(separator: "\n")[0])")
     }
 
     private func m8Steps() async throws {
@@ -1515,7 +1623,10 @@ final class SelfCheck {
         agent.notify("notifications/initialized")
         let tools = try await agent.request("tools/list", [:])
         let names = Set(((tools["tools"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String })
-        try expect(names == ["problems", "build", "read_file", "open_file"], "sill's tools: \(names.sorted())")
+        try expect(
+            names.isSuperset(of: ["problems", "build", "read_file", "open_file"]),
+            "sill's tools: \(names.sorted())"
+        )
         step("an agent connects through nc -U and sees sill's tools: \(names.sorted().joined(separator: ", "))")
 
         let failed = try await agent.call("build")
