@@ -579,6 +579,14 @@ function M.setup()
     complete = function() return { 'new', 'add', 'send', 'open' } end,
     desc = 'Context baskets: pick one; new <title>; add [note] (a range, the line, % the file); send <question>',
   })
+  -- An investigation: the agent asked to find something out, collecting what it finds in a basket.
+  vim.api.nvim_create_user_command('SillInvestigate', function(opts)
+    local skill = opts.args == 'skill'
+    notify('sill_basket', { action = skill and 'skill' or 'investigate', arg = skill and '' or opts.args })
+  end, {
+    nargs = '+', complete = function() return { 'skill' } end,
+    desc = 'Ask the agent to investigate a question through sill, into a basket; skill installs the skill',
+  })
   vim.api.nvim_create_user_command('SillMap', function() notify('sill_map') end,
     { desc = "The code map: the repository's projects, what each builds on, where it starts, what changes most" })
   vim.api.nvim_create_user_command('SillFollow', function() notify('sill_follow') end,

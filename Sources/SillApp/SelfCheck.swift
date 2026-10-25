@@ -62,6 +62,12 @@ final class SelfCheck {
                 fflush(stdout)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "investigate" {
+                try await investigateSteps()
+                print("sill check (investigations): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "basket" {
                 try await basketSteps()
                 print("sill check (baskets): passed")
@@ -1014,6 +1020,119 @@ final class SelfCheck {
             FileManager.default.fileExists(atPath: skill) ? true : nil
         }
         step("step 2 shows Clock.Tick's first three lines; :SillWalk skill installed the skill at \(skill)")
+    }
+
+    /// Investigations (`SILL_CHECK=investigate`, in a restored git copy of TraceShop, `SILL_AGENT=echo`, a scratch
+    /// home): `:SillInvestigate` asks the agent with the skill's steps; then, as an agent would over MCP, a basket
+    /// made,
+    /// a symbol, lines and a whole file added in sections, a call tree and a ruled-out note, the basket listed and read
+    /// (code and tree as they are now), concluded; the notebook shows it all. `:SillInvestigate skill` installs it.
+    private func investigateSteps() async throws {
+        let app = try require(app, "the app")
+        let root = app.workingDirectory
+        let baskets = try require(app.baskets, "the baskets")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        // Roslyn has the project before the trees are asked for.
+        let line = "    public static decimal Of(decimal amount) => Math.Round(amount * Rate, 2);"
+        let column = line.distance(from: line.startIndex, to: line.range(of: "Of(")!.lowerBound) + 1
+        var ready = false
+        for _ in 0 ..< 90 where !ready {
+            ready = await app.tracer.trace(
+                path: root + "/Tax.cs",
+                line: 5,
+                column: column,
+                direction: .incoming,
+                show: false
+            ) && app.tracer.tree?.nodes[0].children?.isEmpty == false
+            if !ready { try await Task.sleep(for: .seconds(1)) }
+        }
+        try expect(ready, "Roslyn ready: \(app.tracer.problem ?? "")")
+
+        _ = try await session.channel.lua("vim.cmd('SillInvestigate Why does the report total differ from checkout?')")
+        let prompt = try await waitFor("the agent asked", timeout: .seconds(10)) { app.agents.lastPrompt }
+        try expect(
+            prompt.hasPrefix("Investigate: Why does the report total differ from checkout?") &&
+                prompt.contains("sill-investigate") && prompt.contains("basket_create") && prompt.contains("read-only"),
+            "the prompt: \(prompt.prefix(500))"
+        )
+        step(":SillInvestigate asks the agent, with the skill's steps")
+
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        let made = try await agent.call("basket_create", [
+            "title": "Report and checkout totals", "question": "Why does the report total differ?", "by": "claude",
+        ])
+        try expect(made == "Made report-and-checkout-totals.basket.md; sill shows it.", "basket_create: \(made)")
+        let name = "report-and-checkout-totals.basket.md"
+        try await wait("the basket pane") { $0.currentPaneKind == "basket" }
+        for (arguments, answer) in [
+            (["basket": name, "symbol": "Tax.Of", "note": "the tax, rounded", "section": "The tax"], "Added Tax.Of."),
+            ([
+                "basket": name,
+                "path": "Pricing.cs",
+                "from": 3,
+                "to": 7,
+                "note": "where the tax is added",
+                "section": "The tax",
+            ], "Added Pricing.cs:3-7."),
+            (["basket": name, "path": "Report.cs", "section": "Who reaches it"], "Added Report.cs."),
+        ] as [([String: Any], String)] {
+            let added = try await agent.call("basket_add", arguments)
+            try expect(added == answer, "basket_add: \(added)")
+        }
+        _ = try await agent.call("basket_note", [
+            "basket": name, "text": "@trace Pricing.Total callers 2", "section": "Who reaches it",
+        ])
+        _ = try await agent.call("basket_note", [
+            "basket": name, "text": "Rounding: both round the same way.", "section": "Ruled out",
+        ])
+        let wrong = try await agent.call("basket_add", ["basket": "nope", "symbol": "Tax.Of"])
+        try expect(wrong.hasPrefix("No such basket"), "an unknown basket: \(wrong)")
+        step("basket_create, basket_add (a symbol, lines, a whole file, in sections), basket_note (a tree, ruled out)")
+
+        let list = try await agent.call("basket_list")
+        try expect(list == "\(name): Report and checkout totals [open, by claude] (current)", "basket_list: \(list)")
+        let read = try await agent.call("basket_read", ["basket": name])
+        try expect(
+            read.hasPrefix("Report and checkout totals (\(name), open)\nQuestion: Why does the report total differ?") &&
+                read.contains("## The tax\nthe tax, rounded\nTax.cs:5-5") &&
+                read.contains("return net + Tax.Of(net);") && read.contains("Report.cs:1-4") &&
+                read.contains("Checkout.Run(int)  Checkout.cs:3") && read.contains("## Ruled out\nRounding"),
+            "basket_read: \(read)"
+        )
+        step("basket_list names it; basket_read gives the code and the call tree as they are now")
+
+        _ = try await agent.call(
+            "basket_conclude",
+            ["basket": name, "answer": "They do not differ: both add `Tax.Of` once."]
+        )
+        let walk = try await waitFor("concluded") {
+            baskets.walker.walk?.status == "concluded" ? baskets.walker.walk : nil
+        }
+        try expect(
+            walk.steps.map(\.title) == ["The tax", "Who reaches it", "Ruled out", "Findings"],
+            "its sections: \(walk.steps.map(\.title))"
+        )
+        let view = try await waitFor("the basket view") { app.tools.basket }
+        _ = try await waitFor("the tree in it", timeout: .seconds(30)) {
+            baskets.walker.traces["Pricing.Total callers"]?.contains("Checkout.Run") == true ? true : nil
+        }
+        view.display()
+        let files = Set(view.fileTops.map { ($0.path as NSString).lastPathComponent })
+        try expect(files == ["Tax.cs", "Pricing.cs", "Report.cs"], "its files: \(files)")
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] { try self.shot(to: shot) }
+        step("basket_conclude: the notebook shows the sections, the tree, three files and the findings")
+
+        _ = try await session.channel.lua("vim.cmd('SillInvestigate skill')")
+        let skill = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/skills/sill-investigate/SKILL.md").path
+        _ = try await waitFor("the skill installed") { FileManager.default.fileExists(atPath: skill) ? true : nil }
+        step(":SillInvestigate skill installs it at \(skill)")
     }
 
     /// Context baskets (`SILL_CHECK=basket`, in a restored git copy of the TraceShop fixture, `SILL_AGENT=echo`): one

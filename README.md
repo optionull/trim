@@ -216,6 +216,19 @@ between the outline and the files the basket touches.
 
 ![A basket: its question and status, the pieces with their notes and code, and the files menu](docs/showcase-basket-2026-10-25.png)
 
+## Investigations
+
+`:SillInvestigate <question>` asks the agent to find something out through sill, read-only, into a basket you watch
+fill: it makes one (`basket_create`), orients with `code_map` and `trace_symbol`, adds each place that matters with a
+note on why (`basket_add`, grouped in sections), notes call trees and what it ruled out (`basket_note`), uses the
+debugger, profiler and telemetry when reading is not enough (they ask you first), and ends with its findings
+(`basket_conclude`): the answer, why it is sure, what is open, what to do next. `basket_list` and `basket_read` let it
+come back to one. The sill-investigate skill teaches an agent all this, so it can start an investigation on its own;
+`:SillInvestigate skill` installs it for Claude Code. You can add your own pieces to its basket and send it back with a
+follow-up.
+
+![An agent's investigation: its sections, the code with notes, a call tree, and its findings in the outline](docs/showcase-investigate-2026-10-25.png)
+
 ## Walkthroughs
 
 A walkthrough is a Markdown file ending in `.walk.md`, anywhere, that walks someone through code: `## steps` of prose,

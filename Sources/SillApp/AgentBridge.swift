@@ -112,28 +112,29 @@ final class AgentBridge {
             ) { [weak self] arguments in
                 await self?.callOpen(arguments) ?? gone
             },
-        ] + debugTools(gone) + profileTools(gone) + walkTools(gone) + telemetryTools(gone) + mapTools(gone) + [
-            Tool(
-                name: "annotate",
-                description: "Shows your answer to the person beside the code it is about, under " +
-                    "a line of a file in the editor (as a question asked with :SillAsk names it).",
-                properties: ["path": ["type": "string"], "line": ["type": "integer"], "text": ["type": "string"]],
-                required: ["path", "line", "text"]
-            ) { [weak self] data in
-                await self?.call("annotate") { bridge in
-                    let asked = Self.walkArguments(data)
-                    let text = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["text"] as? String
-                    guard let path = asked.path.map(bridge.absolute), let line = asked.line, let text else {
-                        return ToolResult("annotate needs a path, a line and the text", isError: true)
-                    }
-                    _ = try? await bridge.channel.lua(
-                        "require'sill.ask'.annotate(...)",
-                        args: [.string(path), .int(Int64(line)), .string(text)]
-                    )
-                    return ToolResult("Shown under \((path as NSString).lastPathComponent):\(line).")
-                } ?? gone
-            },
-        ]
+        ] + debugTools(gone) + profileTools(gone) + walkTools(gone) + telemetryTools(gone) + mapTools(gone) +
+            basketTools(gone) + [
+                Tool(
+                    name: "annotate",
+                    description: "Shows your answer to the person beside the code it is about, under " +
+                        "a line of a file in the editor (as a question asked with :SillAsk names it).",
+                    properties: ["path": ["type": "string"], "line": ["type": "integer"], "text": ["type": "string"]],
+                    required: ["path", "line", "text"]
+                ) { [weak self] data in
+                    await self?.call("annotate") { bridge in
+                        let asked = Self.walkArguments(data)
+                        let text = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["text"] as? String
+                        guard let path = asked.path.map(bridge.absolute), let line = asked.line, let text else {
+                            return ToolResult("annotate needs a path, a line and the text", isError: true)
+                        }
+                        _ = try? await bridge.channel.lua(
+                            "require'sill.ask'.annotate(...)",
+                            args: [.string(path), .int(Int64(line)), .string(text)]
+                        )
+                        return ToolResult("Shown under \((path as NSString).lastPathComponent):\(line).")
+                    } ?? gone
+                },
+            ]
     }
 
     private struct TelemetryArguments: Decodable {
@@ -156,6 +157,137 @@ final class AgentBridge {
     private struct BasketArguments: Decodable {
         var basket: String?
         var answer: String?
+        var title: String?
+        var question: String?
+        var by: String?
+        var symbol: String?
+        var path: String?
+        var from: Int?
+        var to: Int?
+        var note: String?
+        var section: String?
+        var text: String?
+    }
+
+    private nonisolated static func basketArguments(_ data: Data) -> BasketArguments {
+        (try? JSONDecoder().decode(BasketArguments.self, from: data)) ?? BasketArguments()
+    }
+
+    /// The tools an agent investigates with: a basket made, filled, noted, listed and read (`basket_conclude` ends
+    /// it).
+    private func basketTools(_ gone: ToolResult) -> [Tool] {
+        let noBasket = ToolResult("No such basket: basket_list names them, basket_create makes one", isError: true)
+        return [
+            Tool(
+                name: "basket_create",
+                description: "Starts a sill basket for an investigation: a notebook the " +
+                    "person watches fill. Give a short title and the question; answers its file name, which the other " +
+                    "basket tools take as basket.",
+                properties: ["title": ["type": "string"], "question": ["type": "string"], "by": ["type": "string"]],
+                required: ["title"]
+            ) { [weak self] data in
+                await self?.call("basket_create") { bridge in
+                    let asked = Self.basketArguments(data)
+                    guard let baskets = bridge.app?.baskets, let title = asked.title, !title.isEmpty else {
+                        return ToolResult("basket_create needs a title", isError: true)
+                    }
+                    let path = baskets.create(title: title, question: asked.question, by: asked.by ?? "an agent")
+                    return ToolResult("Made \((path as NSString).lastPathComponent); sill shows it.")
+                } ?? gone
+            },
+            Tool(
+                name: "basket_add",
+                description: "Adds a piece of code to a basket with a note on why it " +
+                    "matters: a symbol (Type.Member), or a path with lines from and to (a whole file without them). " +
+                    "section groups pieces under a heading.",
+                properties: [
+                    "basket": ["type": "string"], "symbol": ["type": "string"], "path": ["type": "string"],
+                    "from": ["type": "integer"], "to": ["type": "integer"], "note": ["type": "string"],
+                    "section": ["type": "string"],
+                ],
+                required: ["basket"]
+            ) { [weak self] data in
+                await self?.call("basket_add") { bridge in
+                    let asked = Self.basketArguments(data)
+                    guard let baskets = bridge.app?.baskets, let path = bridge.basketPath(asked.basket) else {
+                        return noBasket
+                    }
+                    if let symbol = asked.symbol, !symbol.isEmpty {
+                        if let problem = await baskets.add(
+                            symbol: symbol, note: asked.note, section: asked.section, basket: path
+                        ) {
+                            return ToolResult(problem, isError: true)
+                        }
+                        return ToolResult("Added \(symbol).")
+                    }
+                    guard let file = asked.path.map(bridge.absolute),
+                          FileManager.default.fileExists(atPath: file)
+                    else {
+                        return ToolResult("basket_add needs a symbol, or the path of a file that exists", isError: true)
+                    }
+                    let lines = asked.from.map { from in from ... max(asked.to ?? from, from) }
+                    baskets.add(path: file, lines: lines, note: asked.note, section: asked.section, basket: path)
+                    return ToolResult("Added \(asked.path ?? file)" +
+                        (lines.map { ":\($0.lowerBound)-\($0.upperBound)" } ?? "") + ".")
+                } ?? gone
+            },
+            Tool(
+                name: "basket_note",
+                description: "Adds prose to a basket under a section: what you found, " +
+                    "ruled out or saw running. A line `@trace Type.Member callers 2` in it embeds a call tree, " +
+                    "`@example examples/<file>` a script beside the basket.",
+                properties: ["basket": ["type": "string"], "text": ["type": "string"], "section": ["type": "string"]],
+                required: ["basket", "text"]
+            ) { [weak self] data in
+                await self?.call("basket_note") { bridge in
+                    let asked = Self.basketArguments(data)
+                    guard let baskets = bridge.app?.baskets, let path = bridge.basketPath(asked.basket) else {
+                        return noBasket
+                    }
+                    guard let text = asked.text, !text.isEmpty else {
+                        return ToolResult("basket_note needs text", isError: true)
+                    }
+                    baskets.note(text, section: asked.section, basket: path)
+                    return ToolResult("Noted.")
+                } ?? gone
+            },
+            Tool(
+                name: "basket_list",
+                description: "The baskets in this repository, newest first: file name, " +
+                    "title, status (open, sent, concluded) and who made each."
+            ) { [weak self] _ in
+                await self?.call("basket_list") { bridge in
+                    guard let baskets = bridge.app?.baskets else { return gone }
+                    let list = baskets.list()
+                    guard !list.isEmpty else { return ToolResult("No baskets yet.") }
+                    let current = baskets.current
+                    return ToolResult(list.map { entry in
+                        "\((entry.path as NSString).lastPathComponent): \(entry.basket.title) [" +
+                            "\(entry.basket.status ?? "open"), by \(entry.basket.by ?? "you")]" +
+                            (entry.path == current ? " (current)" : "")
+                    }.joined(separator: "\n"))
+                } ?? gone
+            },
+            Tool(
+                name: "basket_read",
+                description: "A basket as it stands: its question, its notes and each " +
+                    "piece's code as it is now (marked when it changed since it was added), and its findings.",
+                properties: ["basket": ["type": "string"]]
+            ) { [weak self] data in
+                await self?.call("basket_read") { bridge in
+                    guard let baskets = bridge.app?.baskets,
+                          let path = bridge.basketPath(Self.basketArguments(data).basket)
+                    else { return noBasket }
+                    guard let body = await baskets.text(of: path) else { return noBasket }
+                    let basket = baskets.walker.walk
+                    return ToolResult("""
+                    \(basket?.title ?? "") (\((path as NSString).lastPathComponent), \(basket?.status ?? "open"))
+                    \(basket?.question.map { "Question: \($0)\n" } ?? "")
+                    \(body)
+                    """)
+                } ?? gone
+            },
+        ]
     }
 
     /// A basket by its file name (or title): the current one when none is named.

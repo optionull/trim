@@ -349,10 +349,10 @@ final class Walker {
     // MARK: The skill
 
     /// The skill that teaches an agent to write walkthroughs, from the app's runtime into ~/.claude/skills.
-    func installSkill() {
-        let source = Runtime.directory.appendingPathComponent("skills/sill-walkthrough/SKILL.md")
+    func installSkill(_ name: String = "sill-walkthrough") {
+        let source = Runtime.directory.appendingPathComponent("skills/\(name)/SKILL.md")
         let target = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/skills/sill-walkthrough/SKILL.md")
+            .appendingPathComponent(".claude/skills/\(name)/SKILL.md")
         do {
             try FileManager.default.createDirectory(
                 at: target.deletingLastPathComponent(),
@@ -360,7 +360,7 @@ final class Walker {
             )
             if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }
             try FileManager.default.copyItem(at: source, to: target)
-            Nvim.lua(channel, "vim.notify(...)", [.string("The sill-walkthrough skill is in \(target.path)"), .int(2)])
+            Nvim.lua(channel, "vim.notify(...)", [.string("The \(name) skill is in \(target.path)"), .int(2)])
         } catch {
             Nvim.lua(channel, "vim.notify(...)", [.string("The skill could not be installed: \(error)"), .int(3)])
         }

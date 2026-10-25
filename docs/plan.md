@@ -732,7 +732,18 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     next piece in a new basket, git clean); inverting the change detection fails it.
   - Found on the way: adding switched to the basket's tab each time, away from the code being read; it no longer
     does.
-  - Next: the sill-investigate skill and the basket MCP tools (create, add, note, list, read), `:SillInvestigate`.
+- Investigations (2026-10-25, owner: skills for agents to run an investigation through sill and make baskets on
+  their own). `runtime/skills/sill-investigate/SKILL.md`: read-only; `basket_create` with the title and question, orient
+  (`code_map`, `trace_symbol`), `basket_add` each place with a note on why in sections, what was ruled out, the
+  debugger/profiler/telemetry tools when reading is not enough (each asks first), a reproducing `@example`, and
+  `basket_conclude` (answer, certainty, open, next steps). MCP: `basket_create` (by the agent's name), `basket_add` (a
+  symbol, or a path with or without lines; an agent's adds are not announced in nvim), `basket_note` (prose, `@trace`,
+  `@example`), `basket_list`, `basket_read` (the code and trees as they are now). `:SillInvestigate <question>` asks
+  the agent with the skill's steps in the prompt (it works before the skill is installed); `:SillInvestigate skill`
+  installs it into ~/.claude/skills, as `:SillWalk skill` does, only when asked.
+  - Checked: `SILL_CHECK=investigate` (the ask, every tool as an agent calls them, the notebook's sections, tree,
+    files and findings, the skill installed into a scratch home); a basket lookup that ignores the name fails it.
+  - Not checked: a real agent running an investigation end to end.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

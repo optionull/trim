@@ -79,6 +79,8 @@ final class Baskets {
                     note: ask.argument.isEmpty ? nil : ask.argument
                 )
             case "send": send(question: ask.argument)
+            case "investigate": investigate(ask.argument)
+            case "skill": walker.installSkill("sill-investigate")
             case "open":
                 if let found = list().first(where: {
                     ($0.path as NSString).lastPathComponent.hasPrefix(ask.argument) || $0.basket.title == ask.argument
@@ -163,7 +165,8 @@ final class Baskets {
     }
 
     /// Adds a file's lines (or the whole file) to the current basket, a new one when there is none. `now` is what the
-    /// lines are in the editor, unsaved edits and all; else they are read from disk.
+    /// lines are in the editor, unsaved edits and all; else they are read from disk. Named baskets are an agent's:
+    /// it is not announced.
     func add(
         path: String,
         lines: ClosedRange<Int>?,
@@ -188,6 +191,7 @@ final class Baskets {
                 source, anchor: anchor, fingerprint: print, note: note, section: section, joined: joined
             )
         }
+        guard basket == nil else { return }
         let title = (try? String(contentsOfFile: target, encoding: .utf8)).map { Walkthrough($0).title } ?? "the basket"
         Nvim.lua(channel, "vim.notify(...)", [.string("Added \(anchor) to \(title)"), .int(2)])
     }
@@ -217,6 +221,24 @@ final class Baskets {
 
     func conclude(_ text: String, basket: String) {
         edit(basket) { BasketFile.concluding($0, text) }
+    }
+
+    // MARK: Investigations
+
+    /// Asks the agent to investigate `question` through sill: a basket it fills as it goes, then its findings. The
+    /// skill's steps travel with the ask, so it works before the skill is installed.
+    func investigate(_ question: String) {
+        guard !question.isEmpty, let agents = app?.agents else { return }
+        agents.send(headline: "Investigate: \(question)", """
+        Investigate this through sill, following the sill-investigate skill if you have it: \(question)
+
+        Work read-only: do not change code or configuration. Call sill's basket_create with a short title and the \
+        question; it opens a basket I watch fill. Orient with code_map and trace_symbol; add every place that matters \
+        with basket_add and a note on why (group them with section; add what you ruled out, briefly). Use sill's \
+        debugger, profiler and telemetry tools when reading is not enough (they ask me first). Reproduce it in a \
+        script when you can. Finish with basket_conclude: the answer first, why you are sure, what is still open, \
+        and the next steps you suggest.
+        """)
     }
 
     // MARK: Sending
