@@ -323,6 +323,54 @@ function M.open(path, line, col)
   end
 end
 
+-- The last lines selected in a file, kept as visual mode ends: what a prompt to an agent may be about.
+local last_selection
+
+--- What the editor shows, for a prompt to an agent: the file and line of the last editor window, and the selection
+--- (the one in visual mode now, else the last) with how many seconds ago it was made. Paths are as nvim has them; sill makes them relative.
+function M.editor_context()
+  local context = {}
+  local win = M.editor_window()
+  if win then
+    local buf = vim.api.nvim_win_get_buf(win)
+    local name = vim.api.nvim_buf_get_name(buf)
+    if name ~= '' and vim.bo[buf].buftype == '' then
+      context.path = name
+      context.line = vim.api.nvim_win_get_cursor(win)[1]
+    end
+  end
+  -- Typing into an agent's terminal pane leaves nvim as it was: a selection still in visual mode is the one meant.
+  local mode = vim.fn.mode()
+  local buf = vim.api.nvim_get_current_buf()
+  if (mode == 'v' or mode == 'V' or mode == '\22') and vim.bo[buf].buftype == ''
+    and vim.api.nvim_buf_get_name(buf) ~= '' then
+    local from, to = vim.fn.line('v'), vim.fn.line('.')
+    from, to = math.min(from, to), math.max(from, to)
+    context.selection = {
+      path = vim.api.nvim_buf_get_name(buf), from = from, to = to, age = 0,
+      text = table.concat(vim.api.nvim_buf_get_lines(buf, from - 1, to, false), '\n'),
+    }
+  elseif last_selection then
+    context.selection = vim.tbl_extend('force', last_selection, { age = os.time() - last_selection.at })
+  end
+  return context
+end
+
+vim.api.nvim_create_autocmd('ModeChanged', {
+  group = vim.api.nvim_create_augroup('sill_selection', {}),
+  pattern = '[vV\x16]*:[^vV\x16]*',
+  callback = function()
+    local buf = vim.api.nvim_get_current_buf()
+    if vim.bo[buf].buftype ~= '' or vim.api.nvim_buf_get_name(buf) == '' then return end
+    local from, to = vim.fn.line("'<"), vim.fn.line("'>")
+    if from < 1 or to < from then return end
+    last_selection = {
+      path = vim.api.nvim_buf_get_name(buf), from = from, to = to, at = os.time(),
+      text = table.concat(vim.api.nvim_buf_get_lines(buf, from - 1, to, false), '\n'),
+    }
+  end,
+})
+
 --- Shows buffer `buf` in the last editor window used, at `line` and `col`: where a problem is, named file or not.
 function M.goto(buf, line, col)
   local win = M.editor_window()

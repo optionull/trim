@@ -26,6 +26,9 @@ public struct SillSettings: Equatable, Sendable {
     public var heedAgent = "claude"
     /// sill's tools an agent may use without asking (`build`, …).
     public var agentAllow: [String] = []
+    /// What the editor shows (the file, the last selection, the basket) given to an agent with each prompt, by sill's
+    /// hooks.
+    public var editorContext = true
     public var dotnet = ""
     public var heedControl = ""
 
@@ -55,6 +58,7 @@ public struct SillSettings: Equatable, Sendable {
         (["window", "islands"], nil), (["shell", "title_bar"], nil),
         (["nvim", "config"], "SILL_NVIM_CONFIG"), (["agents", "command"], "SILL_AGENT"),
         (["agents", "heed_agent"], "SILL_HEED_AGENT"), (["agents", "allow"], "SILL_MCP_ALLOW"),
+        (["agents", "editor_context"], nil),
         (["dotnet", "path"], "SILL_DOTNET"), (["heed", "control"], "HEED_CONTROL"),
     ]
 }
@@ -135,6 +139,7 @@ public enum SettingsLoader {
                 problem(["agents", "allow"], "should be a list of strings, like [\"build\"]")
             }
         }
+        bool(["agents", "editor_context"]) { settings.editorContext = $0 }
         string(["dotnet", "path"]) { settings.dotnet = $0 }
         string(["heed", "control"]) { settings.heedControl = $0 }
 
@@ -196,6 +201,9 @@ public enum SettingsLoader {
     # heed_agent = "claude"
     # sill's tools an agent may use without asking, like "build". (SILL_MCP_ALLOW)
     # allow = []
+    # With each prompt to an agent sill's hooks reach, what the editor shows: the file and line, the lines selected
+    # last (in the last ten minutes), the basket open; only what changed since the session's last prompt.
+    # editor_context = true
 
     [dotnet]
     # The dotnet to use; empty finds it (DOTNET_ROOT, your shell's PATH, the usual places). (SILL_DOTNET)

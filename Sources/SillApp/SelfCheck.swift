@@ -1327,6 +1327,41 @@ final class SelfCheck {
         try expect(log.split(separator: "\n").count == 7 && log.contains("\"tool_name\":\"Edit\""), "the log: \(log)")
         step("an edit: followed as the agent's, planning over; the turn's end: a baseline; seven events in the log")
 
+        // Editor context: the file open and the lines selected last go with the next prompt, and are not told again.
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(root + "/Tax.cs")])
+        // Still in visual mode, as when the person types into the agent's pane beside it.
+        func mode(_ wanted: String) async throws {
+            for _ in 0 ..< 50 {
+                if try await session.channel.lua("return vim.fn.mode()").stringValue == wanted { return }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            throw CheckFailure(description: "nvim never in mode \(wanted)")
+        }
+        _ = await session.channel.request("nvim_input", params: [.string("3GVjj")])
+        try await mode("V")
+        let tax = try String(contentsOfFile: root + "/Tax.cs", encoding: .utf8).components(separatedBy: "\n")
+        let prompt: [String: Any] = [
+            "session_id": "check-context", "cwd": root, "hook_event_name": "UserPromptSubmit",
+            "permission_mode": "default", "prompt": "Why does this round twice?",
+        ]
+        let told = try await fire(prompt)
+        let context = try require(
+            ((try? JSONSerialization.jsonObject(with: Data(told.utf8))) as? [String: Any])
+                .flatMap { $0["hookSpecificOutput"] as? [String: Any] }?["additionalContext"] as? String,
+            "the prompt's context: \(told)"
+        )
+        try expect(
+            context.contains("Open in the editor: Tax.cs:5") &&
+                context.contains("Selected, Tax.cs:3-5:\n```\n" + tax[2 ... 4].joined(separator: "\n") + "\n```"),
+            "the file and the selection: \(context)"
+        )
+        // Out of visual mode the same lines are the last selected: nothing new to tell.
+        _ = await session.channel.request("nvim_input", params: [.string("<Esc>")])
+        try await mode("n")
+        let again = try await fire(prompt)
+        try expect(!again.contains("additionalContext"), "nothing new, nothing told: \(again)")
+        step("a prompt is told the file open and the lines selected (Tax.cs:3-5), and not again unchanged")
+
         // An investigation open: an edit is reminded of and noted, a turn without findings marks it stopped.
         let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
         let agent = try McpClient(socket)
@@ -1954,6 +1989,7 @@ final class SelfCheck {
             try expect(at == "a.txt:7", "the editor at \(at), not a.txt:7")
             try expect(window.firstResponder === editor, "the keyboard back with nvim")
             step("⌘-click on src/a.txt:7 in the terminal opened a.txt at line 7 in the editor")
+
 
             // What another app hands over: a sill:// link with a line and column, and a file.
             let app = try require(app, "the app")

@@ -82,10 +82,18 @@ final class Hooks {
 
     // MARK: Events
 
-    /// An event's JSON in, the hook's output out (nothing yet: sill listens, it does not decide).
-    func handle(_ data: Data) -> Data {
+    /// An event's JSON in, the hook's output out: mostly nothing (sill listens, it does not decide), a prompt's
+    /// editor context, an edit's reminder during an investigation.
+    func handle(_ data: Data) async -> Data {
         guard let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return Data() }
         handle(event)
+        if event["hook_event_name"] as? String == "UserPromptSubmit", Settings.shared.current.editorContext,
+           let context = await editorContext(session: event["session_id"] as? String ?? "session")
+        {
+            return (try? JSONSerialization.data(withJSONObject: ["hookSpecificOutput": [
+                "hookEventName": "UserPromptSubmit", "additionalContext": context,
+            ]])) ?? Data()
+        }
         // An edit about to happen while an investigation is open: a reminder, not a refusal.
         if event["hook_event_name"] as? String == "PreToolUse",
            Self.edits.contains(event["tool_name"] as? String ?? ""),
@@ -99,6 +107,35 @@ final class Hooks {
             ]])) ?? Data()
         }
         return Data()
+    }
+
+    /// The editor context each session was told last: only what changed is told again.
+    private var told: [String: EditorContext] = [:]
+    /// A selection older than this is not what a prompt is about.
+    static let selectionAge = 600
+
+    /// What the editor shows, as the agent's prompt gets it: nil when nothing changed since the session's last.
+    private func editorContext(session: String) async -> String? {
+        guard let value = try? await channel.lua("return require'sill'.editor_context()"),
+              let map = value.dictionaryValue
+        else { return nil }
+        func relative(_ path: String?) -> String? { path.map { SillFolder.relative($0, in: root) } }
+        var context = EditorContext(
+            path: relative(map[.string("path")]?.stringValue),
+            line: map[.string("line")]?.integerValue.map { Int($0) },
+            basket: app?.baskets?.current.map { ($0 as NSString).lastPathComponent }
+        )
+        if let selection = map[.string("selection")]?.dictionaryValue,
+           Int(selection[.string("age")]?.integerValue ?? .max) < Self.selectionAge,
+           let path = relative(selection[.string("path")]?.stringValue),
+           let from = selection[.string("from")]?.integerValue, let to = selection[.string("to")]?.integerValue
+        {
+            context.selection = .init(
+                path: path, from: Int(from), to: Int(to), text: selection[.string("text")]?.stringValue ?? ""
+            )
+        }
+        defer { told[session] = context }
+        return context.text(after: told[session])
     }
 
     /// The tools that edit files.

@@ -194,6 +194,18 @@ final class SettingsWindow: NSWindow {
             return field
         }
 
+        row(
+            "Editor context",
+            "With each prompt, the agent is told the file, the lines selected last and the basket open.",
+            in: stack
+        ) {
+            let toggle = NSSwitch()
+            self.bind(["agents", "editor_context"], toggle) { toggle.state = $0.editorContext ? .on : .off } write: {
+                .bool(toggle.state == .on)
+            }
+            return toggle
+        }
+
         section(".NET and heed", in: stack)
         row("dotnet", "Empty finds it: DOTNET_ROOT, your shell's PATH, the usual places.", in: stack) {
             self.field(["dotnet", "path"], variable: "SILL_DOTNET", placeholder: "found automatically", read: \.dotnet)

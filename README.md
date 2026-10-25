@@ -200,6 +200,10 @@ them out). Each hook sends its event to sill over a socket of this worktree's an
 running.
 
 - Every prompt is a review baseline, and so is the end of each turn: a review per prompt.
+- Every prompt is told what you are looking at in sill, so "why does this round twice?" means the code in front of
+  you: the file and line open, the lines selected (still selected, or the last selection of the past ten minutes) and
+  the basket open. Only what changed since the session's last prompt is told again. `editor_context = false` under
+  `[agents]` turns it off.
 - The files the agent's tools edit are followed as its own.
 - Planning is noticed when it starts; the plan opens as a notebook (`.sill/plans/`) with the code it names as cells
   while it is drafted, is marked presented when it is put to you, and an approved plan names the review baseline it

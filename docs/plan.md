@@ -873,6 +873,16 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   notebook keeps its own top: it is a document, monospaced throughout. The colour scheme's palette is held to
   Design.swift's by a test (`ColorSchemeTests`), not generated. Checked in the chrome check (the map in place, not in
   a tab page, and q back to the code); a pane opened as a tab page fails it, and so does a scheme hex changed.
+- Editor context on prompts (2026-10-25, the hooks' next step). A UserPromptSubmit hook is answered with
+  `additionalContext`: the file and line of the last editor window, the selection (the one still in visual mode, as
+  when the person types into the agent's pane beside it, else the last one made, within ten minutes, kept by a
+  ModeChanged autocmd), and the basket open; paths relative to the worktree, a selection cut at 60 lines.
+  `EditorContext` (SillCore) tells only what changed since what the session was told last, so an unchanged view adds
+  nothing to the conversation. `[agents] editor_context` (on by default, a switch in the settings window) turns it
+  off. Checked in the hooks check (Tax.cs:3-5 selected: told with the file; the same again: nothing) and
+  `EditorContextTests`; forgetting what was told fails the check. `:normal!` ends visual mode without ModeChanged, so
+  the check selects with `nvim_input`. Not yet seen in a real Claude Code session: that the context reaches the model
+  is Claude Code's documented behaviour, not checked here.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
