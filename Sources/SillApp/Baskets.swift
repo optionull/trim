@@ -21,6 +21,123 @@ final class Baskets {
         self.channel = channel
         self.directory = directory
         walker = Walker(app: app, channel: channel, directory: directory, pane: "basket")
+        walker.onRead = { [weak self] in Task { await self?.collectMissing() } }
+    }
+
+    // MARK: Context
+
+    /// Where the last symbol added was found: its context is collected for `basket_add`'s answer.
+    private(set) var lastSymbol: (path: String, lines: ClosedRange<Int>)?
+
+    /// What was collected about the pieces of the basket shown.
+    private(set) var context = BasketContext()
+    private var contextOf: String?
+    private var collecting: Set<String> = []
+
+    /// Collects what is not yet known about the pieces of the basket shown (sill's adds, an agent's, hand-written
+    /// ones), one by one, saving as it goes; what is no longer in the basket is forgotten.
+    func collectMissing() async {
+        guard let path = walker.path, let walk = walker.walk else { return }
+        if contextOf != path {
+            context = BasketContext.load(for: path)
+            contextOf = path
+        }
+        var wanted: [(key: String, file: String, lines: ClosedRange<Int>)] = []
+        for (s, step) in walk.steps.enumerated() {
+            for (b, block) in step.blocks.enumerated() {
+                guard case let .code(anchor, _) = block, let place = walker.found[safe: s]?[b], let file = place.path
+                else { continue }
+                wanted.append((anchor.text, file, place.from ... max(place.to, place.from)))
+            }
+        }
+        let keys = Set(wanted.map(\.key))
+        let stale = context.pieces.keys.filter { !keys.contains($0) }
+        for key in stale {
+            context.pieces[key] = nil
+        }
+        if !stale.isEmpty { context.save(for: path) }
+        for piece in wanted where context.pieces[piece.key] == nil && !collecting.contains(path + piece.key) {
+            collecting.insert(path + piece.key)
+            let found = await collect(file: piece.file, lines: piece.lines)
+            collecting.remove(path + piece.key)
+            guard contextOf == path else { return }
+            context.pieces[piece.key] = found
+            context.save(for: path)
+            walker.onChange?()
+        }
+    }
+
+    /// Collects a piece's context now and keeps it: what `basket_add` tells the agent.
+    func facts(for key: String, file: String, lines: ClosedRange<Int>, basket: String) async -> [String] {
+        let piece = await collect(file: file, lines: lines)
+        var saved = BasketContext.load(for: basket)
+        saved.pieces[key] = piece
+        saved.save(for: basket)
+        if contextOf == basket {
+            context.pieces[key] = piece
+            walker.onChange?()
+        }
+        return BasketContext(pieces: [key: piece]).text(key)
+    }
+
+    /// What is known about a file's lines: its project, the symbol around them (from the language server), the tests
+    /// that reach it, the lines' history and their problems.
+    func collect(file: String, lines: ClosedRange<Int>) async -> BasketContext.Piece {
+        var piece = BasketContext.Piece()
+        let relative = SillFolder.relative(file, in: directory)
+        var tests: [String] = []
+        if let map = await app?.mapper.current() {
+            let root = walker.root
+            let owner = map.projects.filter { $0.folder.isEmpty || relative.hasPrefix($0.folder + "/") }
+                .max { $0.folder.count < $1.folder.count }
+            piece.project = owner?.name
+            piece.projectKind = owner?.kind.rawValue
+            tests = map.projects.filter { $0.kind == .test }.map { root + "/" + $0.folder }
+        }
+        // The language server, asked without making nvim wait.
+        if let token = try? await channel.lua(
+            "return require'sill.context'.ask(...)",
+            args: [
+                .string(file),
+                .int(Int64(lines.lowerBound)),
+                .int(Int64(lines.upperBound)),
+                .array(tests.map { .string($0) }),
+            ]
+        ).integerValue {
+            for _ in 0 ..< 600 {
+                if let answer = try? await channel.lua("return require'sill.context'.take(...)", args: [.int(token)]),
+                   let map = answer.dictionaryValue
+                {
+                    piece.symbol = map[.string("symbol")]?.stringValue
+                    if let hover = map[.string("hover")]?.stringValue {
+                        (piece.signature, piece.summary) = BasketContext.hover(hover)
+                    }
+                    piece.tests = (map[.string("tests")]?.arrayValue ?? []).compactMap { value in
+                        guard let test = value.dictionaryValue, let path = test[.string("path")]?.stringValue else {
+                            return nil
+                        }
+                        return BasketContext.Test(
+                            name: test[.string("name")]?.stringValue ?? "?",
+                            path: SillFolder.relative(path, in: directory),
+                            line: Int(test[.string("line")]?.integerValue ?? 1)
+                        )
+                    }.sorted { ($0.path, $0.line) < ($1.path, $1.line) }
+                    piece.problems = (map[.string("problems")]?.arrayValue ?? []).compactMap(\.stringValue)
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+        }
+        // The lines' history, without the patches.
+        let root = walker.root
+        let log = await Task.detached {
+            Review.git([
+                "log", "-L", "\(lines.lowerBound),\(lines.upperBound):\(relative)", "-s",
+                "--format=%h%x09%an%x09%as%x09%s",
+            ], in: root) ?? ""
+        }.value
+        (piece.changes, piece.last) = BasketContext.history(log)
+        return piece
     }
 
     /// `.sill/baskets`, made when first asked for.
@@ -153,7 +270,7 @@ final class Baskets {
     }
 
     /// The anchor for a file's lines: from the repository's root, the whole file when no lines.
-    private func anchor(_ path: String, _ lines: ClosedRange<Int>?) -> String {
+    func anchor(_ path: String, _ lines: ClosedRange<Int>?) -> String {
         // From the worktree's root, whichever worktree of the repository the path is in.
         let relative = SillFolder.relative(path, in: directory)
         guard let lines else { return relative }
@@ -210,6 +327,7 @@ final class Baskets {
         let print = BasketFile.fingerprint(Self.lines(of: path, Int(from) ... Int(max(to, from))))
         guard let target = basket ?? current else { return "No basket to add to" }
         edit(target) { BasketFile.adding($0, anchor: symbol, fingerprint: print, note: note, section: section) }
+        lastSymbol = (path, Int(from) ... Int(max(to, from)))
         return nil
     }
 
@@ -252,6 +370,7 @@ final class Baskets {
             walker.open(path)
         }
         await walker.read()
+        await collectMissing()
         guard let basket = walker.walk else { return nil }
         let root = walker.root
         var out: [String] = []
@@ -272,6 +391,7 @@ final class Baskets {
                     out.append("```")
                     out += place.lines.prefix(120).enumerated().map { "\(place.from + $0.offset)\t\($0.element)" }
                     out.append("```")
+                    if case let .code(anchor, _) = block { out += context.text(anchor.text) }
                 case let .trace(symbol, callers, _, _):
                     out
                         .append(walker

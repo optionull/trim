@@ -763,6 +763,21 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   Checked: `SillFolderTests` (both worktrees resolve to one, the merge, the relative paths, git clean in the
   feature worktree), the investigate check (a file added from a second worktree is stored relative and read here),
   reviewwalk (absolute `#:project`).
+- Basket context (2026-10-25, owner: collect metadata as pieces go in, in a separate file: "human readable is a
+  feature too"). `SillCore.BasketContext`, kept as `<name>.basket.context.json` by anchor: project and kind (the code
+  map), symbol, signature and summary (the first sentence of the hover's prose), tests (references in test projects'
+  folders, named by the symbol around each), the lines' history (`git log -L a,b:file -s`: count and the newest), and
+  diagnostics in range. `sill.context` asks the language server without making nvim wait (documentSymbol, hover,
+  references, documentSymbol per test file); `Baskets.collectMissing` runs after every read of the basket shown, for
+  pieces of any origin, saving as it goes and forgetting anchors no longer in the basket; `basket_add` waits for the
+  piece's context and answers with it; `basket_read` includes it. The notebook: chips after each piece's heading,
+  `i` for its details, a third left menu (Context: projects, tests, who changed it last; Tab cycles). TraceShop has a
+  test project now (`ReportTests.Prints` calls `Report.Print`; a `.slnx` so Roslyn loads both).
+  - Checked: `BasketContextTests` (history, hover, chips by day, the agent's lines, the overview, the file; mutations
+    of each fail them), the basket check (Pricing.cs:3-7: TraceShop, Total, one change "base"; the file beside, the
+    basket without it; chips, the Context menu, `i`), the investigate check (`basket_add` of Report.cs answers that
+    `Prints` reaches it); not saving the context fails the basket check.
+  - Not yet: the agent's summary of a basket on request.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

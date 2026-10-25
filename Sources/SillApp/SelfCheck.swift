@@ -1081,6 +1081,7 @@ final class SelfCheck {
                 "section": "The tax",
             ], "Added Pricing.cs:3-7."),
             (["basket": name, "path": "Report.cs", "section": "Who reaches it"], "Added Report.cs."),
+
             // From another worktree of the repository: stored from the root, read where sill is open.
             (
                 ["basket": name, "path": root + "-feature/Program.cs", "from": 2, "to": 3, "section": "Who reaches it"],
@@ -1088,7 +1089,14 @@ final class SelfCheck {
             ),
         ] as [([String: Any], String)] {
             let added = try await agent.call("basket_add", arguments)
-            try expect(added == answer, "basket_add: \(added)")
+            try expect(added.hasPrefix(answer), "basket_add: \(added)")
+            // What sill found about it comes with the answer: Report is reached by a test.
+            if answer == "Added Report.cs." {
+                try expect(
+                    added.contains("Tests reaching it: Prints") && added.contains("Context: in TraceShop"),
+                    "Report.cs's context: \(added)"
+                )
+            }
         }
         _ = try await agent.call("basket_note", [
             "basket": name, "text": "@trace Pricing.Total callers 2", "section": "Who reaches it",
@@ -1211,8 +1219,37 @@ final class SelfCheck {
         ), "Tab"))
         try expect(view.side == .files, "Tab shows the files")
         view.display()
-        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] { try self.shot(to: shot) }
         step("the notebook: Pricing.cs and Tax.cs in its files menu (Tab)")
+
+        // What sill collected about the pieces, beside the basket.
+        let collected = try await waitFor("Pricing.cs:3-7's context", timeout: .seconds(60)) {
+            baskets.context.pieces["Pricing.cs:3-7"].flatMap { $0.symbol != nil && $0.last != nil ? $0 : nil }
+        }
+        try expect(
+            collected.project == "TraceShop" && collected.symbol?.contains("Total") == true &&
+                collected.changes == 1 && collected.last?.subject == "base",
+            "the context: \(collected)"
+        )
+        try expect(FileManager.default.fileExists(atPath: BasketContext.file(for: path)), "kept beside the basket")
+        try expect(!source().contains("TraceShop"), "the basket itself stays prose: \(source())")
+        let chips = baskets.context.chips("Pricing.cs:3-7")
+        try expect(chips.first == "TraceShop" && chips.contains { $0.hasPrefix("1 change, last") }, "chips: \(chips)")
+        try view.handleKey(require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48
+        ), "Tab"))
+        try expect(view.side == .context, "Tab again shows the context")
+        let projects = view.overview?().first { $0.heading == "Projects" }?.rows ?? []
+        try expect(projects.first?.hasPrefix("TraceShop") == true, "the projects: \(projects)")
+        try view.handleKey(require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "i", charactersIgnoringModifiers: "i", isARepeat: false, keyCode: 34
+        ), "i"))
+        try expect(!view.expanded.isEmpty, "i opens the piece's context")
+        view.display()
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] { try self.shot(to: shot) }
+        step("context collected beside the basket: Pricing.cs:3-7 in TraceShop, \(collected.symbol ?? ""), " +
+            "\(collected.changes) change (\"\(collected.last?.subject ?? "")\"); chips, the Context menu, i for details")
 
         // The code moves on: the piece that shows it is marked.
         let pricing = try String(contentsOfFile: root + "/Pricing.cs", encoding: .utf8)

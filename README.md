@@ -232,7 +232,13 @@ Baskets are files, `.sill/baskets/*.basket.md` (one `.sill` for the repository, 
 whichever worktree you open, its paths read in the worktree you are in), in the walkthrough format (`@code` anchors with a fingerprint of the
 code when it was added, notes as prose, `@trace Symbol callers 2` for a call tree), private to the repository. They
 show as a notebook: a piece whose code has changed since it was added is marked, and the left menu switches (Tab)
-between the outline and the files the basket touches.
+between the outline, the files the basket touches, and its context.
+
+As a piece goes in, sill collects what it can about it, beside the basket (`*.basket.context.json`, so the basket
+stays prose): its project, the symbol around it with its signature and the first sentence of its documentation, the
+tests that reach it, how often its lines changed and the last commit, and the problems in it. The facts show next to
+the piece's heading, `i` opens them, the Context menu sums them up across the basket (projects, tests, who changed
+the code last), and agents get them with the code (`basket_read`, and in `basket_add`'s answer).
 
 ![A basket: its question and status, the pieces with their notes and code, and the files menu](docs/showcase-basket-2026-10-25.png)
 

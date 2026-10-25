@@ -46,6 +46,8 @@ final class Walker {
     /// The anchors (by line) whose code is no longer what their fingerprint says: changed since they were added.
     private(set) var moved: Set<Int> = []
     var onChange: (() -> Void)?
+    /// Called each time it has read its file and found its anchors.
+    var onRead: (() -> Void)?
     private var handled = 0
     /// The pane it shows in: walkthroughs', or baskets'.
     let pane: String
@@ -165,6 +167,7 @@ final class Walker {
         }
         resolving = false
         changed()
+        onRead?()
         await readTraces(walk)
         return problems
     }

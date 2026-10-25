@@ -24,6 +24,14 @@ public struct Walkthrough: Equatable, Sendable {
         case symbol(String, lines: ClosedRange<Int>?)
         /// A file relative to the walkthrough's folder or absolute, and lines of it.
         case file(String, lines: ClosedRange<Int>?)
+
+        /// As it is written after `@code`: `Pricing.Total`, `Pricing.Total lines 3-9`, `src/Pricing.cs:12-30`.
+        public var text: String {
+            switch self {
+            case let .symbol(name, lines): name + (lines.map { " lines \($0.lowerBound)-\($0.upperBound)" } ?? "")
+            case let .file(path, lines): path + (lines.map { ":\($0.lowerBound)-\($0.upperBound)" } ?? "")
+            }
+        }
     }
 
     public enum Block: Equatable, Sendable {

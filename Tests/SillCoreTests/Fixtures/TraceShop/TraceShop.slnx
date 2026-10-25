@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="TraceShop.csproj" />
+  <Project Path="tests/TraceShop.Tests/TraceShop.Tests.csproj" />
+</Solution>

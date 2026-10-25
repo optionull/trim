@@ -12,11 +12,18 @@ final class WalkView: NSView, ToolContent {
     let walker: Walker
     /// A basket's notebook rather than a walkthrough's.
     let basket: Bool
-    enum Menu { case outline, files }
+    enum Menu { case outline, files, context }
     private(set) var side: Menu = .outline
     /// For baskets: a piece's anchor removed (its line), the basket sent with a question.
     var onRemove: ((Int) -> Void)?
     var onSend: (() -> Void)?
+    /// For baskets: what was collected about a piece (by its anchor): short facts for its heading, and the lines its
+    /// details show; and across the basket, for the Context menu.
+    var chips: ((String) -> [String])?
+    var details: ((String) -> [String])?
+    var overview: (() -> [(heading: String, rows: [String])])?
+    /// The pieces whose details show (`i`), by anchor line.
+    private(set) var expanded: Set<Int> = []
     /// Where each piece of code starts in the document, by its file, in order.
     private(set) var fileTops: [(path: String, top: CGFloat, moved: Bool)] = []
     private var fileFrames: [(String, NSRect)] = []
@@ -99,7 +106,11 @@ final class WalkView: NSView, ToolContent {
             return
         }
         drawDocument(walk)
-        if side == .files { drawFiles() } else { drawOutline(walk) }
+        switch side {
+        case .files: drawFiles()
+        case .context: drawContext()
+        case .outline: drawOutline(walk)
+        }
     }
 
     /// The menu's heading: OUTLINE alone for a walkthrough, OUTLINE · FILES (Tab) for a basket.
@@ -109,10 +120,48 @@ final class WalkView: NSView, ToolContent {
         guard basket else { return }
         let files = text("FILES", 11, side == .files ? Design.text : Design.textMuted, weight: .semibold)
         files.draw(at: NSPoint(x: 36 + outlineLabel.size().width, y: 20))
+        let context = text("CONTEXT", 11, side == .context ? Design.text : Design.textMuted, weight: .semibold)
+        let contextX = 52 + outlineLabel.size().width + files.size().width
+        context.draw(at: NSPoint(x: contextX, y: 20))
         fileFrames.append(("menu:outline", NSRect(x: 12, y: 12, width: outlineLabel.size().width + 16, height: 28)))
         fileFrames.append(("menu:files", NSRect(
             x: 28 + outlineLabel.size().width, y: 12, width: files.size().width + 16, height: 28
         )))
+        fileFrames.append(("menu:context", NSRect(x: contextX - 8, y: 12, width: context.size().width + 16, height: 28)))
+    }
+
+    // MARK: The context
+
+    /// Across the pieces: the projects they are in, the tests that reach them, who changed them last.
+    private func drawContext() {
+        Design.chrome.setFill()
+        NSRect(x: 0, y: 0, width: outline, height: bounds.height).fill()
+        fileFrames = []
+        drawMenuHeading()
+        var y: CGFloat = 46
+        let sections = overview?() ?? []
+        for section in sections where !section.rows.isEmpty {
+            text(section.heading.uppercased(), 10, Design.textFaint, weight: .semibold).draw(at: NSPoint(
+                x: 20,
+                y: y + 4
+            ))
+            y += 22
+            for row in section.rows {
+                text(row, 12, Design.text).draw(
+                    with: NSRect(x: 20, y: y + 3, width: outline - 34, height: 18),
+                    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
+                )
+                y += 22
+            }
+            y += 8
+        }
+        if sections.allSatisfy(\.rows.isEmpty) {
+            text("Collecting…", 12, Design.textFaint).draw(at: NSPoint(x: 20, y: y + 4))
+        }
+        text("Tab outline · i a piece's context", 11, Design.textFaint).draw(
+            with: NSRect(x: 20, y: bounds.height - 44, width: outline - 32, height: 36),
+            options: [.usesLineFragmentOrigin]
+        )
     }
 
     // MARK: The files
@@ -161,7 +210,7 @@ final class WalkView: NSView, ToolContent {
         if pieces.isEmpty {
             text("No code in it yet.", 12, Design.textFaint).draw(at: NSPoint(x: 20, y: y + 4))
         }
-        text("Tab outline · ↵ open · x remove · s send", 11, Design.textFaint).draw(
+        text("Tab context · ↵ open · x remove · s send", 11, Design.textFaint).draw(
             with: NSRect(x: 20, y: bounds.height - 44, width: outline - 32, height: 36),
             options: [.usesLineFragmentOrigin]
         )
@@ -208,7 +257,7 @@ final class WalkView: NSView, ToolContent {
             y += 30
         }
         text(
-            basket ? "Tab files · j/k scroll · n/p sections · o open · x remove · s send" :
+            basket ? "Tab files · i context · j/k scroll · n/p sections · o open · x remove · s send" :
                 "j/k scroll · n/p sections · o open · a ask · e run · r read again",
             11,
             Design.textFaint
@@ -329,10 +378,12 @@ final class WalkView: NSView, ToolContent {
                             actionFrames.append(("remove", "\(line)", rect))
                         }
                         let removeAt = y
+                        let facts = basket ? (chips?(anchor.text) ?? []) : []
                         box(
                             "\((file as NSString).lastPathComponent):\(place.from)–\(place.to)" +
                                 (place.by == "text" ? " · found by its text" : "") +
-                                (moved ? " · changed since it was added" : ""),
+                                (moved ? " · changed since it was added" : "") +
+                                (facts.isEmpty ? "" : "   " + facts.joined(separator: " · ")),
                             rows,
                             action: ("Open", "open", "\(index):\(blockIndex)"),
                             tint: moved ? Design.modified.withAlphaComponent(0.1) : Design.chrome
@@ -340,6 +391,14 @@ final class WalkView: NSView, ToolContent {
                         if basket, removeAt + 28 > 0, removeAt < bounds.height {
                             let remove = text("Remove", 12, Design.textMuted, weight: .semibold)
                             remove.draw(at: NSPoint(x: left + width - remove.size().width - 83, y: removeAt + 9))
+                        }
+                        if basket, expanded.contains(line) {
+                            let lines = details?(anchor.text) ?? []
+                            box(
+                                "context",
+                                (lines.isEmpty ? ["Collecting…"] : lines).map { text($0, 12, Design.textMuted) },
+                                tint: Design.chrome.withAlphaComponent(0.6)
+                            )
                         }
                     } else {
                         write(text(
@@ -436,6 +495,7 @@ final class WalkView: NSView, ToolContent {
             switch key {
             case "menu:outline": side = .outline
             case "menu:files": side = .files
+            case "menu:context": side = .context
             default: show(file: key)
             }
             needsDisplay = true
@@ -501,7 +561,18 @@ final class WalkView: NSView, ToolContent {
         if basket {
             switch event.characters ?? "" {
             case "\t":
-                side = side == .outline ? .files : .outline
+                side = switch side {
+                case .outline: .files
+                case .files: .context
+                case .context: .outline
+                }
+                needsDisplay = true
+                return true
+            case "i":
+                // The details of the first piece in view.
+                if let line = pieceInView() {
+                    if expanded.contains(line) { expanded.remove(line) } else { expanded.insert(line) }
+                }
                 needsDisplay = true
                 return true
             case "s":

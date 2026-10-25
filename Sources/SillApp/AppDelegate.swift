@@ -92,6 +92,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let view = WalkView(walker: baskets.walker, basket: true)
             baskets.walker.onChange = { [weak view] in view?.changed() }
             view.onRemove = { [weak self] line in self?.baskets.remove(anchorAt: line) }
+            view.chips = { [weak self] anchor in self?.baskets.context.chips(anchor) ?? [] }
+            view.details = { [weak self] anchor in self?.baskets.context.text(anchor) ?? [] }
+            view.overview = { [weak self] in
+                guard let overview = self?.baskets.context.overview else { return [] }
+                return [
+                    ("Projects", overview.projects.map { "\($0.0)  \($0.1)" }),
+                    (
+                        "Tests that reach it",
+                        overview.tests.map { "\($0.name)  \(($0.path as NSString).lastPathComponent):\($0.line)" }
+                    ),
+                    ("Last changed by", overview.authors.map { "\($0.0)  \($0.1)" }),
+                ]
+            }
             view.onSend = { [weak self] in
                 // The question, typed on nvim's command line.
                 self?.editor.window?.makeFirstResponder(self?.editor)

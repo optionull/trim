@@ -218,7 +218,9 @@ final class AgentBridge {
                         ) {
                             return ToolResult(problem, isError: true)
                         }
-                        return ToolResult("Added \(symbol).")
+                        guard let found = baskets.lastSymbol else { return ToolResult("Added \(symbol).") }
+                        let facts = await baskets.facts(for: symbol, file: found.path, lines: found.lines, basket: path)
+                        return ToolResult((["Added \(symbol)."] + facts).joined(separator: "\n"))
                     }
                     guard let file = asked.path.map(bridge.absolute),
                           FileManager.default.fileExists(atPath: file)
@@ -227,8 +229,15 @@ final class AgentBridge {
                     }
                     let lines = asked.from.map { from in from ... max(asked.to ?? from, from) }
                     baskets.add(path: file, lines: lines, note: asked.note, section: asked.section, basket: path)
-                    return ToolResult("Added \(SillFolder.relative(file, in: bridge.directory))" +
-                        (lines.map { ":\($0.lowerBound)-\($0.upperBound)" } ?? "") + ".")
+                    let whole = 1 ... max(
+                        (try? String(contentsOfFile: file, encoding: .utf8))?
+                            .components(separatedBy: "\n").count ?? 1,
+                        1
+                    )
+                    let facts = await baskets.facts(
+                        for: baskets.anchor(file, lines), file: file, lines: lines ?? whole, basket: path
+                    )
+                    return ToolResult((["Added \(baskets.anchor(file, lines))."] + facts).joined(separator: "\n"))
                 } ?? gone
             },
             Tool(
