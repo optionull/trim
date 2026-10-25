@@ -1241,6 +1241,13 @@ final class SelfCheck {
         try expect(view.side == .context, "Tab again shows the context")
         let projects = view.overview?().first { $0.heading == "Projects" }?.rows ?? []
         try expect(projects.first?.hasPrefix("TraceShop") == true, "the projects: \(projects)")
+        _ = try await waitFor("every piece's context", timeout: .seconds(60)) {
+            Set(baskets.context.pieces.keys) == ["Pricing.cs:3-7", "Tax.cs"] ? true : nil
+        }
+        try expect(
+            view.overview?().first { $0.heading == "Projects" }?.rows == ["TraceShop  2"],
+            "two pieces, no stale ones: \(baskets.context.pieces.keys.sorted())"
+        )
         try view.handleKey(require(NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
             characters: "i", charactersIgnoringModifiers: "i", isARepeat: false, keyCode: 34

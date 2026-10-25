@@ -61,6 +61,12 @@ final class Baskets {
             let found = await collect(file: piece.file, lines: piece.lines)
             collecting.remove(path + piece.key)
             guard contextOf == path else { return }
+            // The basket may have moved on while it was collected (lines joined, a piece removed).
+            let now = Set(walker.walk?.steps.flatMap(\.blocks).compactMap { block -> String? in
+                if case let .code(anchor, _) = block { return anchor.text }
+                return nil
+            } ?? [])
+            guard now.contains(piece.key) else { continue }
             context.pieces[piece.key] = found
             context.save(for: path)
             walker.onChange?()
