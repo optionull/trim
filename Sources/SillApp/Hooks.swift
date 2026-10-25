@@ -23,6 +23,8 @@ final class Hooks {
     /// The events seen, by name, and the last plan's notebook: for the self-check.
     private(set) var seen: [String] = []
     private(set) var lastPlan: String?
+    /// Each session's plan notebook, from its first draft until it is approved.
+    private var plans: [String: String] = [:]
     private var handled = 0
 
     init(app: AppDelegate, channel: NvimChannel, directory: String) {
@@ -122,16 +124,25 @@ final class Hooks {
             let prompt = (event["prompt"] as? String ?? "").replacingOccurrences(of: "\n", with: " ")
             app?.reviewer?.mark("prompt: " + (prompt.count > 40 ? prompt.prefix(40) + "…" : prompt))
         case "PreToolUse" where tool == "ExitPlanMode":
-            if let plan = input["plan"] as? String { presented(plan) }
+            if let plan = input["plan"] as? String { showPlan(plan, session: session, status: "presented") }
         case "PostToolUse" where tool == "ExitPlanMode":
             let response = event["tool_response"] as? [String: Any]
-            approved((response?["plan"] as? String) ?? (input["plan"] as? String))
+            approved((response?["plan"] as? String) ?? (input["plan"] as? String), session: session)
         case "PostToolUse" where Self.edits.contains(tool ?? ""):
-            if let path = (input["file_path"] ?? input["notebook_path"]) as? String {
-                let absolute = path.hasPrefix("/") ? path : (root as NSString).appendingPathComponent(path)
-                app?.follower?.agentWrote(absolute)
-                app?.baskets?.editedWhileInvestigating(absolute, tool: tool ?? "")
+            guard let path = (input["file_path"] ?? input["notebook_path"]) as? String else { break }
+            let absolute = path.hasPrefix("/") ? path : (root as NSString).appendingPathComponent(path)
+            // Planning, Claude writes its plan to ~/.claude/plans: shown as it is drafted.
+            if absolute.contains("/.claude/plans/"), absolute.hasSuffix(".md") {
+                if let draft = try? String(contentsOfFile: absolute, encoding: .utf8) {
+                    showPlan(draft, session: session, status: "drafting")
+                }
+                break
             }
+            // What is outside this worktree is no one's change here.
+            let real = realpath(absolute, nil).map { String(cString: $0) } ?? absolute
+            guard real.hasPrefix(root + "/") || absolute.hasPrefix(root + "/") else { break }
+            app?.follower?.agentWrote(absolute)
+            app?.baskets?.editedWhileInvestigating(absolute, tool: tool ?? "")
         case "Stop":
             app?.reviewer?.mark("turn ended")
             app?.baskets?.turnEnded()
@@ -139,21 +150,24 @@ final class Hooks {
         }
     }
 
-    /// A plan presented for approval: a notebook in `.sill/plans`, shown.
-    private func presented(_ plan: String) {
+    /// A session's plan as a notebook in `.sill/plans` (drafting as it is written, presented for approval): one
+    /// notebook per plan, written again as it changes, shown.
+    private func showPlan(_ plan: String, session: String, status: String) {
         let folder = SillFolder.path(for: directory) + "/plans"
         try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let source = PlanFile.notebook(plan, root: root)
-        let path = folder + "/" + PlanFile.fileName(title: Walkthrough(source).title, at: Date())
+        let source = PlanFile.notebook(plan, root: root, status: status)
+        let path = plans[session] ?? folder + "/" + PlanFile.fileName(title: Walkthrough(source).title, at: Date())
         try? source.write(toFile: path, atomically: true, encoding: .utf8)
+        plans[session] = path
         lastPlan = path
-        app?.walker?.open(path)
+        if app?.walker?.path == path { Task { await app?.walker?.read() } } else { app?.walker?.open(path) }
     }
 
     /// The plan approved: its notebook says so, and the worktree now is a baseline named after it.
-    private func approved(_ plan: String?) {
-        if lastPlan == nil, let plan { presented(plan) }
-        guard let path = lastPlan, let source = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+    private func approved(_ plan: String?, session: String) {
+        if plans[session] == nil, let plan { showPlan(plan, session: session, status: "presented") }
+        defer { plans[session] = nil }
+        guard let path = plans[session], let source = try? String(contentsOfFile: path, encoding: .utf8) else { return }
         try? BasketFile.setting(source, "status", to: "approved").write(toFile: path, atomically: true, encoding: .utf8)
         app?.reviewer?.mark("plan approved: " + Walkthrough(source).title, joining: true)
         if app?.walker?.path == path { Task { await app?.walker?.read() } }
@@ -200,7 +214,6 @@ final class Hooks {
     /// sill's hooks into the project's local settings, beside what is there; the file as it was is kept beside it.
     func install() {
         guard let server else { return say("sill's hook socket is not running") }
-        write(HookSettings.installing(server.command, marker: Self.marker, in: readSettings()))
         // Never committed, nor its backup: where git would see them, this clone ignores them.
         let names = [".claude/settings.local.json", ".claude/settings.local.json.before-sill"]
         if names.contains(where: { Review.git(["check-ignore", "-q", $0], in: root) == nil }),
@@ -213,6 +226,8 @@ final class Hooks {
                     .write(toFile: exclude, atomically: true, encoding: .utf8)
             }
         }
+        // Written once git ignores them, so the follower never takes them for anyone's change.
+        write(HookSettings.installing(server.command, marker: Self.marker, in: readSettings()))
         say("sill's hooks are in \(localSettings): agents here tell sill what they do")
     }
 

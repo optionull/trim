@@ -819,6 +819,17 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   open marks it `stopped` and says so, and `f` in the basket asks the agent for findings. Checked in the hooks check
   (the reminder in the hook's answer, the note, stopped, `f`'s prompt, nothing once concluded); not marking stopped
   fails it. The check runs hooks off the main thread now: sill answers on it, so a check waiting there got no answer.
+- Hooks against real Claude Code (2.1.306, 2026-10-25, owner's go-ahead; two `claude -p --model haiku` runs in a
+  scratch copy of TraceShop, with a capture-only hook on ten events). Confirmed: UserPromptSubmit has `prompt` and
+  `permission_mode`; Edit's `tool_input.file_path` is absolute (`/private/tmp/…`); `permission_mode` is on every
+  event but SessionStart and SessionEnd; Stop has `last_assistant_message` (for session replay). In plan mode the
+  agent writes its plan with the Write tool to `~/.claude/plans/<name>.md` before presenting it: sill followed that
+  as an edit. Now a Write or Edit to a `.claude/plans/*.md` shows the plan as a drafting notebook (one per session,
+  presented and approved in the same file), and edits outside the worktree are not followed (compared through
+  realpath). `ExitPlanMode` is not available in `-p` runs, so a presented, approved or rejected plan was not seen
+  for real; sill's own install was also written before git ignored it, and the follower took its backup for a change
+  (it is excluded first now). Checked in the hooks check (the draft, then presented into the same notebook; the plan
+  file and another file outside not followed); not guarding outside paths fails it.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

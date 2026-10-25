@@ -1087,13 +1087,43 @@ final class SelfCheck {
         step("a prompt in plan mode: planning noticed, a baseline named after the prompt")
 
         let plan = "# Round the tax once\n\n## Steps\n1. Stop rounding in Tax.cs:5.\n2. Round in Pricing.cs:6."
+        // As Claude Code does it (seen in a real session): the plan written to ~/.claude/plans first.
+        let plans = NSTemporaryDirectory() + "sill-check-home/.claude/plans"
+        try FileManager.default.createDirectory(atPath: plans, withIntermediateDirectories: true)
+        try plan.write(toFile: plans + "/round-tax.md", atomically: true, encoding: .utf8)
+        try await fire(base.merging([
+            "hook_event_name": "PostToolUse", "permission_mode": "plan", "tool_name": "Write",
+            "tool_input": ["file_path": plans + "/round-tax.md", "content": plan],
+        ]) { $1 })
+        let draft = try await waitFor("the draft shown") { hooks.lastPlan }
+        _ = try await waitFor("drafting") {
+            (try? String(contentsOfFile: draft, encoding: .utf8))?.contains("status: drafting") == true ? true : nil
+        }
+        // Another file outside the worktree: no one's change here.
+        let elsewhere = NSTemporaryDirectory() + "sill-check-elsewhere.txt"
+        try "x".write(toFile: elsewhere, atomically: true, encoding: .utf8)
+        try await fire(base.merging([
+            "hook_event_name": "PostToolUse", "permission_mode": "plan", "tool_name": "Write",
+            "tool_input": ["file_path": elsewhere],
+        ]) { $1 })
+        try await Task.sleep(for: .milliseconds(500))
+        try expect(
+            app.follower?.touched.keys.contains {
+                $0.contains("round-tax") || $0.contains("elsewhere") || $0.contains(".claude/")
+            } != true,
+            "files outside the worktree are not followed: \(app.follower?.touched.keys.sorted() ?? [])"
+        )
         try await fire(base.merging([
             "hook_event_name": "PreToolUse",
             "permission_mode": "plan",
             "tool_name": "ExitPlanMode",
             "tool_input": ["plan": plan],
         ]) { $1 })
-        let notebook = try await waitFor("the plan's notebook") { hooks.lastPlan }
+        let notebook = try await waitFor("the plan's notebook") {
+            (try? String(contentsOfFile: draft, encoding: .utf8))?.contains("status: presented") == true ? hooks
+                .lastPlan : nil
+        }
+        try expect(notebook == draft, "the same notebook, drafted then presented")
         try await wait("the plan shown") { $0.currentPaneKind == "walk" }
         let walk = Walkthrough((try? String(contentsOfFile: notebook, encoding: .utf8)) ?? "")
         try expect(
@@ -1122,7 +1152,10 @@ final class SelfCheck {
                 (try? String(contentsOfFile: notebook, encoding: .utf8))?
                 .contains("status: approved") == true ? true : nil
         }
-        step("the plan presented: a notebook in .sill/plans with the code it names, shown; approved: a baseline")
+        step(
+            "the plan drafted (a Write to ~/.claude/plans, not followed) then presented: one notebook in .sill/plans " +
+                "with the code it names, shown; approved: a baseline"
+        )
 
         let pricing = root + "/Pricing.cs"
         try (String(contentsOfFile: pricing, encoding: .utf8)).replacingOccurrences(of: "3.5m", with: "3.6m")
@@ -1140,8 +1173,8 @@ final class SelfCheck {
             names().last == "turn ended" ? true : nil
         }
         let log = (try? String(contentsOfFile: root + "/.sill/sessions/check-1.jsonl", encoding: .utf8)) ?? ""
-        try expect(log.split(separator: "\n").count == 5 && log.contains("\"tool_name\":\"Edit\""), "the log: \(log)")
-        step("an edit: followed as the agent's, planning over; the turn's end: a baseline; five events in the log")
+        try expect(log.split(separator: "\n").count == 7 && log.contains("\"tool_name\":\"Edit\""), "the log: \(log)")
+        step("an edit: followed as the agent's, planning over; the turn's end: a baseline; seven events in the log")
 
         // An investigation open: an edit is reminded of and noted, a turn without findings marks it stopped.
         let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }

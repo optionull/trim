@@ -179,8 +179,9 @@ running.
 
 - Every prompt is a review baseline, and so is the end of each turn: a review per prompt.
 - The files the agent's tools edit are followed as its own.
-- Planning is noticed when it starts; a plan presented for approval opens as a notebook (`.sill/plans/`) with the
-  code it names as cells, and an approved plan names the review baseline it starts from.
+- Planning is noticed when it starts; the plan opens as a notebook (`.sill/plans/`) with the code it names as cells
+  while it is drafted, is marked presented when it is put to you, and an approved plan names the review baseline it
+  starts from.
 - Each session's events are logged in `.sill/sessions/<session>.jsonl`.
 - While an agent's investigation is open, an edit gets a reminder that investigations are read-only (it is not
   refused) and is noted in the basket; a turn that ends without findings marks the basket *stopped*, and `f` in it asks
