@@ -25,15 +25,24 @@ public struct EditorContext: Equatable, Sendable {
     public var selection: Selection?
     /// The basket open, by its file's name.
     public var basket: String?
+    /// The branch's pull request, when something about it needs attention or is awaited.
+    public var pullRequest: String?
 
     /// The most lines of a selection given in full; more are cut, with how many.
     public static let selectionLines = 60
 
-    public init(path: String? = nil, line: Int? = nil, selection: Selection? = nil, basket: String? = nil) {
+    public init(
+        path: String? = nil,
+        line: Int? = nil,
+        selection: Selection? = nil,
+        basket: String? = nil,
+        pullRequest: String? = nil
+    ) {
         self.path = path
         self.line = line
         self.selection = selection
         self.basket = basket
+        self.pullRequest = pullRequest
     }
 
     /// The context as the agent reads it, with what `last` (the context told before) already said left out; nil when
@@ -52,6 +61,9 @@ public struct EditorContext: Equatable, Sendable {
         }
         if let basket, basket != last?.basket {
             lines.append("Open basket: .sill/baskets/\(basket)")
+        }
+        if let pullRequest, pullRequest != last?.pullRequest {
+            lines.append("The branch's pull request \(pullRequest) (sill's pull_request tool has its details)")
         }
         guard !lines.isEmpty else { return nil }
         return "In sill, the editor beside this session (the person's view; \"this\" and \"here\" may mean it):\n" +

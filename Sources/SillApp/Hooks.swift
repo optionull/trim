@@ -117,12 +117,13 @@ final class Hooks {
     /// What the editor shows, as the agent's prompt gets it: nil when nothing changed since the session's last.
     private func editorContext(session: String) async -> String? {
         // Nothing open is an empty table, which comes as an array: the basket and the pull request are still told.
-        let map = (try? await channel.lua("return require'sill'.editor_context()"))?.dictionaryValue ?? [:]
+        let map = await (try? channel.lua("return require'sill'.editor_context()"))?.dictionaryValue ?? [:]
         func relative(_ path: String?) -> String? { path.map { SillFolder.relative($0, in: root) } }
         var context = EditorContext(
             path: relative(map[.string("path")]?.stringValue),
             line: map[.string("line")]?.integerValue.map { Int($0) },
-            basket: app?.baskets?.current.map { ($0 as NSString).lastPathComponent }
+            basket: app?.baskets?.current.map { ($0 as NSString).lastPathComponent },
+            pullRequest: app?.pulls?.summary
         )
         if let selection = map[.string("selection")]?.dictionaryValue,
            Int(selection[.string("age")]?.integerValue ?? .max) < Self.selectionAge,
@@ -185,6 +186,11 @@ final class Hooks {
         case "Stop":
             app?.reviewer?.mark("turn ended") { [weak self] tree in self?.log(tree: tree, of: name, session: session) }
             app?.baskets?.turnEnded()
+            // The turn may have pushed: the pull request read again once its checks have started.
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(8))
+                self?.app?.pulls?.refresh()
+            }
         default: break
         }
     }

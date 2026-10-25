@@ -229,6 +229,8 @@ public struct Screen: Sendable {
     public private(set) var followAsks = 0
     /// `:SillHooks install|remove|status`.
     public private(set) var hooksAsks: [String] = []
+    /// `:SillPR`: the worktree's pull request, asked for.
+    public private(set) var pullRequestAsks = 0
     /// `:SillReplay [session]`: a session's log to replay ("" to pick one).
     public private(set) var replayAsks: [String] = []
     /// `:SillMap`s asked for.
@@ -439,6 +441,8 @@ public struct Screen: Sendable {
             followAsks += 1
         case let .notification(method, args) where method == "sill_hooks":
             hooksAsks.append(args.first?.stringValue ?? "status")
+        case let .notification(method, _) where method == "sill_pr":
+            pullRequestAsks += 1
         case let .notification(method, args) where method == "sill_replay":
             replayAsks.append(args.first?.stringValue ?? "")
         case let .notification(method, _) where method == "sill_map":

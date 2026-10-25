@@ -81,6 +81,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         telemetry = TelemetryWatch(app: self, channel: session.channel)
         hooks = Hooks(app: self, channel: session.channel, directory: workingDirectory)
         hooks.start()
+        pulls = PullRequests(app: self, channel: session.channel, directory: workingDirectory)
+        tools.makePullRequest = { [weak self] in
+            guard let self else { fatalError("the app is gone") }
+            let view = PullRequestView(pulls: pulls)
+            return view
+        }
+        pulls.onChange = { [weak self] in
+            guard let self else { return }
+            tools.pullRequest?.changed()
+            root?.statusBar.state.pullRequest = pulls.label.map { ($0.text, PullRequestView.color($0.level)) }
+        }
         replays = Replays(app: self, channel: session.channel, directory: workingDirectory)
         tools.makeReplay = { [weak self] in
             guard let self else { fatalError("the app is gone") }
@@ -342,6 +353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var mapper: CodeMapper!
     private(set) var tracer: Tracer!
     private(set) var replays: Replays!
+    private(set) var pulls: PullRequests!
     private(set) var hooks: Hooks!
     private(set) var baskets: Baskets!
     private var asksHandled = 0
@@ -376,6 +388,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         mapper.update(screen)
         tracer.update(screen)
         replays.update(screen)
+        pulls.update(screen)
         hooks.update(screen)
         baskets.update(screen)
         for asked in screen.askQuestions.dropFirst(asksHandled) {
@@ -465,6 +478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         state.modified = screen.buffer.modified
         state.merge = screen.merge.map { ($0.left, $0.current) }
         state.debug = debugger?.status ?? follower?.status
+        state.pullRequest = pulls?.label.map { ($0.text, PullRequestView.color($0.level)) }
         root.statusBar.state = state
         root.activityBar.selected = screen.paneRects.contains { $0.kind == "sidebar" } ? tools.sidebar.activity : nil
         root.activityBar.currentPane = screen.currentPaneKind
@@ -472,6 +486,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func wireChrome() {
         let channel = session.channel
+        root.statusBar.onPullRequest = { [weak self] in self?.pulls.show() }
+        // Checks read no one's GitHub: only a stand-in gh.
+        let checking = ProcessInfo.processInfo.environment["SILL_CHECK"] != nil
+        if !checking || ProcessInfo.processInfo.environment["SILL_GH"] != nil { pulls.start() }
         root.tabBar.onSelect = { handle in
             Task { _ = await channel.request("nvim_set_current_tabpage", params: [.int(Int64(handle))]) }
         }

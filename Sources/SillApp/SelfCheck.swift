@@ -110,6 +110,12 @@ final class SelfCheck {
                 fflush(stdout)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "pr" {
+                try await pullRequestSteps()
+                print("sill check (pull request): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "refs" {
                 try await referenceSteps()
                 print("sill check (file references): passed")
@@ -1483,6 +1489,89 @@ final class SelfCheck {
         step("the session replayed: one planned turn, its steps, its change to Pricing.cs; the file opens beside it")
     }
 
+    /// The branch's pull request (`SILL_CHECK=pr`, in pr-fixture.sh's repository with its stand-in gh as SILL_GH):
+    /// the status bar names it and its most pressing need, a click opens its pane, the agent reads it with
+    /// pull_request and with its next prompt (once), and gh was only asked to list.
+    private func pullRequestSteps() async throws {
+        let app = try require(app, "the app")
+        let pulls = try require(app.pulls, "the pull requests")
+        let root = app.workingDirectory
+        let view = try require(app.root, "the root view")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        let label = try await waitFor("the status bar's pull request", timeout: .seconds(15)) {
+            view.statusBar.state.pullRequest
+        }
+        try expect(
+            label.text == "#12 · 2 checks failing" && label.color == Design.error,
+            "the status bar: \(label.text)"
+        )
+        let insights = pulls.current?.insights(pulls.branch).map(\.text) ?? []
+        try expect(
+            insights == [
+                "2 checks failing: build, test", "Changes requested by ana",
+                "Conflicts with main: it cannot merge as it is",
+                "1 commit here not pushed: the pull request does not have it",
+            ],
+            "the insights: \(insights)"
+        )
+        step(
+            "the status bar: #12 · 2 checks failing; failing checks, changes requested, a conflict, 1 commit not pushed"
+        )
+
+        // A click on it opens its pane.
+        view.layoutSubtreeIfNeeded()
+        view.statusBar.display()
+        let rect = try require(view.statusBar.pullRequestRect, "where the status bar draws it")
+        let click = try require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: view.statusBar.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil),
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+            clickCount: 1, pressure: 1
+        ), "a click")
+        view.statusBar.mouseDown(with: click)
+        try await wait("the pull request's pane") { $0.currentPaneKind == "pr" }
+        step("a click on it opens its pane")
+
+        // The agent: the tool, and the next prompt told once.
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        let told = try await agent.call("pull_request", [:])
+        try expect(
+            told.contains("Pull request #12 (open): Round the tax once") &&
+                told.contains("Failing: build https://example.test/run/1") &&
+                told.contains("- ana (changes requested): Round in one place."),
+            "pull_request: \(told)"
+        )
+        let prompt = try JSONSerialization.data(withJSONObject: [
+            "session_id": "check-pr", "cwd": root, "hook_event_name": "UserPromptSubmit",
+            "permission_mode": "default", "prompt": "Is it done?",
+        ])
+        func context(_ data: Data) -> String {
+            ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])
+                .flatMap { $0["hookSpecificOutput"] as? [String: Any] }?["additionalContext"] as? String ?? ""
+        }
+        let first = await context(app.hooks.handle(prompt))
+        try expect(
+            first.contains("The branch's pull request #12 (https://example.test/pr/12): 2 checks failing: build, test"),
+            "the prompt's context: \(first)"
+        )
+        let again = await context(app.hooks.handle(prompt))
+        try expect(!again.contains("pull request"), "told once: \(again)")
+        let asked = (try? String(contentsOfFile: root + ".gh.log", encoding: .utf8)) ?? ""
+        try expect(
+            !asked.isEmpty && asked.split(separator: "\n").allSatisfy { $0.hasPrefix("pr list --head tax-once ") },
+            "gh asked only to list: \(asked)"
+        )
+        step(
+            "the agent: pull_request reads it (failing checks with links, the review); the next prompt is told once; " +
+                "gh only listed"
+        )
+    }
+
     /// A hook command run as an agent runs it: `input` on stdin; its status and what it printed.
     private nonisolated static func runHook(_ command: String, _ input: Data) throws -> (Int32, String) {
         let process = Process()
@@ -1795,7 +1884,7 @@ final class SelfCheck {
         end
         return out
         """).arrayValue?.compactMap(\.stringValue) ?? []
-        try expect(keys.count == 13 && keys.allSatisfy { $0.hasSuffix(" set") }, "the keys: \(keys)")
+        try expect(keys.count == 14 && keys.allSatisfy { $0.hasSuffix(" set") }, "the keys: \(keys)")
         let codeMenu = try require(
             NSApp.mainMenu?.items.first { $0.submenu?.title == "Code" }?.submenu,
             "the Code menu"

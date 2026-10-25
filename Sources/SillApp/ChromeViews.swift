@@ -215,9 +215,12 @@ final class StatusBarView: NSView {
         var merge: (left: Int, current: Int)?
         /// The debugger, when a session is on: "paused at Program.cs:5".
         var debug: String?
+        /// The branch's pull request, beside it: "#12 · 2 checks failing", in the colour of how pressing it is.
+        var pullRequest: (text: String, color: NSColor)?
 
         static func == (lhs: State, rhs: State) -> Bool {
-            lhs.mode == rhs.mode && lhs.branch == rhs.branch && lhs.pending == rhs.pending &&
+            lhs.pullRequest?.text == rhs.pullRequest?.text && lhs.pullRequest?.color == rhs.pullRequest?.color &&
+                lhs.mode == rhs.mode && lhs.branch == rhs.branch && lhs.pending == rhs.pending &&
                 lhs.services.map(\.name) == rhs.services.map(\.name) &&
                 lhs.services.map(\.ready) == rhs.services.map(\.ready) && lhs.filetype == rhs.filetype &&
                 lhs.position?.line == rhs.position?.line && lhs.position?.column == rhs.position?.column &&
@@ -231,6 +234,16 @@ final class StatusBarView: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    /// Where the pull request is drawn, and what a click on it does (the PR pane).
+    private(set) var pullRequestRect: NSRect?
+    var onPullRequest: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let pullRequestRect,
+           pullRequestRect.contains(point) { onPullRequest?() } else { super.mouseDown(with: event) }
+    }
 
     /// The mode as the badge says it, and the badge's colour.
     static func badge(_ mode: String) -> (text: String, color: NSColor) {
@@ -279,6 +292,14 @@ final class StatusBarView: NSView {
         }
         if let debug = state.debug { left("● " + debug, color: Design.modified) }
         left(state.branch.isEmpty ? "" : state.branch)
+        pullRequestRect = nil
+        if let pullRequest = state.pullRequest {
+            let start = x
+            left("● ", color: pullRequest.color)
+            x -= 16
+            left(pullRequest.text, color: Design.text)
+            pullRequestRect = NSRect(x: start - 4, y: 0, width: x - start - 8, height: bounds.height)
+        }
         left(state.pending, color: Design.modified)
 
         var right = bounds.width - 12

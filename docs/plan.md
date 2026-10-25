@@ -908,6 +908,22 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   hooks check (the first session: one planned turn, its steps, its change to Pricing.cs, the file opened beside the
   replay) and `SessionLogTests`; not handing the tree back fails it. Not done: stepping through a turn edit by edit
   (the log has no content per edit), and replaying sessions from before trees were logged.
+- The branch's pull request (2026-10-25, owner: "agents typically commit and PR … identify the PRs from the worktree
+  and offer the agent more insights and the user"). `PullRequests` runs `gh pr list --head <branch> --state all --json
+  …` (with the login shell's environment; `SILL_GH` for a stand-in) and reads the branch with git: commits not pushed
+  (`@{upstream}..HEAD`), behind the base (`HEAD..origin/<base>`, as of the last fetch), files not committed.
+  `PullRequest` (SillCore) parses gh's JSON (check runs and commit statuses, latest reviews, comments) and turns it
+  into insights, most pressing first: attention (checks failing, changes requested, conflicting, not pushed), waiting
+  (checks running, a review required, a draft, behind, uncommitted), fine (approved, checks passed, merged). The
+  person: the status bar beside the branch (its colour the most pressing level), a click or `:SillPR` (`␣ip`, the Code
+  menu) opens the PR pane (Now, Checks, Reviews and comments, Here; Send to agent, Open on GitHub). The agent: the
+  `pull_request` tool reads it now; `EditorContext` tells the next prompt the pressing part when it changed. Read at
+  start, on activation, every two minutes while active, and 8 s after an agent's turn ends; checks read only a
+  stand-in. Checked: `SILL_CHECK=pr` (pr-fixture.sh: a branch with one commit pushed to a local remote and one not, a
+  stand-in gh logging its arguments) and `PullRequestTests`; ignoring unpushed commits fails it. Found on the way:
+  with no file open the editor context was an empty Lua table, which comes as an array, so the prompt was told
+  nothing at all (the basket included); and a crash left macOS's "reopen windows?" alert blocking every later start
+  of sill, so sill registers `ApplePersistenceIgnoreState` (it restores no windows).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

@@ -113,6 +113,7 @@ final class AgentBridge {
                 await self?.callOpen(arguments) ?? gone
             },
         ] + debugTools(gone) + profileTools(gone) + walkTools(gone) + telemetryTools(gone) + mapTools(gone) +
+            pullRequestTools(gone) +
             basketTools(gone) + [
                 Tool(
                     name: "annotate",
@@ -338,6 +339,23 @@ final class AgentBridge {
         else { return ToolResult(tracer.problem ?? "Nothing to trace there", isError: true) }
         await tracer.load(depth: min(max(asked.depth ?? 3, 1), 6))
         return ToolResult(tracer.tree?.text(relativeTo: directory) ?? "")
+    }
+
+    private func pullRequestTools(_ gone: ToolResult) -> [Tool] {
+        [
+            Tool(
+                name: "pull_request",
+                description: "The pull request of this worktree's branch, read from GitHub now: what needs " +
+                    "attention (failing checks with their links, changes requested, conflicts with its base, commits " +
+                    "not pushed), and its latest reviews and comments. What to look at after pushing, or before " +
+                    "saying a change is done."
+            ) { [weak self] _ in
+                await self?.call("pull_request") { bridge in
+                    guard let pulls = bridge.app?.pulls else { return gone }
+                    return await ToolResult(pulls.readNow())
+                } ?? gone
+            },
+        ]
     }
 
     private func mapTools(_ gone: ToolResult) -> [Tool] {

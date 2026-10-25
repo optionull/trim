@@ -58,6 +58,7 @@ enum CodeMenu {
             Entry(title: "Review Changes", hint: "␣ir · :SillReview", lua: "vim.cmd('SillReview')"),
             Entry(title: "Follow the Agent", hint: "␣if · :SillFollow", lua: "vim.cmd('SillFollow')"),
             Entry(title: "Replay a Session…", hint: "␣ih · :SillReplay", lua: "vim.cmd('SillReplay')"),
+            Entry(title: "Pull Request", hint: "␣ip · :SillPR", lua: "vim.cmd('SillPR')"),
         ],
     ]
 

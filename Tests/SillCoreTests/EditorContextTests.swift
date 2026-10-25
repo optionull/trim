@@ -38,4 +38,12 @@ import Testing
         #expect(text.contains("line 60\n… (40 more lines)"))
         #expect(!text.contains("line 61"))
     }
+
+    @Test func thePullRequestWhenItChanges() throws {
+        let failing = EditorContext(pullRequest: "#12 (https://example.test/pr/12): 1 check failing: build")
+        let text = try #require(failing.text())
+        #expect(text.contains("The branch's pull request #12 (https://example.test/pr/12): 1 check failing: build"))
+        #expect(failing.text(after: failing) == nil)
+        #expect(EditorContext(path: "a.cs").text(after: failing)?.contains("pull request") == false)
+    }
 }
