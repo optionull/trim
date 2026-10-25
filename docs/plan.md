@@ -778,6 +778,15 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     basket without it; chips, the Context menu, `i`), the investigate check (`basket_add` of Report.cs answers that
     `Prints` reaches it); not saving the context fails the basket check.
   - Not yet: the agent's summary of a basket on request.
+- Notebook cells (2026-10-25, owner: "The notepads should look more like a code pane. With reference cells clear
+  boundaries."). Walkthroughs, reviews and baskets draw each reference as a cell on the canvas: a header strip (the
+  path from the worktree's root and lines, the facts, the actions on the right), the code on the editor's ground with
+  a line-number gutter and its rule, a footer inside the same 1 pt border for a piece's details and an example's
+  output, a modified-coloured border on a piece changed since it was added, a diff's added and removed rows tinted
+  across. Looked at in the basket and review walkthrough screenshots; the checks drive the same actions.
+  - Also: a basket piece's context collected after the piece had changed (lines joined) was saved under its old
+    anchor, counting it twice in the Context menu; it is dropped now. The basket check waits for exactly the
+    basket's pieces, but the race clears on the next read, so removing the guard does not fail it reliably.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

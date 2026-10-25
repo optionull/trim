@@ -240,7 +240,7 @@ tests that reach it, how often its lines changed and the last commit, and the pr
 the piece's heading, `i` opens them, the Context menu sums them up across the basket (projects, tests, who changed
 the code last), and agents get them with the code (`basket_read`, and in `basket_add`'s answer).
 
-![A basket: its question and status, the pieces with their notes and code, and the files menu](docs/showcase-basket-2026-10-25.png)
+![A basket: its question and status, each piece a cell with its facts, one opened to its context, and the Context menu](docs/showcase-basket-2026-10-25.png)
 
 ## Investigations
 

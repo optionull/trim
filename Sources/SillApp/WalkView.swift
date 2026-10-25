@@ -91,7 +91,7 @@ final class WalkView: NSView, ToolContent {
     }
 
     override func draw(_: NSRect) {
-        Design.editor.setFill()
+        Design.canvas.setFill()
         bounds.fill()
         outlineFrames = []
         actionFrames = []
@@ -127,7 +127,10 @@ final class WalkView: NSView, ToolContent {
         fileFrames.append(("menu:files", NSRect(
             x: 28 + outlineLabel.size().width, y: 12, width: files.size().width + 16, height: 28
         )))
-        fileFrames.append(("menu:context", NSRect(x: contextX - 8, y: 12, width: context.size().width + 16, height: 28)))
+        fileFrames.append((
+            "menu:context",
+            NSRect(x: contextX - 8, y: 12, width: context.size().width + 16, height: 28)
+        ))
     }
 
     // MARK: The context
@@ -287,43 +290,137 @@ final class WalkView: NSView, ToolContent {
             }
             y += height + gap
         }
-        /// A rounded box of mono lines, a heading over them, an action on the right.
+        /// A cell, as a code pane shows code: a header strip (what it is, its facts, its actions on the right), the
+        /// lines on the editor's ground with a gutter of line numbers when they have them, and a footer (details, an
+        /// example's output) inside the same border.
         func box(
             _ heading: String,
             _ rows: [NSAttributedString],
-            action: (String, String, String)? = nil,
-            tint: NSColor = Design.chrome
+            firstLine: Int? = nil,
+            facts: [String] = [],
+            actions: [(title: String, kind: String, key: String)] = [],
+            footer: [NSAttributedString] = [],
+            footerTint: NSColor = Design.chrome,
+            border: NSColor = Design.border,
+            rowTints: [NSColor?] = []
         ) {
-            let lineHeight = EditorFont.metrics.height
-            let frame = NSRect(x: left, y: y, width: width, height: 34 + CGFloat(rows.count) * lineHeight + 10)
-            if frame.maxY > 0, frame.minY < bounds.height {
-                tint.setFill()
-                NSBezierPath(roundedRect: frame, xRadius: 8, yRadius: 8).fill()
-                text(heading, 12, Design.textMuted).draw(at: NSPoint(x: frame.minX + 14, y: frame.minY + 10))
-                var lineY = frame.minY + 34
-                for row in rows {
+            let lineHeight = EditorFont.metrics.height, header: CGFloat = 32
+            let footerHeight = footer.isEmpty ? 0 : CGFloat(footer.count) * lineHeight + 16
+            let frame = NSRect(
+                x: left, y: y, width: width,
+                height: header + (rows.isEmpty ? 0 : CGFloat(rows.count) * lineHeight + 16) + footerHeight
+            )
+            let gutter: CGFloat = firstLine.map { first in
+                CGFloat(String(first + max(rows.count - 1, 0)).count) * EditorFont.metrics.width + 28
+            } ?? 12
+            let visible = frame.maxY > 0 && frame.minY < bounds.height
+            // The actions, right to left in the header: placed now, drawn over the cell below.
+            var x = frame.maxX - 14
+            var labels: [(NSAttributedString, NSRect)] = []
+            for action in actions.reversed() {
+                let label = text(
+                    action.title,
+                    12,
+                    action.kind == "remove" ? Design.textMuted : Design.accent,
+                    weight: .semibold
+                )
+                let rect = NSRect(
+                    x: x - label.size().width - 14,
+                    y: frame.minY + 5,
+                    width: label.size().width + 14,
+                    height: 22
+                )
+                labels.append((label, rect))
+                actionFrames.append((action.kind, action.key, rect))
+                x = rect.minX - 6
+            }
+            if visible {
+                let shape = NSBezierPath(roundedRect: frame, xRadius: 8, yRadius: 8)
+                NSGraphicsContext.saveGraphicsState()
+                shape.addClip()
+                Design.editor.setFill()
+                frame.fill()
+                Design.chrome.setFill()
+                NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: header).fill()
+                if !footer.isEmpty {
+                    footerTint.setFill()
+                    NSRect(x: frame.minX, y: frame.maxY - footerHeight, width: frame.width, height: footerHeight).fill()
+                }
+                border.setFill()
+                NSRect(x: frame.minX, y: frame.minY + header - 1, width: frame.width, height: 1).fill()
+                if !footer.isEmpty {
+                    NSRect(x: frame.minX, y: frame.maxY - footerHeight, width: frame.width, height: 1).fill()
+                }
+                if firstLine != nil, !rows.isEmpty {
+                    Design.border.setFill()
+                    NSRect(
+                        x: frame.minX + gutter - 10,
+                        y: frame.minY + header,
+                        width: 1,
+                        height: frame.height - header - footerHeight
+                    ).fill()
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                border.setStroke()
+                shape.lineWidth = 1
+                shape.stroke()
+                // Room for the actions drawn above.
+                let title = NSMutableAttributedString(attributedString: text(
+                    heading,
+                    12,
+                    Design.text,
+                    weight: .semibold
+                ))
+                if !facts
+                    .isEmpty { title.append(text("    " + facts.joined(separator: "  ·  "), 11, Design.textMuted)) }
+                title.draw(
+                    with: NSRect(x: frame.minX + 14, y: frame.minY + 8, width: x - frame.minX - 20, height: 18),
+                    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
+                )
+                var lineY = frame.minY + header + 8
+                // A diff's added and removed lines, across the row.
+                NSGraphicsContext.saveGraphicsState()
+                shape.addClip()
+                for (offset, tint) in rowTints.enumerated() {
+                    guard let tint else { continue }
+                    tint.setFill()
+                    NSRect(
+                        x: frame.minX,
+                        y: lineY + CGFloat(offset) * lineHeight,
+                        width: frame.width,
+                        height: lineHeight
+                    ).fill()
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                for (offset, row) in rows.enumerated() {
+                    if let first = firstLine {
+                        let number = mono(String(first + offset), Design.textFaint)
+                        number.draw(at: NSPoint(x: frame.minX + gutter - 18 - number.size().width, y: lineY))
+                    }
                     row.draw(
-                        with: NSRect(x: frame.minX + 10, y: lineY, width: frame.width - 20, height: lineHeight),
+                        with: NSRect(
+                            x: frame.minX + gutter,
+                            y: lineY,
+                            width: frame.width - gutter - 12,
+                            height: lineHeight
+                        ),
+                        options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
+                    )
+                    lineY += lineHeight
+                }
+                for (label, rect) in labels {
+                    label.draw(at: NSPoint(x: rect.minX + 7, y: rect.minY + 3))
+                }
+                lineY = frame.maxY - footerHeight + 8
+                for row in footer {
+                    row.draw(
+                        with: NSRect(x: frame.minX + 14, y: lineY, width: frame.width - 28, height: lineHeight),
                         options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
                     )
                     lineY += lineHeight
                 }
             }
-            if let (title, kind, key) = action {
-                let label = text(title, 12, Design.accent, weight: .semibold)
-                let rect = NSRect(
-                    x: frame.maxX - label.size().width - 26,
-                    y: frame.minY + 6,
-                    width: label.size().width + 14,
-                    height: 22
-                )
-                if frame.maxY > 0, frame.minY < bounds.height { label.draw(at: NSPoint(
-                    x: rect.minX + 7,
-                    y: rect.minY + 3
-                )) }
-                actionFrames.append((kind, key, rect))
-            }
-            y = frame.maxY + 16
+            y = frame.maxY + 18
         }
 
         write(text(walk.title, 26, weight: .semibold), gap: 8)
@@ -359,47 +456,22 @@ final class WalkView: NSView, ToolContent {
                     if let place, let file = place.path {
                         let moved = walker.moved.contains(line)
                         files.append((file, y + scroll, moved))
-                        let rows = place.lines.prefix(40).enumerated().map { offset, line in
-                            let row = NSMutableAttributedString(
-                                attributedString: mono(String(format: "%4d  ", place.from + offset), Design.textFaint)
-                            )
-                            row.append(mono(line))
-                            return row as NSAttributedString
-                        }
-                        if basket {
-                            // Remove, left of Open.
-                            let remove = text("Remove", 12, Design.textMuted, weight: .semibold)
-                            let rect = NSRect(
-                                x: left + width - remove.size().width - 90,
-                                y: y + 6,
-                                width: remove.size().width + 14,
-                                height: 22
-                            )
-                            actionFrames.append(("remove", "\(line)", rect))
-                        }
-                        let removeAt = y
-                        let facts = basket ? (chips?(anchor.text) ?? []) : []
+                        let facts = (moved ? ["changed since it was added"] : []) +
+                            (place.by == "text" ? ["found by its text"] : []) +
+                            (basket ? (chips?(anchor.text) ?? []) : [])
+                        let details = basket && expanded.contains(line) ? (details?(anchor.text) ?? []) : []
                         box(
-                            "\((file as NSString).lastPathComponent):\(place.from)–\(place.to)" +
-                                (place.by == "text" ? " · found by its text" : "") +
-                                (moved ? " · changed since it was added" : "") +
-                                (facts.isEmpty ? "" : "   " + facts.joined(separator: " · ")),
-                            rows,
-                            action: ("Open", "open", "\(index):\(blockIndex)"),
-                            tint: moved ? Design.modified.withAlphaComponent(0.1) : Design.chrome
+                            "\(relativePath(file)):\(place.from)–\(place.to)",
+                            place.lines.prefix(40).map { mono($0) },
+                            firstLine: place.from,
+                            facts: facts,
+                            actions: (basket ? [("Remove", "remove", "\(line)")] : []) +
+                                [("Open", "open", "\(index):\(blockIndex)")],
+                            footer: basket && expanded.contains(line) ?
+                                (details.isEmpty ? ["Collecting…"] : details)
+                                .map { text($0, 12, Design.textMuted) } : [],
+                            border: moved ? Design.modified.withAlphaComponent(0.7) : Design.border
                         )
-                        if basket, removeAt + 28 > 0, removeAt < bounds.height {
-                            let remove = text("Remove", 12, Design.textMuted, weight: .semibold)
-                            remove.draw(at: NSPoint(x: left + width - remove.size().width - 83, y: removeAt + 9))
-                        }
-                        if basket, expanded.contains(line) {
-                            let lines = details?(anchor.text) ?? []
-                            box(
-                                "context",
-                                (lines.isEmpty ? ["Collecting…"] : lines).map { text($0, 12, Design.textMuted) },
-                                tint: Design.chrome.withAlphaComponent(0.6)
-                            )
-                        }
                     } else {
                         write(text(
                             "⚠︎ \(name): \(place?.problem ?? (walker.resolving ? "finding it…" : "not found"))",
@@ -412,47 +484,53 @@ final class WalkView: NSView, ToolContent {
                         write(text("\(file): no change since the base", 13, Design.textFaint))
                         continue
                     }
-                    var rows: [NSAttributedString] = []
+                    var rows: [NSAttributedString] = [], tints: [NSColor?] = []
                     for hunk in diff.hunks {
                         rows.append(mono(hunk.header, Design.textFaint))
+                        tints.append(Design.chrome)
                         for line in hunk.lines.prefix(60) {
                             rows.append(mono(
                                 line,
                                 line.hasPrefix("+") ? Design.accent :
                                     line.hasPrefix("-") ? Design.error : Design.textMuted
                             ))
+                            tints.append(line.hasPrefix("+") ? Design.accent.withAlphaComponent(0.08) :
+                                line.hasPrefix("-") ? Design.error.withAlphaComponent(0.08) : nil)
                         }
                     }
-                    box("\(file) · the change", rows)
+                    box(file, rows, facts: ["the change"], rowTints: tints)
                 case let .example(file, _):
                     let path = examplePath(file)
                     let run = walker.runs[path]
                     let rows = (walker.examples[path] ?? "").components(separatedBy: "\n").prefix(60).map { mono($0) }
-                    box(
-                        "\(ScriptRunner.language(of: path)) example · \(file)",
-                        rows,
-                        action: (run?.running == true ? "Running…" : "Run", "run", path)
-                    )
+                    // Its output, when it has run, in the same cell.
+                    var output: [NSAttributedString] = []
                     if let run, !run.running {
-                        let output = run.output.trimmingCharacters(in: .newlines)
                         let status = run.status == 0 ? "ran in \(String(format: "%.1f", run.seconds)) s" :
                             "exited \(run.status) after \(String(format: "%.1f", run.seconds)) s"
-                        box(
-                            status,
-                            output.components(separatedBy: "\n").suffix(40).map {
+                        output = [text(status, 11, run.status == 0 ? Design.accent : Design.error, weight: .semibold)] +
+                            run.output.trimmingCharacters(in: .newlines).components(separatedBy: "\n").suffix(40).map {
                                 mono($0, run.status == 0 ? Design.text : Design.error)
-                            },
-                            tint: run.status == 0 ? Design.accent.withAlphaComponent(0.08) : Design.error
-                                .withAlphaComponent(0.1)
-                        )
+                            }
                     }
+                    box(
+                        file,
+                        rows,
+                        firstLine: 1,
+                        facts: ["\(ScriptRunner.language(of: path)) example"],
+                        actions: [(run?.running == true ? "Running…" : "Run", "run", path)],
+                        footer: output,
+                        footerTint: run?.status ?? 0 == 0 ? Design.accent.withAlphaComponent(0.06) :
+                            Design.error.withAlphaComponent(0.08)
+                    )
                 case let .trace(symbol, callers, _, _):
                     let tree = walker.traces[symbol + (
                         callers ? " callers" : " callees"
                     )] ?? "Asking the language server…"
                     box(
-                        (callers ? "who calls " : "what calls ") + symbol,
-                        tree.components(separatedBy: "\n").dropFirst().prefix(60).map { mono($0) }
+                        symbol,
+                        tree.components(separatedBy: "\n").dropFirst().prefix(60).map { mono($0) },
+                        facts: [callers ? "who calls it" : "what it calls"]
                     )
                 case let .ask(question, answer, line):
                     write(text(question, 15, Design.insert, weight: .semibold), gap: 6)
