@@ -75,8 +75,8 @@ end
 --- Finds each anchor: { kind = 'symbol'|'file', name, from, to } (from/to lines of the symbol or the file), relative
 --- paths to `folder`. Answers { path, from, to, by } for each, or { problem } when it is not found.
 function M.resolve(anchors, folder)
-  -- A review's walkthrough lives inside .git: its repository is the worktree around that.
-  local inside = folder:find('/.git/', 1, true)
+  -- A review's walkthrough lives in .sill: its repository is the folder around that.
+  local inside = (folder .. '/'):find('/.sill/', 1, true)
   local root = inside and folder:sub(1, inside - 1)
     or vim.fn.systemlist({ 'git', '-C', folder, 'rev-parse', '--show-toplevel' })[1] or folder
   if not inside and vim.v.shell_error ~= 0 then root = folder end
@@ -126,10 +126,10 @@ function M.find(folder)
   else
     found = vim.tbl_map(function(p) return folder .. '/' .. p end, found)
   end
-  -- Reviews' walkthroughs: throwaways inside the repository's .git.
-  local git_dir = vim.fn.systemlist({ 'git', '-C', folder, 'rev-parse', '--absolute-git-dir' })[1]
-  if vim.v.shell_error == 0 and git_dir then
-    vim.list_extend(found, vim.fn.glob(git_dir .. '/sill/reviews/*/*.walk.md', false, true))
+  -- sill's own: reviews' walkthroughs and tours in the repository's .sill, which git does not see.
+  local top = vim.fn.systemlist({ 'git', '-C', folder, 'rev-parse', '--show-toplevel' })[1]
+  if vim.v.shell_error == 0 and top then
+    vim.list_extend(found, vim.fn.glob(top .. '/.sill/**/*.walk.md', false, true))
   end
   table.sort(found)
   return vim.fn.uniq(found)

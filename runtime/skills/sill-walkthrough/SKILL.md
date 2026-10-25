@@ -44,7 +44,7 @@ What happens here, in a few sentences. Name things in `code spans`.
 ## A review walkthrough
 
 When sill asks for a walkthrough of changes to review, it names the baseline tree, the file to write (inside the
-repository's `.git`: a throwaway, never committed) and its `examples` folder. Then:
+repository's `.sill` folder: a throwaway, never committed) and its `examples` folder. Then:
 
 - **Front matter:** `base: <tree>` as sill gave it; the `@diff`s compare it with the worktree.
 - **Sections:** one per idea of the change, not per file, in the order a reviewer should read them: what it does,
@@ -54,7 +54,7 @@ repository's `.git`: a throwaway, never committed) and its `examples` folder. Th
   what changed and prints what it shows. The person runs it in place; `walkthrough_check` runs them all.
   - C#: a .NET 10 file-based app, `examples/total.cs`:
     ```csharp
-    #:project ../../../../../src/Orders/Orders.csproj
+    #:project ../../../../src/Orders/Orders.csproj
     using Orders;
     Console.WriteLine($"Total(4) = {Pricing.Total(4)}");
     ```

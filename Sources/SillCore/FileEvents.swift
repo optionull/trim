@@ -13,6 +13,7 @@ public final class FileEvents: @unchecked Sendable {
     /// Folders whose files are never anyone's change to follow.
     static let skipped = [
         "/.git/",
+        "/.sill/",
         "/obj/",
         "/bin/",
         "/node_modules/",

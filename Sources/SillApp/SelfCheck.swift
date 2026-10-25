@@ -1170,15 +1170,16 @@ final class SelfCheck {
         _ = try await agent.call("code_map_summary", ["summary": summary])
         try expect(app.mapper.summary == summary, "the summary is \(app.mapper.summary ?? "none")")
         try await wait("the map pane again") { $0.currentPaneKind == "map" }
-        let kept = Review.git(["rev-parse", "--absolute-git-dir"], in: app.workingDirectory)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) + "/sill/map/summary.md" }
-        try expect(kept.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } == summary, "kept in .git")
+        let kept = app.workingDirectory + "/.sill/map/summary.md"
+        try expect((try? String(contentsOfFile: kept, encoding: .utf8)) == summary, "kept in .sill")
+        let status = Review.git(["status", "--porcelain"], in: app.workingDirectory) ?? "?"
+        try expect(status.isEmpty, "git sees nothing of .sill: \(status)")
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             view.display()
             try shot(to: path)
         }
         step(
-            "s asked the agent with the map; code_map answers it; code_map_summary put the summary on top, kept in .git"
+            "s asked the agent with the map; code_map answers it; code_map_summary put the summary on top, kept in .sill"
         )
     }
 
@@ -1477,7 +1478,7 @@ final class SelfCheck {
         let prompt = try require(app.agents.lastPrompt, "the prompt")
         let base = try require(reviewer.baselines.first?.tree, "the base")
         try expect(
-            path.contains("/.git/sill/reviews/") && prompt.contains("git diff \(base) ") &&
+            path.contains("/.sill/reviews/") && prompt.contains("git diff \(base) ") &&
                 prompt.contains(path) && prompt.contains("M Pricing.cs") && prompt.contains("#:project"),
             "asked with the diff, the place and the examples: \(prompt.prefix(400))"
         )
@@ -1487,7 +1488,7 @@ final class SelfCheck {
         // The agent writes it, as the skill says.
         let folder = (path as NSString).deletingLastPathComponent
         try """
-        #:project ../../../../../Orders.csproj
+        #:project ../../../../Orders.csproj
         using Orders;
         Console.WriteLine($"Total(4) = {Pricing.Total(4)}");
         Console.WriteLine($"Discounted(4, 10%) = {Pricing.Discounted(4, 0.1)}");

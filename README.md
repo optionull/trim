@@ -182,7 +182,7 @@ from sill, build output and what git ignores are not followed.
 targets, Rust, Node and Python packages) in rows, each above what it references, with what kind each is, how big,
 where it starts (`Main`, a web host, HTTP endpoints, `@main`, `fn main`) and the files git history changes most. A
 click opens a project, an entry point or a hot file. `s` asks the agent for a summary, which it puts on top with
-`code_map_summary` (kept in `.git`, never committed); `w` asks it for a walkthrough of the codebase. The map is
+`code_map_summary` (kept in `.sill`, never committed); `w` asks it for a walkthrough of the codebase. The map is
 built from the files git tracks and their last 2,000 commits, so it is there in about a second even for 60 projects;
 an agent gets the same through the `code_map` tool.
 
@@ -233,7 +233,7 @@ left alone.
 ![Review: a.txt's two changes since sill opened, each to keep, take back or comment on](docs/showcase-review-2026-10-24.png)
 
 Walkthrough (`w`) asks the agent for a walkthrough of the changes to review: a throwaway notebook inside the
-repository's `.git` that goes through them by idea, with each part's diff and usage examples of what changed as
+repository's `.sill` folder (private, never committed) that goes through them by idea, with each part's diff and usage examples of what changed as
 isolated scripts (a .NET 10 file-based app referencing the changed project, or a TypeScript, Python, Rust or Swift
 script). It opens as one scrolling document with an outline; Run runs an example in place, its output under it.
 

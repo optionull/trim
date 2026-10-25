@@ -702,6 +702,14 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     instead of its call fails it.
   - Not checked: other languages' servers (rust-analyzer, sourcekit-lsp and TypeScript have call hierarchy too),
     and very wide trees (no limit on a level's size in the pane).
+- `.sill/` (2026-10-25, owner): what sill keeps per repository lives in `.sill/` at its root, not `.git/sill`:
+  review walkthroughs (`.sill/reviews/<time>/`), the code map's summary and tour (`.sill/map/`), and baskets next.
+  `SillCore.SillFolder.path(for:)` makes it and adds `/.sill/` to the git common dir's `info/exclude` (never committed,
+  every worktree), once; what `.git/sill` held moves over the first time. Review snapshots (`git add -A` through a
+  temporary index) and agents' diffs never see it; the follower skips it; walkthroughs in it resolve against the
+  folder around it, and `:SillWalk` lists them by glob (git does not). An example's `#:project` is four folders up
+  now. Checked: `SillFolderTests` (git status sees nothing of it, the exclude line once, the move), the map check
+  (git status clean after the summary is kept), reviewwalk (the walkthrough in .sill, its example builds), walk.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

@@ -207,27 +207,25 @@ final class Reviewer {
     private(set) var walkthroughAsked: String?
 
     /// Asks the agent for a walkthrough of the changes since the baseline: a throwaway notebook (inside the
-    /// repository's .git, never committed) that goes through them at a high level, their diffs, and examples of what
+    /// repository's .sill, never committed) that goes through them at a high level, their diffs, and examples of what
     /// changed as isolated scripts it can run.
     func askForWalkthrough() {
         guard let base = baseline, let agents = app?.agents else { return }
         let directory = directory, files = files
         Task {
-            let (gitDir, now) = await Task.detached {
-                (
-                    Review.git(["rev-parse", "--absolute-git-dir"], in: directory)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines),
-                    Review.snapshot(in: directory)
-                )
+            // .sill first: kept out of git before the snapshot, so the walkthrough is never part of a change.
+            let (sill, now) = await Task.detached {
+                let sill = SillFolder.path(for: directory)
+                return (sill, Review.snapshot(in: directory))
             }.value
-            guard let gitDir, let now else { return }
+            guard let now else { return }
             let stamp = Date()
                 .formatted(.iso8601.year().month().day().dateSeparator(.omitted).time(includingFractionalSeconds: false)
                     .timeSeparator(.omitted)).replacingOccurrences(of: "T", with: "-").replacingOccurrences(
                     of: "Z",
                     with: ""
                 )
-            let folder = gitDir + "/sill/reviews/" + stamp
+            let folder = sill + "/reviews/" + stamp
             try? FileManager.default.createDirectory(atPath: folder + "/examples", withIntermediateDirectories: true)
             let path = folder + "/review.walk.md"
             walkthroughAsked = path

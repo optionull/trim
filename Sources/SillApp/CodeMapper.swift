@@ -3,7 +3,7 @@ import SillCore
 import SillNvim
 
 /// The code map: built from the repository when `:SillMap` opens it, with the agent's summary on top when it has
-/// written one (`code_map_summary`, kept in the repository's .git so it is there next time and never committed).
+/// written one (`code_map_summary`, kept in the repository's .sill so it is there next time and never committed).
 @MainActor
 final class CodeMapper {
     private weak var app: AppDelegate?
@@ -22,11 +22,8 @@ final class CodeMapper {
         summary = summaryFile.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
     }
 
-    /// Where the agent's summary is kept: in .git, beside the review walkthroughs.
-    private var summaryFile: String? {
-        Review.git(["rev-parse", "--absolute-git-dir"], in: directory)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) + "/sill/map/summary.md" }
-    }
+    /// Where the agent's summary is kept: in the repository's .sill, beside the review walkthroughs.
+    private var summaryFile: String? { SillFolder.path(for: directory) + "/map/summary.md" }
 
     /// nvim's asks: `:SillMap`.
     func update(_ screen: Screen) {
@@ -103,7 +100,7 @@ final class CodeMapper {
         agents.send(headline: "Write a walkthrough of this codebase for someone new to it", """
         Write a walkthrough of the codebase in \(directory) for someone new to it, following the sill-walkthrough \
         skill: from an entry point through the main flow to the places where the interesting decisions are. Write it \
-        to \(path) (a throwaway in .git). sill's code map of it:
+        to \(path) (a throwaway in .sill). sill's code map of it:
 
         \(map.text)
 

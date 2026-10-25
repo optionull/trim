@@ -152,8 +152,8 @@ final class Walker {
 
     /// The repository's top folder (where a diff's paths start), else the walkthrough's folder.
     private func repository(from folder: String) async -> String {
-        // A review's walkthrough lives inside .git: its repository is the worktree around that.
-        if let inside = folder.range(of: "/.git/") { return String(folder[..<inside.lowerBound]) }
+        // A review's walkthrough lives in .sill: its repository is the folder around that.
+        if let repository = SillFolder.repository(containing: folder + "/") { return repository }
         return await Task.detached {
             Review.git(["rev-parse", "--show-toplevel"], in: folder)?.trimmingCharacters(in: .whitespacesAndNewlines)
         }.value ?? folder
