@@ -84,8 +84,23 @@ final class Hooks {
     func handle(_ data: Data) -> Data {
         guard let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return Data() }
         handle(event)
+        // An edit about to happen while an investigation is open: a reminder, not a refusal.
+        if event["hook_event_name"] as? String == "PreToolUse",
+           Self.edits.contains(event["tool_name"] as? String ?? ""),
+           let basket = app?.baskets?.investigating
+        {
+            let reminder = "sill: the investigation in basket \((basket as NSString).lastPathComponent) is meant to " +
+                "be read-only. If this edit is needed, it is noted in the basket; else leave the code as it is and " +
+                "conclude with basket_conclude first."
+            return (try? JSONSerialization.data(withJSONObject: ["hookSpecificOutput": [
+                "hookEventName": "PreToolUse", "additionalContext": reminder,
+            ]])) ?? Data()
+        }
         return Data()
     }
+
+    /// The tools that edit files.
+    static let edits: Set = ["Edit", "Write", "MultiEdit", "NotebookEdit"]
 
     private func handle(_ event: [String: Any]) {
         let name = event["hook_event_name"] as? String ?? ""
@@ -111,12 +126,15 @@ final class Hooks {
         case "PostToolUse" where tool == "ExitPlanMode":
             let response = event["tool_response"] as? [String: Any]
             approved((response?["plan"] as? String) ?? (input["plan"] as? String))
-        case "PostToolUse" where ["Edit", "Write", "MultiEdit", "NotebookEdit"].contains(tool ?? ""):
+        case "PostToolUse" where Self.edits.contains(tool ?? ""):
             if let path = (input["file_path"] ?? input["notebook_path"]) as? String {
-                app?.follower?.agentWrote(path.hasPrefix("/") ? path : (root as NSString).appendingPathComponent(path))
+                let absolute = path.hasPrefix("/") ? path : (root as NSString).appendingPathComponent(path)
+                app?.follower?.agentWrote(absolute)
+                app?.baskets?.editedWhileInvestigating(absolute, tool: tool ?? "")
             }
         case "Stop":
             app?.reviewer?.mark("turn ended")
+            app?.baskets?.turnEnded()
         default: break
         }
     }

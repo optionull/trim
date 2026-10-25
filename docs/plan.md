@@ -811,6 +811,14 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   - Not checked: a real Claude Code session (the events are built from its reference), what a rejected plan sends,
     and an `EnterPlanMode` tool call. Not built: approving a plan from sill (not asked for). Next: the investigation
     guards (edits denied while one is open, no stop before its findings), editor context on prompts.
+- Investigation guards, soft (2026-10-25, owner took my pick over blocking): blocking edits would also stop a log
+  line or a quick experiment, and blocking a stop can loop an agent that is stuck or was interrupted. So while an
+  investigation is open (`Baskets.investigating`, from basket_create until basket_conclude): a PreToolUse of an
+  editing tool answers with `additionalContext` reminding that it is read-only (no permission decision), its
+  PostToolUse notes the edit under "Edits made while investigating" and tells the person; Stop with the basket still
+  open marks it `stopped` and says so, and `f` in the basket asks the agent for findings. Checked in the hooks check
+  (the reminder in the hook's answer, the note, stopped, `f`'s prompt, nothing once concluded); not marking stopped
+  fails it. The check runs hooks off the main thread now: sill answers on it, so a check waiting there got no answer.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

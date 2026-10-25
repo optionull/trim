@@ -1062,25 +1062,20 @@ final class SelfCheck {
         try expect(status.isEmpty, "git sees none of it: \(status)")
         step(":SillHooks install: sill's hooks beside the project's own settings (kept as they were); git sees none")
 
-        /// The hook as Claude Code runs it: the event on stdin.
-        func fire(_ event: [String: Any]) throws {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            process.arguments = ["-c", command]
-            let input = Pipe()
-            process.standardInput = input
-            process.standardOutput = FileHandle.nullDevice
-            try process.run()
-            try input.fileHandleForWriting.write(JSONSerialization.data(withJSONObject: event, options: .prettyPrinted))
-            try input.fileHandleForWriting.close()
-            process.waitUntilExit()
-            try expect(process.terminationStatus == 0, "the hook exits 0")
+        /// The hook as Claude Code runs it, off the main thread (sill answers on it): the event on stdin; what it
+        /// prints.
+        @discardableResult
+        func fire(_ event: [String: Any]) async throws -> String {
+            let data = try JSONSerialization.data(withJSONObject: event, options: .prettyPrinted)
+            let (status, output) = try await Task.detached { try Self.runHook(command, data) }.value
+            try expect(status == 0, "the hook exits 0")
+            return output
         }
         let base: [String: Any] = ["session_id": "check-1", "cwd": root]
         func names() -> [String] { app.reviewer?.baselines.map(\.name) ?? [] }
         // A change since sill opened: an unchanged worktree is no new baseline.
         try "notes".write(toFile: root + "/notes.txt", atomically: true, encoding: .utf8)
-        try fire(base.merging([
+        try await fire(base.merging([
             "hook_event_name": "UserPromptSubmit",
             "permission_mode": "plan",
             "prompt": "Make the tax round once",
@@ -1092,7 +1087,7 @@ final class SelfCheck {
         step("a prompt in plan mode: planning noticed, a baseline named after the prompt")
 
         let plan = "# Round the tax once\n\n## Steps\n1. Stop rounding in Tax.cs:5.\n2. Round in Pricing.cs:6."
-        try fire(base.merging([
+        try await fire(base.merging([
             "hook_event_name": "PreToolUse",
             "permission_mode": "plan",
             "tool_name": "ExitPlanMode",
@@ -1115,7 +1110,7 @@ final class SelfCheck {
             app.tools.walk?.display()
             try self.shot(to: shot)
         }
-        try fire(base.merging([
+        try await fire(base.merging([
             "hook_event_name": "PostToolUse",
             "permission_mode": "plan",
             "tool_name": "ExitPlanMode",
@@ -1132,7 +1127,7 @@ final class SelfCheck {
         let pricing = root + "/Pricing.cs"
         try (String(contentsOfFile: pricing, encoding: .utf8)).replacingOccurrences(of: "3.5m", with: "3.6m")
             .write(toFile: pricing, atomically: true, encoding: .utf8)
-        try fire(base.merging([
+        try await fire(base.merging([
             "hook_event_name": "PostToolUse",
             "permission_mode": "acceptEdits",
             "tool_name": "Edit",
@@ -1140,13 +1135,63 @@ final class SelfCheck {
         ]) { $1 })
         _ = try await waitFor("the edit followed") { app.follower?.touched["Pricing.cs"] != nil ? true : nil }
         try expect(!hooks.planning.contains("check-1"), "planning over")
-        try fire(base.merging(["hook_event_name": "Stop", "permission_mode": "acceptEdits"]) { $1 })
+        try await fire(base.merging(["hook_event_name": "Stop", "permission_mode": "acceptEdits"]) { $1 })
         _ = try await waitFor("the turn's baseline", timeout: .seconds(10)) {
             names().last == "turn ended" ? true : nil
         }
         let log = (try? String(contentsOfFile: root + "/.sill/sessions/check-1.jsonl", encoding: .utf8)) ?? ""
         try expect(log.split(separator: "\n").count == 5 && log.contains("\"tool_name\":\"Edit\""), "the log: \(log)")
         step("an edit: followed as the agent's, planning over; the turn's end: a baseline; five events in the log")
+
+        // An investigation open: an edit is reminded of and noted, a turn without findings marks it stopped.
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        _ = try await agent.call("basket_create", ["title": "Why the rounding", "by": "claude"])
+        let investigation = try require(app.baskets.investigating, "the investigation open")
+        func basket() -> String { (try? String(contentsOfFile: investigation, encoding: .utf8)) ?? "" }
+        let edit: [String: Any] = [
+            "tool_name": "Edit",
+            "permission_mode": "default",
+            "tool_input": ["file_path": root + "/Tax.cs"],
+        ]
+        let before = try await fire(base.merging(edit) { $1 }.merging(["hook_event_name": "PreToolUse"]) { $1 })
+        try expect(
+            before.contains("additionalContext") && before.contains("read-only") &&
+                !before.contains("permissionDecision"),
+            "a reminder, not a refusal: \(before)"
+        )
+        try await fire(base.merging(edit) { $1 }.merging(["hook_event_name": "PostToolUse"]) { $1 })
+        _ = try await waitFor("the edit noted", timeout: .seconds(10)) {
+            basket().contains("## Edits made while investigating\n`Tax.cs` (Edit)") ? true : nil
+        }
+        try await fire(base.merging(["hook_event_name": "Stop", "permission_mode": "default"]) { $1 })
+        _ = try await waitFor("stopped", timeout: .seconds(10)) { basket().contains("status: stopped") ? true : nil }
+        app.baskets.open(investigation)
+        try await wait("the basket pane") { $0.currentPaneKind == "basket" }
+        let view = try await waitFor("the basket view") { app.tools.basket }
+        try view.handleKey(require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "f", charactersIgnoringModifiers: "f", isARepeat: false, keyCode: 3
+        ), "f"))
+        _ = try await waitFor("the findings asked for") {
+            app.agents.lastPrompt?.hasPrefix("Conclude the investigation: Why the rounding") == true ? true : nil
+        }
+        _ = try await agent.call("basket_conclude", [
+            "basket": (investigation as NSString).lastPathComponent,
+            "answer": "It rounds once.",
+        ])
+        _ = try await waitFor("concluded", timeout: .seconds(10)) { basket().contains("status: concluded") ? true : nil
+        }
+        try expect(app.baskets.investigating == nil, "no investigation open once concluded")
+        let after = try await fire(base.merging(edit) { $1 }.merging(["hook_event_name": "PreToolUse"]) { $1 })
+        try expect(!after.contains("additionalContext"), "no reminder once concluded: \(after)")
+        step("an investigation open: an edit gets a reminder (not a refusal) and is noted; a turn without findings " +
+            "marks it stopped, f asks for them; once concluded, neither")
 
         try expect(
             app.agents.agentCommand(prompt: "x").contains("--settings '\(hooks.settingsPath)'"),
@@ -1168,6 +1213,22 @@ final class SelfCheck {
             "as it was: \(left)"
         )
         step("the agents sill starts get them with --settings; :SillHooks remove leaves the settings as they were")
+    }
+
+    /// A hook command run as an agent runs it: `input` on stdin; its status and what it printed.
+    private nonisolated static func runHook(_ command: String, _ input: Data) throws -> (Int32, String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        let stdin = Pipe(), stdout = Pipe()
+        process.standardInput = stdin
+        process.standardOutput = stdout
+        try process.run()
+        stdin.fileHandleForWriting.write(input)
+        try stdin.fileHandleForWriting.close()
+        let output = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (process.terminationStatus, String(decoding: output, as: UTF8.self))
     }
 
     /// Investigations (`SILL_CHECK=investigate`, in a restored git copy of TraceShop, `SILL_AGENT=echo`, a scratch

@@ -192,6 +192,7 @@ final class AgentBridge {
                         return ToolResult("basket_create needs a title", isError: true)
                     }
                     let path = baskets.create(title: title, question: asked.question, by: asked.by ?? "an agent")
+                    baskets.investigating = path
                     return ToolResult("Made \((path as NSString).lastPathComponent); sill shows it.")
                 } ?? gone
             },

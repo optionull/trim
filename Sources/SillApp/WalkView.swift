@@ -17,6 +17,7 @@ final class WalkView: NSView, ToolContent {
     /// For baskets: a piece's anchor removed (its line), the basket sent with a question.
     var onRemove: ((Int) -> Void)?
     var onSend: (() -> Void)?
+    var onAskFindings: (() -> Void)?
     /// For baskets: what was collected about a piece (by its anchor): short facts for its heading, and the lines its
     /// details show; and across the basket, for the Context menu.
     var chips: ((String) -> [String])?
@@ -433,9 +434,8 @@ final class WalkView: NSView, ToolContent {
             let line = NSMutableAttributedString(attributedString: text(
                 status.uppercased(),
                 11,
-                status == "concluded" ? Design
-                    .accent : status == "sent" ? Design
-                    .modified : Design.textMuted,
+                status == "concluded" ? Design.accent : status == "sent" ? Design.modified :
+                    status == "stopped" ? Design.warm : Design.textMuted,
                 weight: .semibold
             ))
             line.append(text("  by \(walk.by ?? "you")", 12, Design.textFaint))
@@ -659,6 +659,9 @@ final class WalkView: NSView, ToolContent {
                 return true
             case "s":
                 onSend?()
+                return true
+            case "f":
+                onAskFindings?()
                 return true
             case "x":
                 // The first piece in view.

@@ -94,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let view = WalkView(walker: baskets.walker, basket: true)
             baskets.walker.onChange = { [weak view] in view?.changed() }
             view.onRemove = { [weak self] line in self?.baskets.remove(anchorAt: line) }
+            view.onAskFindings = { [weak self] in self?.baskets.askForFindings() }
             view.chips = { [weak self] anchor in self?.baskets.context.chips(anchor) ?? [] }
             view.details = { [weak self] anchor in self?.baskets.context.text(anchor) ?? [] }
             view.overview = { [weak self] in

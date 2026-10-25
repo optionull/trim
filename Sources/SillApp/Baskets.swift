@@ -347,6 +347,48 @@ final class Baskets {
 
     func conclude(_ text: String, basket: String) {
         edit(basket) { BasketFile.concluding($0, text) }
+        if investigating == basket { investigating = nil }
+    }
+
+    // MARK: Investigations
+
+    /// The investigation an agent has open (made with basket_create), until it concludes.
+    var investigating: String?
+
+    /// An edit while an investigation is open: noted in its basket, and the person told.
+    func editedWhileInvestigating(_ path: String, tool: String) {
+        guard let basket = investigating else { return }
+        let file = SillFolder.relative(path, in: directory)
+        note("`\(file)` (\(tool))", section: "Edits made while investigating", basket: basket)
+        Nvim.lua(channel, "vim.notify(...)", [
+            .string("The agent edited \(file) during its investigation; noted in the basket"), .int(3),
+        ])
+    }
+
+    /// The agent's turn ended: an investigation without findings is marked stopped.
+    func turnEnded() {
+        guard let basket = investigating,
+              let source = try? String(contentsOfFile: basket, encoding: .utf8),
+              Walkthrough(source).status == "open"
+        else { return }
+        edit(basket) { BasketFile.setting($0, "status", to: "stopped") }
+        Nvim.lua(channel, "vim.notify(...)", [
+            .string(
+                "The agent stopped without findings in \(Walkthrough(source).title): f in the basket asks for them"
+            ),
+            .int(3),
+        ])
+    }
+
+    /// Asks the agent for the findings of the basket shown.
+    func askForFindings() {
+        guard let path = walker.path, let walk = walker.walk, let agents = app?.agents else { return }
+        let name = (path as NSString).lastPathComponent
+        agents.send(headline: "Conclude the investigation: \(walk.title)", """
+        Your investigation in sill's basket \(name) stopped without findings. Read it again (basket_read, basket \
+        "\(name)"), then call basket_conclude with your answer: the answer first, why you are sure, what is still \
+        open, and the next steps you suggest.
+        """)
     }
 
     // MARK: Investigations
