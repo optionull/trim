@@ -29,6 +29,9 @@ final class ToolPanes {
     /// The walkthrough pane, made the first time it opens.
     private(set) var walk: WalkView?
     var makeWalk: (() -> WalkView)?
+    /// The trace pane, made the first time it opens.
+    private(set) var trace: TraceView?
+    var makeTrace: (() -> TraceView)?
     /// The code map, made the first time it opens.
     private(set) var map: CodeMapView?
     var makeMap: (() -> CodeMapView)?
@@ -116,6 +119,19 @@ final class ToolPanes {
         } else {
             walk?.isHidden = true
         }
+        if let rect = screen.paneRects.first(where: { $0.kind == "trace" }), let make = makeTrace {
+            let view = trace ?? {
+                let made = make()
+                editor.addSubview(made)
+                trace = made
+                return made
+            }()
+            view.frame = editor.rect(row: rect.row, col: rect.col, width: rect.width, height: rect.height)
+            view.isHidden = false
+            covered.insert(rect.grid)
+        } else {
+            trace?.isHidden = true
+        }
         if let rect = screen.paneRects.first(where: { $0.kind == "map" }), let make = makeMap {
             let view = map ?? {
                 let made = make()
@@ -167,6 +183,7 @@ final class ToolPanes {
         case "walk": walk?.handleKey(event) ?? false
         case "telemetry": telemetry?.handleKey(event) ?? false
         case "map": map?.handleKey(event) ?? false
+        case "trace": trace?.handleKey(event) ?? false
         default: false
         }
     }

@@ -62,6 +62,12 @@ final class SelfCheck {
                 fflush(stdout)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "trace" {
+                try await traceSteps()
+                print("sill check (trace): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "map" {
                 try await mapSteps()
                 print("sill check (code map): passed")
@@ -1002,6 +1008,102 @@ final class SelfCheck {
             FileManager.default.fileExists(atPath: skill) ? true : nil
         }
         step("step 2 shows Clock.Tick's first three lines; :SillWalk skill installed the skill at \(skill)")
+    }
+
+    /// Tracing a symbol (`SILL_CHECK=trace`, in a restored copy of the TraceShop fixture, `SILL_AGENT=echo`): Roslyn's
+    /// callers of Tax.Of opened a level at a time (Pricing.Total, then Checkout.Run and Report.Print), a row opening
+    /// at its call, callees by d, the agent asked to explain a path with its code, and `trace_symbol` by name.
+    private func traceSteps() async throws {
+        let app = try require(app, "the app")
+        let root = app.workingDirectory
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        let tax = root + "/Tax.cs"
+        let line = "    public static decimal Of(decimal amount) => Math.Round(amount * Rate, 2);"
+        let column = line.distance(from: line.startIndex, to: line.range(of: "Of(")!.lowerBound) + 1
+        // Roslyn loads the project first: until then there is nothing to trace.
+        let started = CACurrentMediaTime()
+        var tree: TraceTree?
+        for _ in 0 ..< 90 {
+            _ = try await session.channel.lua("require'sill'.open(...); vim.cmd('SillTrace')", args: [
+                .string(tax), .int(5), .int(Int64(column)),
+            ])
+            try? await Task.sleep(for: .milliseconds(300))
+            for _ in 0 ..< 30 where app.tracer.busy {
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            if let found = app.tracer.tree, found.nodes[0].children?.isEmpty == false {
+                tree = found
+                break
+            }
+            try await Task.sleep(for: .seconds(1))
+        }
+        let first = try require(tree, "a trace of Tax.Of: \(app.tracer.problem ?? "none")")
+        try await wait("the trace pane") { $0.currentPaneKind == "trace" }
+        func names(_ tree: TraceTree?) -> [String] { tree?.visible.map { tree!.nodes[$0].item.name } ?? [] }
+        try expect(names(first) == ["Tax.Of(decimal)", "Pricing.Total(int)"], "callers of Of: \(names(first))")
+        step("callers of Tax.Of: Pricing.Total, in \(Bench.format(CACurrentMediaTime() - started)) s from opening")
+
+        let view = try await waitFor("the trace view") { app.tools.trace }
+        let total = try require(first.nodes.firstIndex { $0.item.name.hasPrefix("Pricing.Total") }, "Total")
+        await app.tracer.open(total)
+        let opened = try require(app.tracer.tree, "the tree")
+        try expect(
+            names(opened) == ["Tax.Of(decimal)", "Pricing.Total(int)", "Checkout.Run(int)", "Report.Print(int)"],
+            "a level more: \(names(opened))"
+        )
+        let run = try require(opened.nodes.firstIndex { $0.item.name.hasPrefix("Checkout.Run") }, "Run")
+        try expect(opened.nodes[run].item.at == 5, "Run calls Total at line 5: \(opened.nodes[run].item.at ?? 0)")
+        app.tracer.reveal(run)
+        var at = ""
+        for _ in 0 ..< 50 where at != "Checkout.cs:5" {
+            try await Task.sleep(for: .milliseconds(100))
+            at = try await session.channel.lua(
+                "return vim.fn.expand('%:t') .. ':' .. vim.api.nvim_win_get_cursor(0)[1]"
+            ).stringValue ?? ""
+        }
+        try expect(at == "Checkout.cs:5", "Run opened at \(at), not where it calls")
+        step("opening Total gives Checkout.Run (calling at line 5) and Report.Print; Run opens at its call")
+
+        app.tracer.explain(run)
+        let prompt = try await waitFor("the agent asked") { app.agents.lastPrompt }
+        try expect(
+            prompt.hasPrefix("Explain how Checkout.Run(int) reaches Tax.Of(decimal)") &&
+                prompt.contains("1. Checkout.Run(int) at Checkout.cs:3") && prompt
+                .contains("3. Tax.Of(decimal) at Tax.cs:5") && prompt.contains("return net + Tax.Of(net);"),
+            "the prompt: \(prompt.prefix(600))"
+        )
+        step("e asks the agent to explain Run → Total → Of, each step with its code")
+
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            _ = try await session.channel.lua("require'sill'.show_pane('trace')")
+            try await wait("the trace pane") { $0.currentPaneKind == "trace" }
+            view.display()
+            try shot(to: path)
+        }
+
+        await app.tracer.turn()
+        let callees = names(app.tracer.tree)
+        try expect(
+            app.tracer.tree?.direction == .outgoing && callees == ["Tax.Of(decimal)", "Tax.Rate"],
+            "callees of Of: \(callees)"
+        )
+        step("d turns it: Of uses Tax.Rate (Roslyn lists what is in source, not Math.Round)")
+
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        let text = try await agent.call("trace_symbol", ["symbol": "Tax.Of", "depth": 3])
+        try expect(
+            text.hasPrefix("Callers of Tax.Of(decimal) (Tax.cs:5):") &&
+                text.contains("    Checkout.Run(int)  Checkout.cs:3, calls at line 5") &&
+                text.contains("    Report.Print(int)  Report.cs:3"),
+            "trace_symbol: \(text)"
+        )
+        step("trace_symbol Tax.Of, three levels: Total, then Run and Print under it")
     }
 
     /// The code map (`SILL_CHECK=map`, in a git copy of the MapShop fixture whose Pricing.cs changed in three commits,

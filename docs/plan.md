@@ -686,6 +686,22 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     of the hot-file link fails it. Looked at on docs-builder.
   - Not checked: `w`'s walkthrough end to end with a real agent; maps whose layers are wider than the pane read
     left to right without horizontal scrolling.
+- Trace a symbol (2026-10-25): `sill.trace` asks the language server for `textDocument/prepareCallHierarchy` and
+  `callHierarchy/incomingCalls`/`outgoingCalls` with `client:request`, keeping the items in Lua by number (Roslyn's
+  carry opaque `data`) and stashing each answer for sill to `take`, so nvim never waits on a server; `Tracer` polls.
+  `SillCore.TraceTree`: levels as they are asked, sorted by file and call line, a symbol among its own ancestors
+  marked recursive and never asked, `unasked(within:)` for a deeper trace, `text` for an agent. `:SillTrace
+  [callers|callees]` at the cursor, the trace pane (`TraceView`: l/h, ↵ opens a caller at its call line, d turns
+  it, e asks the agent to explain the path root to row with each step's first lines), MCP `trace_symbol` (a symbol
+  found as walkthrough anchors are, or a path and line; depth 1 to 6, at most 200 nodes).
+  - Roslyn names items `Tax.Of(decimal)` with the type as detail; its callees are what is in source (a constant
+    used, not `Math.Round`). A trace asked before Roslyn has the project is retried while no server answers; the
+    check retries `:SillTrace` until callers come (2.6 s from opening).
+  - Checked: `TraceTreeTests` (mutations of sorting, the recursion guard, opening the unasked, the depth limit, the
+    text all fail them), `SILL_CHECK=trace` on the restored TraceShop fixture; opening a caller at its declaration
+    instead of its call fails it.
+  - Not checked: other languages' servers (rust-analyzer, sourcekit-lsp and TypeScript have call hierarchy too),
+    and very wide trees (no limit on a level's size in the pane).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

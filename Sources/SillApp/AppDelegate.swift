@@ -79,6 +79,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         walker = Walker(app: self, channel: session.channel, directory: workingDirectory)
         follower = Follower(app: self, channel: session.channel, directory: workingDirectory)
         telemetry = TelemetryWatch(app: self, channel: session.channel)
+        tracer = Tracer(app: self, channel: session.channel, directory: workingDirectory)
+        tools.makeTrace = { [weak self] in
+            guard let self else { fatalError("the app is gone") }
+            let view = TraceView(tracer: tracer)
+            tracer.onChange = { [weak view] in view?.changed() }
+            return view
+        }
         mapper = CodeMapper(app: self, channel: session.channel, directory: workingDirectory)
         tools.makeMap = { [weak self] in
             guard let self else { fatalError("the app is gone") }
@@ -291,6 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var follower: Follower!
     private(set) var telemetry: TelemetryWatch!
     private(set) var mapper: CodeMapper!
+    private(set) var tracer: Tracer!
     private var asksHandled = 0
     /// Roslyn's provisioning: what the status bar says while it downloads.
     private(set) var roslynStatus: String?
@@ -321,6 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         follower.update(screen)
         telemetry.update(screen)
         mapper.update(screen)
+        tracer.update(screen)
         for asked in screen.askQuestions.dropFirst(asksHandled) {
             agents.ask(path: asked.path, from: asked.from, to: asked.to, lines: asked.lines, question: asked.question)
         }

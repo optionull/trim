@@ -229,6 +229,8 @@ public struct Screen: Sendable {
     public private(set) var followAsks = 0
     /// `:SillMap`s asked for.
     public private(set) var mapAsks = 0
+    /// `:SillTrace`s: the place of the symbol to trace and which way.
+    public private(set) var traceAsks: [(path: String, line: Int, column: Int, direction: String)] = []
     /// `:SillWalk` asks: open a walkthrough, install the skill.
     public private(set) var walkAsks: [(action: String, argument: String)] = []
     /// `:SillReview` asks: "show" or "mark".
@@ -421,6 +423,15 @@ public struct Screen: Sendable {
             followAsks += 1
         case let .notification(method, _) where method == "sill_map":
             mapAsks += 1
+        case let .notification(method, args) where method == "sill_trace":
+            if let map = args.first?.dictionaryValue, let path = map[.string("path")]?.stringValue {
+                traceAsks.append((
+                    path,
+                    Int(map[.string("line")]?.integerValue ?? 1),
+                    Int(map[.string("col")]?.integerValue ?? 1),
+                    map[.string("direction")]?.stringValue ?? "incoming"
+                ))
+            }
         case let .notification(method, args) where method == "sill_walk":
             walkAsks.append((args.first?.stringValue ?? "", args.count > 1 ? args[1].stringValue ?? "" : ""))
         case let .notification(method, args) where method == "sill_review":

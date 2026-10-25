@@ -543,6 +543,14 @@ function M.setup()
     nargs = '?', complete = function() return { 'stop' } end,
     desc = "A running .NET program's logs, traces and metrics: a pid, or pick one; stop ends it",
   })
+  vim.api.nvim_create_user_command('SillTrace', function(opts)
+    local here = require('sill.trace').here()
+    here.direction = opts.args == 'callees' and 'outgoing' or 'incoming'
+    notify('sill_trace', here)
+  end, {
+    nargs = '?', complete = function() return { 'callers', 'callees' } end,
+    desc = 'Trace the symbol under the cursor: who calls it (callers, the default) or what it calls (callees)',
+  })
   vim.api.nvim_create_user_command('SillMap', function() notify('sill_map') end,
     { desc = "The code map: the repository's projects, what each builds on, where it starts, what changes most" })
   vim.api.nvim_create_user_command('SillFollow', function() notify('sill_follow') end,

@@ -153,6 +153,50 @@ final class AgentBridge {
 
     private struct MapArguments: Decodable { var summary: String? }
 
+    private struct TraceArguments: Decodable {
+        var symbol: String?
+        var path: String?
+        var line: Int?
+        var direction: String?
+        var depth: Int?
+    }
+
+    /// `trace_symbol`: the call hierarchy of a symbol (by name, or a file and line), `depth` levels deep, shown in the
+    /// trace pane as the agent asks.
+    private func traceSymbol(_ data: Data) async -> ToolResult {
+        guard let tracer = app?.tracer else { return ToolResult("sill is closing", isError: true) }
+        let asked = (try? JSONDecoder().decode(TraceArguments.self, from: data)) ?? TraceArguments()
+        let direction: TraceTree.Direction = asked.direction == "callees" ? .outgoing : .incoming
+        var place: (path: String, line: Int, column: Int)?
+        if let symbol = asked.symbol, !symbol.isEmpty {
+            // Found as walkthroughs find their anchors: the language servers, else its declaration.
+            let found = try? await channel.lua(
+                "return require'sill.walk'.resolve({ { kind = 'symbol', name = ... } }, \(Self.luaString(directory)))[1]",
+                args: [.string(symbol)]
+            )
+            guard let map = found?.dictionaryValue, let path = map[.string("path")]?.stringValue,
+                  let line = map[.string("from")]?.integerValue
+            else { return ToolResult("No symbol \(symbol) found", isError: true) }
+            let name = symbol.split(separator: ".").last.map(String.init) ?? symbol
+            let text = (try? String(contentsOfFile: path, encoding: .utf8))?.components(separatedBy: "\n")
+            let column = text?[safe: Int(line) - 1]?.range(of: name).map {
+                text![Int(line) - 1].distance(from: text![Int(line) - 1].startIndex, to: $0.lowerBound) + 1
+            } ?? 1
+            place = (path, Int(line), column)
+        } else if let path = asked.path.map(absolute), let line = asked.line {
+            place = (path, line, 1)
+        }
+        guard let place else { return ToolResult("trace_symbol needs a symbol, or a path and line", isError: true) }
+        guard await tracer.trace(path: place.path, line: place.line, column: place.column, direction: direction)
+        else { return ToolResult(tracer.problem ?? "Nothing to trace there", isError: true) }
+        await tracer.load(depth: min(max(asked.depth ?? 3, 1), 6))
+        return ToolResult(tracer.tree?.text(relativeTo: directory) ?? "")
+    }
+
+    private nonisolated static func luaString(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'") + "'"
+    }
+
     private func mapTools(_ gone: ToolResult) -> [Tool] {
         [
             Tool(
@@ -165,6 +209,18 @@ final class AgentBridge {
                     guard let mapper = bridge.app?.mapper else { return gone }
                     return await ToolResult(mapper.current().text)
                 } ?? gone
+            },
+            Tool(
+                name: "trace_symbol",
+                description: "A symbol's call hierarchy from the language server: who calls " +
+                    "it (direction callers, the default) or what it calls (callees), depth levels deep (default 3). " +
+                    "Name it as Type.Member, or give a path and line. The person sees it in sill's trace pane.",
+                properties: [
+                    "symbol": ["type": "string"], "path": ["type": "string"], "line": ["type": "integer"],
+                    "direction": ["type": "string"], "depth": ["type": "integer"],
+                ]
+            ) { [weak self] data in
+                await self?.call("trace_symbol") { bridge in await bridge.traceSymbol(data) } ?? gone
             },
             Tool(
                 name: "code_map_summary",

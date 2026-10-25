@@ -188,6 +188,17 @@ an agent gets the same through the `code_map` tool.
 
 ![The code map of a small shop: the agent's summary on top, Shop.Web (a web host) above Shop.Core, whose Pricing.cs changed most, and the tests below](docs/showcase-codemap-2026-10-25.png)
 
+## Tracing a symbol
+
+`:SillTrace` on a symbol shows who calls it as a tree, a level at a time as you open it (`l`/`h`, or a click);
+`:SillTrace callees`, or `d` in the pane, shows what it calls instead. A caller opens in the editor where it makes the
+call (`↵`, or a double click). `e` sends the path from the symbol to the selected row to the agent to explain, each
+step with its code. The tree comes from the language server's call hierarchy (Roslyn for C#), asked without making
+nvim wait; an agent gets the same through `trace_symbol` (by `Type.Member`, a few levels deep), and you see it as it
+asks.
+
+![Tracing Tax.Of: Pricing.Total calls it, and Checkout.Run and Report.Print call that, each with the line of its call](docs/showcase-trace-2026-10-25.png)
+
 ## Walkthroughs
 
 A walkthrough is a Markdown file ending in `.walk.md`, anywhere, that walks someone through code: `## steps` of prose,

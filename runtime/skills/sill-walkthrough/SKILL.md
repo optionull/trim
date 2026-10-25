@@ -69,7 +69,8 @@ repository's `.git`: a throwaway, never committed) and its `examples` folder. Th
 
 1. Read the code first and choose the path through it a newcomer needs. Usually that's an entry point, then the
    main flow, then the one or two places where the interesting decisions are. If sill's MCP tools are available,
-   `code_map` gives the projects, what each references, their entry points and the files that change most.
+   `code_map` gives the projects, what each references, their entry points and the files that change most, and
+   `trace_symbol` who calls a symbol (or what it calls), a few levels deep.
 2. Write the file.
 3. If sill's MCP tools are available, call `walkthrough_check` with its path and fix every anchor it reports as not
    found and every example that fails. Then call `walkthrough_open` so the person sees it.
