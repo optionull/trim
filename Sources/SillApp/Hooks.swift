@@ -116,9 +116,8 @@ final class Hooks {
 
     /// What the editor shows, as the agent's prompt gets it: nil when nothing changed since the session's last.
     private func editorContext(session: String) async -> String? {
-        guard let value = try? await channel.lua("return require'sill'.editor_context()"),
-              let map = value.dictionaryValue
-        else { return nil }
+        // Nothing open is an empty table, which comes as an array: the basket and the pull request are still told.
+        let map = (try? await channel.lua("return require'sill'.editor_context()"))?.dictionaryValue ?? [:]
         func relative(_ path: String?) -> String? { path.map { SillFolder.relative($0, in: root) } }
         var context = EditorContext(
             path: relative(map[.string("path")]?.stringValue),
