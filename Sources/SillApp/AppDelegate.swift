@@ -214,7 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editor.onKey = { [weak self] in self?.externalUI.keyPressed() }
         editor.keyInterceptor = { [weak self] event in self?.tools.handleKey(event) ?? false }
 
-        if environment["SILL_CHECK"] != nil || environment["SILL_SHOWCASE"] != nil {
+        if environment["SILL_CHECK"] != nil || environment["SILL_SHOWCASE"] != nil || environment["SILL_PROBE"] != nil {
             check = SelfCheck(window: window, editor: editor, panes: panes, session: session, app: self)
         }
         startSidecar()

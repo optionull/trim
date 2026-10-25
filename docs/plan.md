@@ -830,6 +830,17 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   for real; sill's own install was also written before git ignored it, and the follower took its backup for a change
   (it is excluded first now). Checked in the hooks check (the draft, then presented into the same notebook; the plan
   file and another file outside not followed); not guarding outside paths fails it.
+- A deep look with the owner's LazyVim on docs-builder (2026-10-25, after "Right now the app doesn't spark joy").
+  `SILL_PROBE=<script>` runs sill as the person does (their nvim config, offscreen) through steps (`wait`, `cmd`,
+  `lua`, `keys`, `menu`, `shot`, `state`, `messages`, each timed). Found: LazyVim's own UI beside sill's (dashboard,
+  snacks explorer, noice, bufferline-like rows), tokyonight repainting the editor inside sill's neutral chrome, tool
+  panes as tab pages that stay in the strip, eight panes with eight headers, IDE features in the front door. Not a
+  defect after all: Roslyn shows a file's errors on open (checked with an error on disk, before and after; the m3
+  check now opens such a file); an edit inside a primary constructor's parameter list cascades into hundreds of
+  errors, and docs-builder's style rules are errors by its own `.editorconfig` with `EnforceCodeStyleInBuild`. Not
+  reproduced here: the owner's M5 not building docs-builder or showing its problems, and Packages freezing (here it
+  took over a minute, restoring first, but stayed responsive). The docs-builder check runs in a clone of its own now
+  (it had left an empty `.sill` and two exclude lines in the owner's working copy; removed).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

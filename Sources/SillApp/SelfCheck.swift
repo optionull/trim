@@ -46,6 +46,12 @@ final class SelfCheck {
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "merge" {
                 return try await mergeToolSteps()
             }
+            // A probe (SILL_PROBE=<script>): sill as the person runs it, their nvim config and all, driven by a script
+            // of steps, for looking at what it does on a real project.
+            if let script = ProcessInfo.processInfo.environment["SILL_PROBE"] {
+                try await probe(script)
+                exit(0)
+            }
             if let path = ProcessInfo.processInfo.environment["SILL_SHOWCASE"] {
                 try await showcase(to: path)
                 exit(0)
@@ -317,6 +323,72 @@ final class SelfCheck {
     /// screen, `SILL_SHOWCASE_FILE` (else sill's own runtime) opens beside a terminal pane running `git log`, and the
     /// frame is rendered offscreen at that size. `SILL_SHOWCASE_SCENE` is `profile` (the profiler) or `agents` (the
     /// Agents sidebar over the heed at `HEED_CONTROL`).
+    /// Runs a probe script: `wait <seconds>`, `cmd <ex command>`, `lua <code>` (prints what it returns), `keys
+    /// <keys>` (nvim_input), `shot <png>`, `state` (panes, tab pages, buffers, problems), `messages`.
+    private func probe(_ script: String) async throws {
+        let lines = try String(contentsOfFile: script, encoding: .utf8).components(separatedBy: "\n")
+        let started = ContinuousClock.now
+        func say(_ text: String) {
+            let seconds = Double((ContinuousClock.now - started).components.attoseconds) / 1e18 +
+                Double((ContinuousClock.now - started).components.seconds)
+            print("probe: [\(String(format: "%6.1f", seconds))] " + text)
+            fflush(stdout)
+        }
+        for line in lines where !line.trimmingCharacters(in: .whitespaces).isEmpty && !line.hasPrefix("#") {
+            let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+            let argument = parts.count > 1 ? parts[1] : ""
+            say("> " + line)
+            do {
+                switch parts[0] {
+                case "wait": try await Task.sleep(for: .seconds(Double(argument) ?? 1))
+                case "cmd": try await session.channel.command(argument)
+                case "lua": try await say("\(session.channel.lua(argument))")
+                case "keys": _ = await session.channel.request("nvim_input", params: [.string(argument)])
+                case "shot":
+                    try shot(to: argument)
+                    say("saved \(argument)")
+                case "menu":
+                    // A menu bar item by its title, chosen as a click would.
+                    func find(_ menu: NSMenu?) -> NSMenuItem? {
+                        for item in menu?.items ?? [] {
+                            if item.title == argument { return item }
+                            if let found = find(item.submenu) { return found }
+                        }
+                        return nil
+                    }
+                    if let item = find(NSApp.mainMenu), let action = item.action {
+                        NSApp.sendAction(action, to: item.target, from: item)
+                    } else {
+                        say("no menu item \(argument)")
+                    }
+                case "messages": await say((try? session.channel.lua("return vim.fn.execute('messages')"))?
+                        .stringValue ?? "")
+                case "state":
+                    let screen = latest ?? Screen()
+                    say("panes: " + screen.paneRects.map { "\($0.kind)#\($0.pane) \($0.width)x\($0.height)" }
+                        .joined(separator: ", "))
+                    say("current pane: \(screen.currentPaneKind ?? "editor"); problems: \(screen.diagnostics.count)")
+                    let tabs = try await session.channel.lua("""
+                    local out = {}
+                    for i, t in ipairs(vim.api.nvim_list_tabpages()) do
+                      local names = {}
+                      for _, w in ipairs(vim.api.nvim_tabpage_list_wins(t)) do
+                        local b = vim.api.nvim_win_get_buf(w)
+                        table.insert(names, vim.fn.fnamemodify(vim.api.nvim_buf_get_name(b), ':t') .. '[' .. vim.bo[b].filetype .. ']')
+                      end
+                      table.insert(out, i .. ': ' .. table.concat(names, ', '))
+                    end
+                    return table.concat(out, ' | ')
+                    """)
+                    say("tabs: " + (tabs.stringValue ?? ""))
+                default: say("unknown step")
+                }
+            } catch {
+                say("failed: \(error)")
+            }
+        }
+    }
+
     private func showcase(to path: String) async throws {
         try await wait("nvim's first screen") { $0.placements.values.contains { $0.kind == .window } }
         let root = try require(app?.root, "the root view")
@@ -3115,6 +3187,19 @@ final class SelfCheck {
             root.statusBar.state.services.contains { $0.name == "Roslyn" && $0.ready } ? true : nil
         }
         step("Roslyn reports CS1061 at line \(roslynError.line), as the file is edited")
+
+        // A file opened once the solution has loaded, with an error on disk and never edited: its problems show.
+        let later = (path as NSString).deletingLastPathComponent + "/Later.cs"
+        try "class Later\n{\n    void M()\n    {\n        var broken = ;\n    }\n}\n"
+            .write(toFile: later, atomically: true, encoding: .utf8)
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(later)])
+        try await wait("Later.cs's CS1525, unedited", timeout: .seconds(60)) { screen in
+            screen.diagnostics.contains { $0.code == "CS1525" && $0.path.hasSuffix("/Later.cs") }
+        }
+        _ = try await session.channel.lua("vim.cmd('bwipeout! ' .. vim.fn.fnameescape(...))", args: [.string(later)])
+        try FileManager.default.removeItem(atPath: later)
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(path)])
+        step("a file opened after the solution loaded shows its error before it is edited")
 
         // Build: captured into Problems, at the same place.
         app.builds.build()
