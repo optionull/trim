@@ -21,7 +21,7 @@ public struct SillSettings: Equatable, Sendable {
     public var islands = true
     /// The shell's window with its title bar (its buttons); without it the window moves by its margin.
     public var shellTitleBar = false
-    public var nvimConfig = NvimConfig.yours
+    public var nvimConfig = NvimConfig.sill
     public var agent = "claude"
     public var heedAgent = "claude"
     /// sill's tools an agent may use without asking (`build`, …).
@@ -183,9 +183,11 @@ public enum SettingsLoader {
     # title_bar = false
 
     [nvim]
-    # "yours" loads your nvim config (~/.config/nvim) after sill's base settings; "sill" runs sill's alone.
+    # "sill" (the default) runs sill's own nvim: its colours, completion and finding, nothing to set up; your
+    # additions go in ~/.config/sill/init.lua. "yours" loads your nvim config (~/.config/nvim) instead, with what sill
+    # draws itself (explorer, messages, start screen) turned off in it.
     # (SILL_NVIM_CONFIG)
-    # config = "yours"
+    # config = "sill"
 
     [agents]
     # The agent sill starts in a terminal pane for Send to agent. (SILL_AGENT)

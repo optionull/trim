@@ -246,14 +246,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // alone too.
                 let environment = NvimProcess.cachedEnv.merging(ProcessInfo.processInfo.environment) { _, own in own }
                 let showcaseAlone = environment["SILL_SHOWCASE"] != nil && environment["SILL_SHOWCASE_USER"] != "1"
-                let alone = environment["SILL_CHECK"] != nil || showcaseAlone || Settings.shared
-                    .value("SILL_NVIM_CONFIG") == "0"
+                let alone = (environment["SILL_CHECK"] != nil && environment["SILL_CHECK_USER"] != "1") ||
+                    showcaseAlone || Settings.shared.value("SILL_NVIM_CONFIG") == "0"
                 // No swap files, ever (-n), whatever a config sets: a swap file left by a stopped nvim only brings a
                 // prompt the next time the file opens. Unsaved changes are guarded at quit instead.
                 arguments.insert("-n", at: 0)
                 let startup = EditorSession.startup(environment: environment, own: alone)
                 // Days 1 to 5's check runs nvim as they had it: no base settings either.
-                let base = environment["SILL_CHECK"] == "1" ? [] : startup.arguments
+                var base = environment["SILL_CHECK"] == "1" ? [] : startup.arguments
+                // sill's own nvim (the default) for a person; the checks run bare, unless one asks for it.
+                let checking = (environment["SILL_CHECK"] != nil && environment["SILL_CHECK_USER"] != "1") ||
+                    showcaseAlone
+                if !startup.userConfig, !checking || environment["SILL_CHECK_CONFIG"] == "1" {
+                    base += ["--cmd", "lua require('sill.config')"]
+                }
                 try await session.start(
                     runtime: Runtime.directory, cols: cols, rows: rows, cwd: workingDirectory, appName: startup.appName,
                     extraArgs: base + Array(arguments)

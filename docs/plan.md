@@ -841,6 +841,20 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   reproduced here: the owner's M5 not building docs-builder or showing its problems, and Packages freezing (here it
   took over a minute, restoring first, but stayed responsive). The docs-builder check runs in a clone of its own now
   (it had left an empty `.sill` and two exclude lines in the owner's working copy; removed).
+- sill's own nvim by default (2026-10-25, owner: "Go" on making sill opinionated). `[nvim] config` defaults to
+  `sill` now: nvim runs as `sill` with `sill.base` and `sill.config` (`--cmd`), and `~/.config/sill/init.lua` after
+  them for the person's additions. `sill.config` uses only what nvim 0.12 has: completion from language servers with
+  `vim.lsp.completion` (autotrigger) in the native popupmenu, `findfunc` fuzzy over `git ls-files` (cached until a
+  write or focus), `rg` for `:grep`, diagnostics underlined with `virtual_lines` for the cursor's line, a few keys,
+  and `colors/sill.lua`: Design.swift's palette for the editor, syntax, Tree-sitter and LSP semantic groups,
+  diagnostics, diff, floats and the terminal (no generator yet: the hexes are copied, as the 12 in init.lua were).
+  `config = "yours"` gets `sill.compat` after VimEnter (and 300 ms later): noice disabled, `vim.notify` back to
+  nvim's (kept by base.lua before plugins replace it), snacks' notifier and folder takeover off, start screens and
+  explorer windows closed; `vim.g.sill` tells a config it runs inside sill. Checks stay bare unless one asks
+  (`SILL_CHECK_CONFIG=1`, `SILL_CHECK_USER=1`). Checked: `SILL_CHECK=config` (the colours, `:find`, the problems'
+  layout, `Tax.` offering Of from Roslyn in the native menu), `SILL_CHECK=compat` (a stand-in config with a start
+  screen and its own notify: both undone, the config loaded and told); not closing start screens fails it. A wrong
+  `fillchars` (two glyphs lost) made the whole config fail to load: found by the check.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

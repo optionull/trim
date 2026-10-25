@@ -13,3 +13,7 @@ o.updatetime = 250
 o.undofile = true
 o.cursorline = true
 vim.g.sill_base = true
+-- Inside sill, for a config's own conditions (`cond = not vim.g.sill`).
+vim.g.sill = true
+-- nvim's own notify, before a plugin replaces it: sill draws messages itself.
+return { notify = vim.notify }

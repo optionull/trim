@@ -10,7 +10,7 @@ struct SettingsTests {
         #expect(problems.isEmpty && settings == .default)
         let environment = SillSettings.default.environment
         #expect(environment["SILL_AGENT"] == "claude" && environment["SILL_SMOOTH_SCROLL"] == "1")
-        #expect(environment["SILL_NVIM_CONFIG"] == "1" && environment["SILL_DOTNET"] == nil)
+        #expect(environment["SILL_NVIM_CONFIG"] == "0" && environment["SILL_DOTNET"] == nil)
     }
 
     @Test("values are read; a bad one keeps its default and says why; a typo is reported")

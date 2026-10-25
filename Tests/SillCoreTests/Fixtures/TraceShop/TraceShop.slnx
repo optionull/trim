@@ -1,4 +1,6 @@
 <Solution>
   <Project Path="TraceShop.csproj" />
-  <Project Path="tests/TraceShop.Tests/TraceShop.Tests.csproj" />
+  <Folder Name="/tests/">
+    <Project Path="tests/TraceShop.Tests/TraceShop.Tests.csproj" />
+  </Folder>
 </Solution>

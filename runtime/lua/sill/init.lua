@@ -579,6 +579,17 @@ function M.setup()
   end
   vim.g.loaded_sill = true
   require('sill.servers').setup()
+  -- The person's own config: what sill draws itself, turned off in it once its plugins have loaded (and again a moment
+  -- later, for what loads lazily on VimEnter).
+  if not vim.g.sill_config then
+    local function compat() require('sill.compat').apply() end
+    if vim.v.vim_did_enter == 1 then compat() else
+      vim.api.nvim_create_autocmd('VimEnter', { once = true, callback = function()
+        compat()
+        vim.defer_fn(compat, 300)
+      end })
+    end
+  end
   require('sill.debug').setup()
   require('sill.walk').setup()
   require('sill.ask').setup()

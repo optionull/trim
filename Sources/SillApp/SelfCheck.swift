@@ -68,6 +68,18 @@ final class SelfCheck {
                 fflush(stdout)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "config" {
+                try await configSteps()
+                print("sill check (sill's own config): passed")
+                fflush(stdout)
+                exit(0)
+            }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "compat" {
+                try await compatSteps()
+                print("sill check (a person's own config): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "hooks" {
                 try await hooksSteps()
                 print("sill check (agent hooks): passed")
@@ -1098,6 +1110,73 @@ final class SelfCheck {
             FileManager.default.fileExists(atPath: skill) ? true : nil
         }
         step("step 2 shows Clock.Tick's first three lines; :SillWalk skill installed the skill at \(skill)")
+    }
+
+    /// sill's own nvim (`SILL_CHECK=config`, `SILL_CHECK_CONFIG=1`, in a restored git copy of TraceShop): its colours
+    /// in the editor, completion from the language server in the native menu as one types, `:find` fuzzy over git's
+    /// files, problems shown under the cursor's line only.
+    private func configSteps() async throws {
+        let app = try require(app, "the app")
+        let root = app.workingDirectory
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        let colours = try await session.channel.lua(
+            "return vim.g.colors_name .. ' ' .. string.format('#%06X', vim.api.nvim_get_hl(0, { name = 'Normal' }).bg)"
+        ).stringValue
+        try expect(colours == "sill #121418", "the editor in sill's colours: \(colours ?? "")")
+        let found = try await session.channel.lua("return SillFind('pric', false)[1]").stringValue
+        try expect(found == "Pricing.cs", "the first match for pric: \(found ?? "nothing")")
+        let shown = try await session.channel.lua(
+            "local c = vim.diagnostic.config() return tostring(c.virtual_text) .. ' ' .. vim.inspect(c.virtual_lines)"
+        ).stringValue ?? ""
+        try expect(shown.hasPrefix("false") && shown.contains("current_line = true"), "problems: \(shown)")
+        step("sill's colours in the editor; :find fuzzy over git's files (pric: Pricing.cs); problems on the line only")
+
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(root + "/Pricing.cs")])
+        try await wait("Roslyn ready", timeout: .seconds(240)) { $0.languageServers["Roslyn"] == "ready" }
+        // As one types: the language server's completion, in sill's native menu.
+        _ = try await session.channel.lua("vim.api.nvim_win_set_cursor(0, { 5, 0 })")
+        var menu: [String] = []
+        for _ in 0 ..< 5 where menu.isEmpty {
+            _ = await session.channel.request("nvim_input", params: [.string("oTax.")])
+            for _ in 0 ..< 40 where menu.isEmpty {
+                try await Task.sleep(for: .milliseconds(250))
+                menu = latest?.popupMenu?.items.map(\.word) ?? []
+            }
+            if menu.isEmpty {
+                _ = await session.channel.request("nvim_input", params: [.string("<Esc>u")])
+                try await Task.sleep(for: .seconds(2))
+            }
+        }
+        try expect(menu.contains("Of"), "Tax. offers Of: \(menu.prefix(8))")
+        _ = await session.channel.request("nvim_input", params: [.string("<Esc>u")])
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try await Task.sleep(for: .milliseconds(500))
+            try self.shot(to: shot)
+        }
+        step("typing Tax. offers \(menu.prefix(3).joined(separator: ", ")) in sill's menu, from Roslyn")
+    }
+
+    /// A person's own config (`SILL_CHECK=compat`, its XDG_CONFIG_HOME holding an nvim config that opens a start screen
+    /// and replaces vim.notify, as LazyVim's plugins do): what sill draws itself is turned off in it.
+    private func compatSteps() async throws {
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        var state = ""
+        for _ in 0 ..< 40 where state != "0 true true true" {
+            try await Task.sleep(for: .milliseconds(250))
+            state = try await session.channel.lua("""
+            local dashboards = 0
+            for _, b in ipairs(vim.api.nvim_list_bufs()) do
+              if vim.api.nvim_buf_is_valid(b) and vim.bo[b].filetype == 'snacks_dashboard' then dashboards = dashboards + 1 end
+            end
+            return dashboards .. ' ' .. tostring(vim.notify == package.loaded['sill.base'].notify) .. ' ' ..
+              tostring(vim.g.sill) .. ' ' .. tostring(vim.g.user_config_loaded)
+            """).stringValue ?? ""
+        }
+        try expect(
+            state == "0 true true true",
+            "dashboards, nvim's notify back, vim.g.sill, the user's config loaded: \(state)"
+        )
+        step("the person's config loaded and told it runs in sill; its start screen gone, messages back with sill")
     }
 
     /// Agent hooks (`SILL_CHECK=hooks`, in a restored git copy of TraceShop, `SILL_AGENT=echo`): `:SillHooks install`

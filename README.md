@@ -132,6 +132,21 @@ The explorer, each editor window and the panel are rounded islands on a darker c
 default). `:SillZen` (⌃⌘Z, View ▸ Zen) hides the bars, the explorer and the panel and centres the text in a
 100-column island; again brings everything back.
 
+## sill's own nvim
+
+By default sill runs its own nvim setup, not yours: nothing to install or configure, and the editor in the same
+colours as everything around it (`colors/sill.lua`, from sill's palette: plain text first, structure tinted, comments
+faint, problems loud). Completion comes from the language server as you type, in sill's own menu; `<leader>ff` (or
+`:find`) finds a file fuzzily among the ones git knows, `<leader>/` searches the code, `<leader>e` shows the explorer;
+nvim's own LSP keys (`grn`, `gra`, `grr`, `gri`, `K`, `[d`, `]d`) work as they are. Problems are underlined, and the
+line under the cursor shows its own. Additions of yours go in `~/.config/sill/init.lua`.
+
+`[nvim] config = "yours"` in the settings runs your own nvim config (`~/.config/nvim`) instead. sill then tells it it
+runs inside sill (`vim.g.sill`, for a plugin spec's `cond = not vim.g.sill`) and turns off what it draws itself: a start
+screen, noice's command line and messages, a notifier, an explorer taking over a folder.
+
+![sill's own nvim: the editor in sill's colours beside the explorer and the problems](docs/showcase-own-config-2026-10-25.png)
+
 ## Settings
 
 ⌘, opens the settings window. It writes `~/.config/sill/settings.toml`, which you can also edit by hand ("Open
