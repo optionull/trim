@@ -613,8 +613,28 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     would, walkthrough_check runs its example (Total(4) = 14, Discounted(4, 10%) = 12.6); the notebook has two
     sections and the outline scrolls to the second. Without the .git rule the diff is missing and it fails.
   - Found on the way: a one-line member's excerpt ran into the next member.
-  - SharpLsp (github.com/Nimblesite/SharpLsp, MIT: a Rust host with Roslyn and F# compiler-service sidecars) was
-    raised by the owner: not evaluated yet; the gap it could fill is F#.
+- SharpLsp spike (2026-10-25; owner: "sharplsp as the backend for dotnet. Spike."). github.com/Nimblesite/SharpLsp,
+  MIT: a Rust host (`sharplsp`, stdio LSP, signed ad hoc) with a C# sidecar (Roslyn) and an F# sidecar (FCS);
+  releases every day or two (v0.30.0, 2026-10-20), a macOS arm64 archive of 50 MB checked against SHA256SUMS;
+  needs a .NET 10 SDK. Started from nvim headless with `init_options = { solutionPicker = false }`:
+  - Debuggee (one project): ready at once (37 ms), a semantic error (`Totl`) reported in 2.8 s, completion 199 ms
+    with Total, hover 12 ms, definition 5 ms. Capabilities include call hierarchy, code lens, inlay hints, linked
+    editing, implementations.
+  - F# (a console app; sill has no F# today): an undefined `prise` reported in 1.8 s, hover
+    `val price: seed: int -> float`, 288 completion items.
+  - docs-builder (59 projects): 62 to 67 s to a semantic error in an edited file, twice; its log: about 30 s to
+    load the solution (Roslyn's server here: 7 to 14 s), the solution loaded two or three times in one session, and
+    about 25 s from the edit to its diagnostic. Completion 0.6 to 1.4 s returning 23,382 unfiltered items (Roslyn
+    0.15 to 0.27 s).
+  - Razor: its own server-side Razor (projection, tag helpers); HTML is the client's, pulled with
+    `sharplsp/razor/htmlProjection` and merged with the HTML server's answers client-side, unlike Roslyn's cohosting.
+  - .NET 10 file-based apps fully (`#:project`, `#:package`, `#:include`, synthesized projects): review examples
+    would get project-level intelligence when opened.
+  - Its own debugger and profiler exist too (DEBUGGING-SPEC, PROFILER-SPEC); sill keeps Passenger's for now.
+  - Integration would be: download and pin it as Roslyn is now (it is a native binary: downloaded to the cache, not
+    bundled, so nothing to sign); `[dotnet] server = "roslyn" | "sharplsp"`; F# files to it; the Razor HTML bridge
+    reworked to its pull-and-merge. Waiting on the owner: switch C# now or keep Roslyn as the default until large
+    solutions load as fast, and take F# from SharpLsp either way.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
