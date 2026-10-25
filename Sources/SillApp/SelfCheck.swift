@@ -2682,6 +2682,8 @@ final class SelfCheck {
         try await wait("the editor again") { $0.currentPaneKind != "packages" }
         root.activityBar.onSelect?(.explorer)
         try await waitFor("the explorer again") { tools.sidebar.activity == .explorer ? true : nil }
+        // The bar's focus on the sidebar reaches nvim on its own: zen before it lands would see it reopen the sidebar.
+        try await wait("the sidebar current") { $0.currentPaneKind == "sidebar" }
         step("the activity bar switches the sidebar between its views; packages opens its tab")
 
         // Zen: only the text, in a column in the middle; again, everything back.

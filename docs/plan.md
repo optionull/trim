@@ -510,8 +510,11 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   sit on the canvas and the editor is inset by the gap. `:SillZen` (⌃⌘Z) closes the explorer and panel (and reopens
   what it closed), hides the bars and centres a 100-column island. Checked: `SILL_CHECK=chrome` (zen in and out),
   `SILL_CHECK=settings` (the switch applies at once).
-  - Open: the chrome check's zen step timed out once in five runs (in the full chain, not alone); it now says what
-    it saw (zen, the panes, the current pane) if it happens again.
+  - The chrome check's zen step timed out about once in five runs. What it reported (2026-10-25: zen on, the sidebar
+    open and current) showed the cause: the activity bar's `focus('sidebar')` goes to nvim in a task of its own and
+    can land after `:SillZen`, reopening the sidebar. The check now waits for the sidebar to be current first. A
+    person would have to click the explorer and enter zen within the same moment; chrome actions sent by
+    `Nvim.lua` are not ordered among themselves (as the ⌘-click on a reference and the pane's own focus were not).
 - The agent driving the debugger and profiler (2026-10-24): MCP tools `debug_start`, `debug_attach`,
   `debug_breakpoint`, `debug_step`, `debug_state`, `debug_evaluate`, `debug_stop`, `profile_start`,
   `profile_snapshot`, `profile_stop`, `profile_compare`. They drive the same Debugger and Profiler the person sees
