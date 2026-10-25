@@ -53,6 +53,14 @@ release build. `SILL_FONTS=<dir>` uses the fonts in a directory without installi
 `:only` and `:q` close it. The sidebar and the bottom panel are panes too (`:SillChrome` opens them, as the app does). As with nvim's own `:terminal`, `i` hands the keyboard to the terminal and `<C-\><C-n>`
 hands it back; a click on the pane or on the editor does the same.
 
+⌘-click on a file an agent, a compiler or a stack trace names in a pane (`src/Foo.cs:42`, `Foo.swift:42:7`,
+`Foo.cs(42,7)`, `Foo.cs#L42`, `in /src/Foo.cs:line 42`, `File "foo.py", line 42`, or just a path) opens it in the
+editor at that line. Paths are looked up from where the shell is, then from the project; only files that exist
+open. Links open in the browser.
+
+Other apps hand sill a place with a link, `sill://open?path=/abs/src/Foo.cs&line=42&column=7`, or a file (`open -a
+Sill Foo.cs`); sill opens it in the editor, starting in the file's repository if it was not running.
+
 ## As git's merge and diff tool
 
 ```sh

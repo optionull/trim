@@ -96,6 +96,14 @@ final class TerminalPanes {
             nextInput = nil
             surface.keyFilter = { [weak self] event in self?.filter(event, pane: pane) ?? false }
             surface.onClick = { [weak self] in self?.clicked(pane) }
+            surface.onReference = { [weak self, weak surface] row, column in
+                guard let self, let surface else { return false }
+                return openReference(in: row, at: column, from: surface.workingDirectory)
+            }
+            surface.onOpenURL = { [weak self] url in
+                guard url.isFileURL else { return false }
+                return self?.openReference(in: url.path, at: 0, from: nil) ?? false
+            }
             let view: NSView = surface
         #else
             let view = StandInPane(pane: pane)
@@ -103,6 +111,24 @@ final class TerminalPanes {
         editor.addSubview(view)
         views[pane] = view
         return view
+    }
+
+    /// A file named in a pane's output (`src/Foo.cs:42`, ⌘-clicked) opens in the editor at that line.
+    @discardableResult
+    func openReference(in row: String, at column: Int, from shellDirectory: String?) -> Bool {
+        let folder = shellDirectory.flatMap { URL(string: $0)?.isFileURL == true ? URL(string: $0)?.path : $0 }
+        guard let reference = FileReference.find(in: row, at: column, directory: folder ?? directory, root: directory)
+        else { return false }
+        open(reference)
+        return true
+    }
+
+    /// Opens `reference` in the editor, which gets the keyboard.
+    func open(_ reference: FileReference) {
+        focusEditor()
+        // Only what is there: a nil reaches Lua as vim.NIL, not nil.
+        let place = [reference.line, reference.line.flatMap { _ in reference.column }].compactMap(\.self)
+        Nvim.lua(channel, "require'sill'.open(...)", [.string(reference.path)] + place.map { .int(Int64($0)) })
     }
 
     /// A click on a pane makes its window current in nvim and gives it the keyboard.

@@ -635,6 +635,27 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     bundled, so nothing to sign); `[dotnet] server = "roslyn" | "sharplsp"`; F# files to it; the Razor HTML bridge
     reworked to its pull-and-merge. Waiting on the owner: switch C# now or keep Roslyn as the default until large
     solutions load as fast, and take F# from SharpLsp either way.
+- File references from sessions (2026-10-25): ⌘-click on a path in a terminal pane opens it in the editor at its
+  line. `SillCore.FileReference.find(in:at:directory:root:)` reads the clicked row for the forms agents, compilers
+  and stack traces print (`path:line[:col]`, `path(line,col)`, `path#Lline`, `:line N`, Python's `File "…", line
+  N`, a bare path) and keeps only files that exist, from the shell's folder (Ghostty's PWD action, OSC 7), then the
+  project. `GhosttySurfaceView.row(at:)` maps the click to a cell inside the pane's padding and reads that row from
+  the viewport text, walking soft-wrapped lines (a selection starting at an exact point reads nothing in this
+  libghostty). The click does not focus the pane when it opens something: the pane's own `set_current_win` raced
+  the open. `action_cb` now handles OPEN_URL (`file://` in sill, the rest through NSWorkspace) and PWD.
+  - Checked: `SILL_CHECK=refs` (a shell prints `src/a.txt:7`; a ⌘-click opens a.txt at line 7, the keyboard back
+    with nvim), three runs in a row. Tests in `FileReferenceTests`; mutations (folder order, the trailing-dot trim,
+    folders counting as files, the click position, `(l,c)` columns, `:line`, the row's padding) all fail them.
+  - From other apps: `sill://open?path=…&line=…&column=…` (CFBundleURLTypes) and files (CFBundleDocumentTypes,
+    text and source code, rank Alternate so sill never becomes the default) reach `application(_:open:)`;
+    `FileReference(url:)` reads them (absolute paths only). Until nvim is up they wait; a cold launch from `/` starts
+    in the first file's repository. Files AppKit hands over from the command line are skipped (nvim opens those,
+    and git's merge files must not open as files). The refs check calls the handler with both.
+  - Not checked: Ghostty's own ⌘-click on a URL (OPEN_URL) and an OSC 8 link; wide characters before a path shift
+    the column; a real `open sill://…` through LaunchServices (that registers the build with the system), and the
+    cold launch.
+  - Next, in heed (its own repo, the owner's call): ⌘-click on a reference in a heed session could hand it to sill
+    through the link.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

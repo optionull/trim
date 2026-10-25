@@ -45,7 +45,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         buildMenu()
-        let directory = environment["SILL_CWD"] ?? FileManager.default.currentDirectoryPath
+        // Started to open a file (from Finder, `open -a`, a sill:// link): in its repository, not in /.
+        let launchedFor = pendingOpens.first.flatMap { reference in
+            Review.git(["rev-parse", "--show-toplevel"], in: (reference.path as NSString).deletingLastPathComponent)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let directory = environment["SILL_CWD"] ??
+            (FileManager.default.currentDirectoryPath == "/" ? launchedFor : nil) ??
+            FileManager.default.currentDirectoryPath
         // The folder as the file system names it (/tmp is /private/tmp): language servers report real paths, and a
         // diagnostic's file must be the buffer's.
         let real = realPath(directory)
@@ -228,6 +235,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         Nvim.lua(session.channel, "vim.notify(...)", [.string("sill's chrome did not open: \(error)")])
                     }
                 }
+                self?.editorReady = true
+                for reference in self?.pendingOpens ?? [] {
+                    self?.panes.open(reference)
+                }
+                self?.pendingOpens = []
                 await self?.check?.run()
             } catch {
                 self?.fail(error)
@@ -236,6 +248,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private(set) var workingDirectory = NSHomeDirectory()
+    /// Files other apps asked to open before nvim was up.
+    private var pendingOpens: [FileReference] = []
+    private var editorReady = false
+
+    /// Files from Finder or `open -a Sill`, and `sill://open?path=…&line=…&column=…` links: what a terminal or an
+    /// agent's session hands over.
+    func application(_: NSApplication, open urls: [URL]) {
+        // AppKit hands over files named on the command line too; nvim opens those (and git's merge files are not to
+        // be opened as files).
+        let cwd = FileManager.default.currentDirectoryPath
+        let named = Set(CommandLine.arguments.dropFirst().map {
+            URL(fileURLWithPath: $0, relativeTo: URL(fileURLWithPath: cwd)).standardizedFileURL.path
+        })
+        let references = urls.compactMap(FileReference.init(url:)).filter { !named.contains($0.path) }
+        guard editorReady else { return pendingOpens += references }
+        for reference in references {
+            panes.open(reference)
+        }
+        NSApp.activate()
+    }
+
     private(set) var chrome = true
     private(set) var tools: ToolPanes!
     private(set) var splitTabs: SplitTabs!

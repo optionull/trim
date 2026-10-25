@@ -62,6 +62,12 @@ final class SelfCheck {
                 fflush(stdout)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "refs" {
+                try await referenceSteps()
+                print("sill check (file references): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "follow" {
                 try await followSteps()
                 print("sill check (follow): passed")
@@ -990,6 +996,73 @@ final class SelfCheck {
             FileManager.default.fileExists(atPath: skill) ? true : nil
         }
         step("step 2 shows Clock.Tick's first three lines; :SillWalk skill installed the skill at \(skill)")
+    }
+
+    /// File references in a terminal (`SILL_CHECK=refs`, in a folder with src/a.txt of twenty lines): what a shell
+    /// prints as `src/a.txt:7`, ⌘-clicked, opens in the editor at line 7 and gives the keyboard back to nvim.
+    private func referenceSteps() async throws {
+        #if SILL_GHOSTTY
+            try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+            _ = try await session.channel.lua("vim.cmd('SillTerminal')")
+            let pane = try await wait("a terminal, current") { screen in
+                screen.paneRects.contains { $0.kind == "terminal" && $0.pane == screen.currentPane }
+            }.currentPane!
+            let surface = try await waitFor("the pane's surface") { self.panes.view(for: pane) as? GhosttySurfaceView }
+            panes.focus(pane)
+            // The typed line says sill-ref too, but only the output starts with it.
+            type("printf '%s %s\\n' sill-ref src/a.txt:7")
+            press("\r", keyCode: 36)
+            let row = try await waitFor("the shell's output", timeout: .seconds(15)) {
+                (surface.visibleText() ?? "").components(separatedBy: "\n").firstIndex { $0.hasPrefix("sill-ref ") }
+            }
+            let size = surface.cellSize
+            let column = "sill-ref src/a".count
+            let point = NSPoint(
+                x: GhosttyRuntime.padding.x + (CGFloat(column) + 0.5) * size.width,
+                y: surface.bounds.height - GhosttyRuntime.padding.y - (CGFloat(row) + 0.5) * size.height
+            )
+            let (text, clicked) = try require(surface.row(at: point), "the row under the click")
+            try expect(text.hasPrefix("sill-ref ") && clicked == column, "read column \(clicked) of \(text)")
+            let click = try require(NSEvent.mouseEvent(
+                with: .leftMouseDown, location: surface.convert(point, to: nil), modifierFlags: .command,
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                pressure: 1
+            ), "a ⌘-click")
+            surface.mouseDown(with: click)
+            var at = ""
+            for _ in 0 ..< 50 where at != "a.txt:7" {
+                try await Task.sleep(for: .milliseconds(100))
+                at = try await session.channel.lua(
+                    "return vim.fn.expand('%:t') .. ':' .. vim.api.nvim_win_get_cursor(0)[1]"
+                ).stringValue ?? ""
+            }
+            try expect(at == "a.txt:7", "the editor at \(at), not a.txt:7")
+            try expect(window.firstResponder === editor, "the keyboard back with nvim")
+            step("⌘-click on src/a.txt:7 in the terminal opened a.txt at line 7 in the editor")
+
+            // What another app hands over: a sill:// link with a line and column, and a file.
+            let app = try require(app, "the app")
+            let root = app.workingDirectory
+            try "one\ntwo\n".write(toFile: root + "/b.txt", atomically: true, encoding: .utf8)
+            func place() async throws -> String {
+                try await session.channel.lua("""
+                local at = vim.api.nvim_win_get_cursor(0)
+                return vim.fn.expand('%:t') .. ':' .. at[1] .. ':' .. (at[2] + 1)
+                """).stringValue ?? ""
+            }
+            func opened(_ url: String, at expected: String) async throws {
+                try app.application(NSApp, open: [require(URL(string: url), url)])
+                var at = ""
+                for _ in 0 ..< 50 where at != expected {
+                    try await Task.sleep(for: .milliseconds(100))
+                    at = try await place()
+                }
+                try expect(at == expected, "\(url) left the editor at \(at), not \(expected)")
+            }
+            try await opened("sill://open?path=\(root)/src/a.txt&line=12&column=4", at: "a.txt:12:4")
+            try await opened(URL(fileURLWithPath: root + "/b.txt").absoluteString, at: "b.txt:1:1")
+            step("sill://open?path=…/a.txt&line=12&column=4 opened a.txt at 12:4; a file URL opened b.txt")
+        #endif
     }
 
     /// Following an agent (`SILL_CHECK=follow`, in a git repository with a.txt of twenty lines and b.txt committed and

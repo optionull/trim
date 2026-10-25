@@ -87,6 +87,13 @@ public final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient
     // MARK: Reading the screen
 
     /// A cell's height in pixels, as the terminal lays them out now.
+    /// A cell's size in points.
+    public var cellSize: CGSize {
+        guard let surface else { return .zero }
+        let size = ghostty_surface_size(surface), scale = window?.backingScaleFactor ?? 2
+        return CGSize(width: CGFloat(size.cell_width_px) / scale, height: CGFloat(size.cell_height_px) / scale)
+    }
+
     public var cellHeight: Int {
         guard let surface else { return 0 }
         return Int(ghostty_surface_size(surface).cell_height_px)
@@ -301,9 +308,46 @@ public final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient
     /// Called on a left click, before the terminal sees it: the app makes this pane current and gives it the keyboard.
     public var onClick: (() -> Void)?
 
+    /// Called on a ⌘-click with the clicked row's text and the column clicked; true if it opened what is there, and
+    /// the terminal does not see the click.
+    public var onReference: ((_ row: String, _ column: Int) -> Bool)?
+    /// A URL the terminal opened (a link ⌘-clicked, OSC 8); true if handled.
+    public var onOpenURL: ((URL) -> Bool)?
+    /// Where the shell is, as it reports it (OSC 7); the launch folder until it does.
+    public internal(set) var workingDirectory: String?
+
     override public func mouseDown(with event: NSEvent) {
+        // A reference opened takes the click: the pane does not become current.
+        if event.modifierFlags.contains(.command), let onReference,
+           let (row, column) = row(at: convert(event.locationInWindow, from: nil)), onReference(row, column)
+        {
+            return
+        }
         onClick?()
         mouseButton(event, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT)
+    }
+
+    /// The text of the row under `point` and the column in it, in characters. Cells are the grid's, inside the
+    /// pane's padding (`window-padding-x`, `-y`).
+    public func row(at point: NSPoint) -> (String, Int)? {
+        guard let surface else { return nil }
+        let size = ghostty_surface_size(surface)
+        let cellWidth = cellSize.width, cellHeight = cellSize.height
+        guard cellWidth > 0, cellHeight > 0, size.columns > 0 else { return nil }
+        let column = Int((point.x - GhosttyRuntime.padding.x) / cellWidth)
+        let row = Int((bounds.height - point.y - GhosttyRuntime.padding.y) / cellHeight)
+        guard (0 ..< Int(size.columns)).contains(column), (0 ..< Int(size.rows)).contains(row) else { return nil }
+        // The screen's lines, each a row or, wrapped, several full rows: the one covering the clicked row, and the
+        // column in it.
+        guard let screen = visibleText() else { return nil }
+        let columns = Int(size.columns)
+        var top = 0
+        for line in screen.components(separatedBy: "\n") {
+            let rows = max((line.count + columns - 1) / columns, 1)
+            if row < top + rows { return (line, (row - top) * columns + column) }
+            top += rows
+        }
+        return nil
     }
 
     override public func mouseUp(with event: NSEvent) { mouseButton(event, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT) }

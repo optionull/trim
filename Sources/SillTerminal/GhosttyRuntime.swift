@@ -59,14 +59,17 @@ public final class GhosttyRuntime {
         self.config = config
     }
 
+    /// The panes' padding, in points: the grid's cells start inside it.
+    public static let padding = CGPoint(x: 14, y: 10)
+
     /// Pane settings that keep a terminal in step with the design: the pane background, padding and the mono face.
     static var overrides: String { """
     background = 0c0d0f
     foreground = cfd3d8
     font-family = \(font.family)
     font-size = \(font.size == font.size.rounded() ? String(Int(font.size)) : String(font.size))
-    window-padding-x = 14
-    window-padding-y = 10
+    window-padding-x = \(Int(padding.x))
+    window-padding-y = \(Int(padding.y))
     window-padding-balance = false
     cursor-style = block
     confirm-close-surface = false
@@ -95,7 +98,7 @@ public final class GhosttyRuntime {
             userdata: nil,
             supports_selection_clipboard: false,
             wakeup_cb: { _ in GhosttyRuntime.wakeup() },
-            action_cb: { _, _, _ in false },
+            action_cb: { _, target, action in GhosttyRuntime.action(target, action) },
             read_clipboard_cb: { userdata, location, state, mimes, count, _ in
                 GhosttyRuntime.readClipboard(userdata, location: location, state: state, mimes: mimes, count: count)
             },
@@ -136,6 +139,44 @@ public final class GhosttyRuntime {
                 runtime.tick()
             }
         }
+    }
+
+    /// The actions a pane acts on: a URL to open (a link ⌘-clicked), and where its shell is. The rest are Ghostty's
+    /// window chrome, which sill does not have.
+    private nonisolated static func action(_ target: ghostty_target_s, _ action: ghostty_action_s) -> Bool {
+        guard target.tag == GHOSTTY_TARGET_SURFACE, let handle = target.target.surface else { return false }
+        let userdata = RawPointer(ghostty_surface_userdata(handle))
+        switch action.tag {
+        case GHOSTTY_ACTION_OPEN_URL:
+            guard let pointer = action.action.open_url.url else { return false }
+            let text = String(
+                decoding: UnsafeRawBufferPointer(start: pointer, count: Int(action.action.open_url.len)),
+                as: UTF8.self
+            )
+            guard let url = URL(string: text) ?? (text.hasPrefix("/") ? URL(fileURLWithPath: text) : nil) else {
+                return false
+            }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if alive(userdata.value)?.onOpenURL?(url) != true { NSWorkspace.shared.open(url) }
+                }
+            }
+            return true
+        case GHOSTTY_ACTION_PWD:
+            guard let pointer = action.action.pwd.pwd else { return false }
+            let directory = String(cString: pointer)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { alive(userdata.value)?.workingDirectory = directory }
+            }
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The pane `userdata` names if it is still open: for work that runs later, when it may have closed.
+    static func alive(_ userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceView? {
+        GhosttySurfaceView.live.allObjects.first { Unmanaged.passUnretained($0).toOpaque() == userdata }
     }
 
     nonisolated static func surface(_ userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceView? {
