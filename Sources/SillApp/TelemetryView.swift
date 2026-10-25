@@ -24,7 +24,7 @@ final class TelemetryView: NSView, ToolContent {
     required init?(coder _: NSCoder) { fatalError("not used") }
 
     override var isFlipped: Bool { true }
-    private static let bar: CGFloat = 52, tabs: CGFloat = 40
+    private static let bar = PaneBar.height, tabs: CGFloat = 36
     private var top: CGFloat { Self.bar + Self.tabs }
 
     func changed() { needsDisplay = true }
@@ -49,45 +49,29 @@ final class TelemetryView: NSView, ToolContent {
     override func draw(_: NSRect) {
         Design.editor.setFill()
         bounds.fill()
-        Design.chrome.setFill()
-        NSRect(x: 0, y: 0, width: bounds.width, height: top).fill()
-        let title = text("Telemetry", 16, weight: .semibold)
-        title.draw(at: NSPoint(x: 20, y: 16))
         let state = watch.processId.map { pid in
             "\(watch.name) · pid \(pid) · " + (watch.run != nil ? "watching" : "ended") +
                 " · \(watch.store.logs.count) logs, \(watch.store.spans.count) spans, \(watch.store.series.count) series"
         } ?? "Nothing watched: :SillTelemetry picks a running .NET program"
-        text(state, 13, Design.textMuted).draw(at: NSPoint(x: 36 + title.size().width, y: 19))
-        tabFrames = []
-        var x: CGFloat = 20
-        for tab in Tab.allCases {
-            let active = tab == self.tab
-            let label = text(
-                tab.rawValue,
-                13,
-                active ? Design.text : Design.textMuted,
-                weight: active ? .semibold : .regular
-            )
-            label.draw(at: NSPoint(x: x, y: Self.bar + 10))
-            if active {
-                Design.accent.setFill()
-                NSRect(x: x, y: top - 2, width: label.size().width, height: 2).fill()
-            }
-            tabFrames.append((tab, NSRect(x: x - 8, y: Self.bar, width: label.size().width + 16, height: Self.tabs)))
-            x += label.size().width + 26
-        }
-        let hint = switch tab {
-        case .logs: "1-3 tabs · a all · w warnings · e errors · x stop"
-        case .traces: "1-3 tabs · j/k traces · x stop"
-        case .metrics: "1-3 tabs · x stop"
-        }
-        let hintText = text(hint, 11, Design.textFaint)
-        hintText.draw(at: NSPoint(x: bounds.width - hintText.size().width - 20, y: Self.bar + 12))
+        PaneBar.draw(title: "Telemetry", detail: state, in: bounds)
+        let tabs = PaneBar.drawTabs(
+            Tab.allCases.map(\.rawValue),
+            selected: Tab.allCases.firstIndex(of: tab) ?? 0,
+            height: Self.tabs,
+            in: bounds
+        )
+        tabFrames = zip(Tab.allCases, tabs.frames).map { ($0, $1) }
         switch tab {
         case .logs: drawLogs()
         case .traces: drawTraces()
         case .metrics: drawMetrics()
         }
+        let keys = switch tab {
+        case .logs: "1-3 tabs · a all · w warnings · e errors · x stop"
+        case .traces: "1-3 tabs · j/k traces · x stop"
+        case .metrics: "1-3 tabs · x stop"
+        }
+        PaneBar.drawKeys(keys, in: bounds)
     }
 
     // MARK: Logs

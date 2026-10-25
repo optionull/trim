@@ -20,7 +20,7 @@ final class TraceView: NSView, ToolContent {
     required init?(coder _: NSCoder) { fatalError("not used") }
 
     override var isFlipped: Bool { true }
-    private static let bar: CGFloat = 52, row: CGFloat = 28
+    private static let bar = PaneBar.height, row: CGFloat = 28
 
     func changed() {
         if let tree = tracer.tree, !tree.nodes.indices.contains(selected) { selected = 0 }
@@ -98,20 +98,12 @@ final class TraceView: NSView, ToolContent {
     }
 
     private func drawBar() {
-        Design.chrome.setFill()
-        NSRect(x: 0, y: 0, width: bounds.width, height: Self.bar).fill()
-        let title = text("Trace", 16, weight: .semibold)
-        title.draw(at: NSPoint(x: 20, y: 16))
-        if let tree = tracer.tree {
-            let state = "\(tree.direction.label) of \(tree.nodes[0].item.name)" + (tracer.busy ? " · asking…" : "")
-            text(state, 13, Design.textMuted).draw(at: NSPoint(x: 36 + title.size().width, y: 19))
-        }
-        let hint = text(
+        let state = tracer.tree.map { "\($0.direction.label) of \($0.nodes[0].item.name)" } ?? ""
+        PaneBar.draw(title: "Trace", detail: state + (tracer.busy ? " · asking…" : ""), in: bounds)
+        PaneBar.drawKeys(
             "j/k · l open · h close · ↵ go to · d callers/callees · e explain · b to the basket",
-            11,
-            Design.textFaint
+            in: bounds
         )
-        hint.draw(at: NSPoint(x: bounds.width - hint.size().width - 20, y: 20))
     }
 
     // MARK: Input

@@ -6,7 +6,10 @@ what an investigation found, reviews of what an agent did, and Ghostty terminals
 IDE (build, run, debug, a profiler, packages) are in the Project menu, out of the way until needed.
 
 The activity bar on the left is the front door: Explorer, Changes and Agents switch the sidebar; under a rule, the
-code map, the baskets and the review open their panes, and the icon of the one showing is lit.
+code map, the baskets and the review open their panes, and the icon of the one showing is lit. A pane opens in place
+of the code, with one header (what it shows, its actions) and its keys along the bottom; `q` puts the code back.
+
+![The front door: the code map of a 60-project solution in place of the code, its icon lit in the activity bar, the explorer and the problems around it](docs/showcase-front-door-2026-10-25.png)
 
 [docs/plan.md](docs/plan.md) is the plan; [docs/designs/](docs/designs/) holds the nine boards. Days 1 to 4 of the
 plan's first week are done: sill embeds nvim as a multigrid UI drawn by an instanced Metal grid, and a terminal pane

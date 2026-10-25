@@ -16,6 +16,14 @@ package enum EditorFont {
 
     package static var size: Double { min(max(settings.size + zoom, 6), 72) }
 
+    /// The grid's font at another size, bold from semibold up: code and data drawn outside the grid (a notebook, a
+    /// profile's frames, a package's versions) in the same face as the code.
+    package static func font(_ size: CGFloat, _ weight: NSFont.Weight = .regular) -> NSFont {
+        let base = NSFont(descriptor: metrics.regular.fontDescriptor, size: size) ??
+            NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+        return weight >= .semibold ? NSFontManager.shared.convert(base, toHaveTrait: .boldFontMask) : base
+    }
+
     /// The settings' font; true when that changed the metrics.
     @discardableResult
     package static func load(_ settings: SillSettings) -> Bool {

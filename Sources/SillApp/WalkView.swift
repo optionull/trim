@@ -73,11 +73,7 @@ final class WalkView: NSView, ToolContent {
     }
 
     /// The notebook is in the editor's monospaced font throughout: this size of it, bold from semibold up.
-    static func font(_ size: CGFloat, _ weight: NSFont.Weight) -> NSFont {
-        let base = NSFont(descriptor: EditorFont.metrics.regular.fontDescriptor, size: size) ??
-            NSFont.monospacedSystemFont(ofSize: size, weight: weight)
-        return weight >= .semibold ? NSFontManager.shared.convert(base, toHaveTrait: .boldFontMask) : base
-    }
+    static func font(_ size: CGFloat, _ weight: NSFont.Weight) -> NSFont { EditorFont.font(size, weight) }
 
     private func mono(_ string: String, _ color: NSColor = Design.text) -> NSAttributedString {
         NSAttributedString(string: string, attributes: [.font: EditorFont.metrics.regular, .foregroundColor: color])

@@ -82,8 +82,8 @@ final class ProfileView: NSView, ToolContent {
     private let againButton = OutlineButton(title: "Profile again")
     private let sendButton = PillButton(title: "Send to agent")
 
-    static let bar: CGFloat = 52
-    static let tabs: CGFloat = 44
+    static let bar = PaneBar.height
+    static let tabs: CGFloat = 36
     static var header: CGFloat { bar + tabs }
     /// The side panel: 320 points, or a third of a narrow view.
     private var side: CGFloat { min(320, bounds.width * 0.36) }
@@ -430,22 +430,17 @@ final class ProfileView: NSView, ToolContent {
         _ string: String, _ size: CGFloat = 12, _ color: NSColor = Design.text, weight: NSFont.Weight = .regular,
         mono: Bool = false
     ) -> NSAttributedString {
-        let font = mono ? NSFont.monospacedSystemFont(ofSize: size, weight: weight) : Design.ui(size, weight: weight)
+        let font = mono ? EditorFont.font(size, weight) : Design.ui(size, weight: weight)
         return NSAttributedString(string: string, attributes: [.font: font, .foregroundColor: color])
     }
 
     private func drawBar() {
-        Design.chrome.setFill()
-        NSRect(x: 0, y: 0, width: bounds.width, height: Self.bar).fill()
-        Design.border.setFill()
-        NSRect(x: 0, y: Self.bar - 1, width: bounds.width, height: 1).fill()
-        let heading = attributed(tab == .heapDiff ? "Memory" : "CPU profile", 16, weight: .semibold)
-        heading.draw(at: NSPoint(x: 20, y: (Self.bar - heading.size().height) / 2))
-        let detail = attributed(subtitle, 13, Design.textMuted)
-        detail.draw(with: NSRect(
-            x: 36 + heading.size().width, y: (Self.bar - detail.size().height) / 2,
-            width: max(buttonsLeft - 52 - heading.size().width, 0), height: detail.size().height
-        ), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+        PaneBar.draw(
+            title: tab == .heapDiff ? "Memory" : "CPU profile",
+            detail: subtitle,
+            right: buttonsLeft,
+            in: bounds
+        )
     }
 
     private var buttonsLeft: CGFloat { buttonFrames().map(\.1.minX).min() ?? bounds.width }
@@ -471,23 +466,14 @@ final class ProfileView: NSView, ToolContent {
     }
 
     private func drawTabs() {
-        Design.chrome.setFill()
-        NSRect(x: 0, y: Self.bar, width: bounds.width, height: Self.tabs).fill()
-        tabFrames = []
-        var x: CGFloat = 20
-        for tab in Tab.allCases {
-            let active = tab == self.tab
-            let label = attributed(
-                tab.rawValue, 13, active ? Design.text : Design.textMuted, weight: active ? .semibold : .regular
-            )
-            label.draw(at: NSPoint(x: x, y: Self.bar + (Self.tabs - label.size().height) / 2))
-            if active {
-                Design.accent.setFill()
-                NSRect(x: x, y: Self.header - 2, width: label.size().width, height: 2).fill()
-            }
-            tabFrames.append((tab, NSRect(x: x - 8, y: Self.bar, width: label.size().width + 16, height: Self.tabs)))
-            x += label.size().width + 26
-        }
+        let tabs = PaneBar.drawTabs(
+            Tab.allCases.map(\.rawValue),
+            selected: Tab.allCases.firstIndex(of: tab) ?? 0,
+            height: Self.tabs,
+            in: bounds
+        )
+        tabFrames = zip(Tab.allCases, tabs.frames).map { ($0, $1) }
+        let x = tabs.end
         if phase == .synthetic || phase == .done, tab == .flameGraph {
             let summary = attributed(
                 "\(profile.totalSamples.formatted()) samples as \(blocksDrawn.formatted()) blocks", 12,

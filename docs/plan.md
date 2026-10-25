@@ -862,6 +862,17 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   Packages, Telemetry and Terminal. The bottom panel shows Problems and Output, and Debug once a debug session has
   used it; the Tests placeholder is gone, and no empty text names a milestone. Checked in the chrome check (the map
   from the bar, its icon lit, the editor after); not lighting the icon fails it.
+- One pane scaffold (2026-10-25, step 4 of the deep look). Tool panes (the map, a trace, the review, the profiler,
+  the packages, telemetry, a walkthrough, a basket) open in place of the code in the last editor window, not as tab
+  pages: `show_pane` keeps what the window showed and its options, `q` (`close_pane`) puts them back, and another tool
+  pane there is swapped, not stacked; the sidebar and the panel stay. So the tab strip no longer names a pane its own
+  header names again. Their headers are one (`PaneBar`): a 44-point strip with the title, what it shows cut to fit
+  (it ran under the keys in a narrow window), and the actions at the right; their keys are one footer strip, ending
+  in `q back`; telemetry's and the profiler's tabs are one row. The chrome is in the UI font, code and data in the
+  editor's (`EditorFont.font`, which replaced SF Mono in the packages and the profiler). The walkthrough and basket
+  notebook keeps its own top: it is a document, monospaced throughout. The colour scheme's palette is held to
+  Design.swift's by a test (`ColorSchemeTests`), not generated. Checked in the chrome check (the map in place, not in
+  a tab page, and q back to the code); a pane opened as a tab page fails it, and so does a scheme hex changed.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

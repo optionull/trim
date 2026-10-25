@@ -257,7 +257,7 @@ final class PackagesView: NSView, ToolContent {
     required init?(coder _: NSCoder) { fatalError("not used") }
 
     override var isFlipped: Bool { true }
-    private static let bar: CGFloat = 64
+    private static let bar = PaneBar.height
     private static let cards: CGFloat = 112
     private static let chips: CGFloat = 48
     private var top: CGFloat { Self.bar + Self.cards + Self.chips }
@@ -319,7 +319,7 @@ final class PackagesView: NSView, ToolContent {
         for button in [updateSafe, refresh] where !button.isHidden {
             let size = button.intrinsicContentSize
             x -= size.width
-            button.frame = NSRect(x: x, y: (Self.bar - size.height) / 2 + 4, width: size.width, height: size.height)
+            button.frame = NSRect(x: x, y: (Self.bar - size.height) / 2, width: size.width, height: size.height)
             x -= 12
         }
     }
@@ -333,7 +333,7 @@ final class PackagesView: NSView, ToolContent {
         weight: NSFont.Weight = .regular,
         mono: Bool = false
     ) -> NSAttributedString {
-        let font = mono ? NSFont.monospacedSystemFont(ofSize: size, weight: weight) : Design.ui(size, weight: weight)
+        let font = mono ? EditorFont.font(size, weight) : Design.ui(size, weight: weight)
         return NSAttributedString(string: string, attributes: [.font: font, .foregroundColor: color])
     }
 
@@ -341,28 +341,33 @@ final class PackagesView: NSView, ToolContent {
         Design.editor.setFill()
         bounds.fill()
         needsLayout = true
-        let heading = text("Packages", 18, weight: .semibold)
-        heading.draw(at: NSPoint(x: 28, y: (Self.bar - heading.size().height) / 2 + 4))
         let target = scanner.target.map { ((($0 as NSString).lastPathComponent) as NSString).deletingPathExtension }
-        text(target ?? "", 13, Design.textMuted).draw(at: NSPoint(x: 42 + heading.size().width, y: Self.bar / 2 - 4))
+        let status = scanner.scanning ? "checking…" : scanner.checkedAt.map {
+            "advisories checked " + (Date().timeIntervalSince($0) < 60 ? "just now" :
+                RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()))
+        } ?? ""
+        let note = scanner.problems.isEmpty ? "" :
+            "\(scanner.problems.count) project\(scanner.problems.count == 1 ? "" : "s") not read (\(scanner.problems.first ?? ""))"
+        let buttonsLeft = [updateSafe, refresh].filter { !$0.isHidden }.map(\.frame.minX).min() ?? bounds.width
+        PaneBar.draw(
+            title: "Packages",
+            detail: [target ?? "", note, status].filter { !$0.isEmpty }.joined(separator: " · "),
+            right: buttonsLeft,
+            in: bounds
+        )
+        let keys = "j/k packages · u update · a ask agent · r read again"
         guard let report = scanner.report else {
             let message = scanner.scanning ? "Asking the SDK about every package (a restore first)…" :
                 scanner.problem ?? "Refresh reads the solution's packages."
             text(message, 14, Design.textMuted).draw(at: NSPoint(x: 28, y: Self.bar + 24))
+            PaneBar.drawKeys(keys, in: bounds)
             return
         }
         drawCards(report)
         drawChips(report)
         drawTable()
         drawSide()
-        let status = scanner.scanning ? "Checking…" : scanner.checkedAt.map {
-            "Advisories checked " + (Date().timeIntervalSince($0) < 60 ? "just now" :
-                RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()))
-        } ?? ""
-        let note = scanner.problems.isEmpty ? "" :
-            "\(scanner.problems.count) project\(scanner.problems.count == 1 ? "" : "s") not read (\(scanner.problems.first ?? "")) · "
-        let footer = text(note + status + " · latest from nuget.org", 11, Design.textFaint)
-        footer.draw(at: NSPoint(x: bounds.width - side - footer.size().width - 24, y: bounds.height - 22))
+        PaneBar.drawKeys(keys, in: bounds)
     }
 
     private func drawCards(_ report: PackageReport) {

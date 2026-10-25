@@ -233,7 +233,11 @@ function M.open_pane(kind, mods)
   return win
 end
 
---- A pane that takes a tab page (the profiler, the packages): the one open, wherever it is, else a new one.
+-- The options a pane in place turns off, put back with the code.
+local place_options = { 'number', 'relativenumber', 'signcolumn', 'foldcolumn', 'spell', 'list', 'cursorline', 'winbar' }
+
+--- A tool pane (the map, a trace, the review, the profiler): the one showing, wherever it is, else in place of the
+--- code in the last editor window, where `q` puts the code back. Another tool pane there is swapped, not stacked.
 function M.show_pane(kind)
   for _, win in ipairs(vim.api.nvim_list_wins()) do
     if vim.b[vim.api.nvim_win_get_buf(win)].sill_kind == kind then
@@ -241,7 +245,41 @@ function M.show_pane(kind)
       return win
     end
   end
-  return M.open_pane(kind, 'tab')
+  local win = M.editor_window() or vim.api.nvim_get_current_win()
+  vim.api.nvim_set_current_win(win)
+  -- A file opened over a pane leaves the mark behind: only a pane showing counts.
+  if not (vim.w[win].sill_place and vim.b[vim.api.nvim_win_get_buf(win)].sill_pane) then
+    local options = {}
+    for _, name in ipairs(place_options) do options[name] = vim.wo[win][name] end
+    vim.w[win].sill_before = { buf = vim.api.nvim_win_get_buf(win), options = options }
+  end
+  local buf = hidden_pane_buffer(kind)
+  if not buf then
+    buf = vim.api.nvim_create_buf(false, true)
+    placeholder(buf, kind)
+  end
+  vim.api.nvim_win_set_buf(win, buf)
+  vim.w[win].sill_place = true
+  bare(win)
+  vim.keymap.set('n', 'q', function() M.close_pane() end, { buffer = buf, desc = 'Back to the code' })
+  report()
+  return win
+end
+
+--- Closes the tool pane in window `win` (the current one by default): the code it took the place of comes back.
+function M.close_pane(win)
+  win = win or vim.api.nvim_get_current_win()
+  if not (vim.w[win].sill_place and vim.b[vim.api.nvim_win_get_buf(win)].sill_pane) then return end
+  local before = vim.w[win].sill_before
+  vim.w[win].sill_place = nil
+  vim.w[win].sill_before = nil
+  if before and vim.api.nvim_buf_is_valid(before.buf) then
+    vim.api.nvim_win_set_buf(win, before.buf)
+    for name, value in pairs(before.options) do vim.wo[win][name] = value end
+  else
+    vim.api.nvim_win_call(win, function() vim.cmd('enew') end)
+  end
+  report()
 end
 
 function M.show_profile()
@@ -256,7 +294,8 @@ end, { desc = 'Open a terminal pane' })
 
 -- Editor windows: the last one used is where the sidebar opens files.
 local function is_pane(win)
-  return vim.b[vim.api.nvim_win_get_buf(win)].sill_pane ~= nil
+  -- A tool pane in place of the code is still the editor's window.
+  return vim.b[vim.api.nvim_win_get_buf(win)].sill_pane ~= nil and not vim.w[win].sill_place
 end
 
 function M.editor_window()

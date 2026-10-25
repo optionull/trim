@@ -22,7 +22,7 @@ final class CodeMapView: NSView, ToolContent {
     required init?(coder _: NSCoder) { fatalError("not used") }
 
     override var isFlipped: Bool { true }
-    private static let bar: CGFloat = 52, line: CGFloat = 18, cardWidth: CGFloat = 260, gap: CGFloat = 16
+    private static let bar = PaneBar.height, line: CGFloat = 18, cardWidth: CGFloat = 260, gap: CGFloat = 16
 
     func changed() { needsDisplay = true }
 
@@ -146,21 +146,10 @@ final class CodeMapView: NSView, ToolContent {
     }
 
     private func drawBar(_ map: CodeMap?) {
-        Design.chrome.setFill()
-        NSRect(x: 0, y: 0, width: bounds.width, height: Self.bar).fill()
-        let title = text("Code map", 16, weight: .semibold)
-        title.draw(at: NSPoint(x: 20, y: 16))
-        if let map {
-            let files = map.projects.reduce(map.otherFiles) { $0 + $1.files }
-            text(
-                "\(map.name) · \(map.projects.count) projects · \(files) files" +
-                    (mapper.building ? " · reading…" : ""),
-                13,
-                Design.textMuted
-            ).draw(at: NSPoint(x: 36 + title.size().width, y: 19))
-        }
-        let hint = text("j/k projects · ↵ open · s summary · w walkthrough · r read again", 11, Design.textFaint)
-        hint.draw(at: NSPoint(x: bounds.width - hint.size().width - 20, y: 20))
+        let files = map.map { $0.projects.reduce($0.otherFiles) { $0 + $1.files } } ?? 0
+        let detail = map.map { "\($0.name) · \($0.projects.count) projects · \(files) files" } ?? ""
+        PaneBar.draw(title: "Code map", detail: detail + (mapper.building ? " · reading…" : ""), in: bounds)
+        PaneBar.drawKeys("j/k projects · ↵ open · s summary · w walkthrough · r read again", in: bounds)
     }
 
     /// A line from each project down to each it references: the selected one's in the accent.

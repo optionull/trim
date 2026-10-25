@@ -22,7 +22,7 @@ final class ReviewView: NSView, ToolContent {
     required init?(coder _: NSCoder) { fatalError("not used") }
 
     override var isFlipped: Bool { true }
-    private static let bar: CGFloat = 96
+    private static let bar = PaneBar.height + 40
     private var list: CGFloat { min(320, bounds.width * 0.3) }
 
     private func text(
@@ -47,49 +47,32 @@ final class ReviewView: NSView, ToolContent {
         drawBar()
         drawFiles()
         drawHunks()
+        PaneBar.drawKeys(
+            "j/k files · J/K changes · a keep · x take back · c comment · s send · w walkthrough · ↵ side by side",
+            in: bounds
+        )
     }
 
     private func drawBar() {
-        Design.chrome.setFill()
-        NSRect(x: 0, y: 0, width: bounds.width, height: Self.bar).fill()
-        Design.border.setFill()
-        NSRect(x: 0, y: Self.bar - 1, width: bounds.width, height: 1).fill()
-        let title = text("Review", 16, weight: .semibold)
-        title.draw(at: NSPoint(x: 20, y: 14))
         let count = reviewer.files.count
         let summary = reviewer.reading ? "reading the worktree…" : count == 0 ? "nothing changed since" :
             "\(count) file\(count == 1 ? "" : "s") changed since"
-        text(summary, 13, Design.textMuted).draw(at: NSPoint(x: 36 + title.size().width, y: 17))
-        // The action on the right: send the comments.
-        actionFrames = []
-        let send = text(
-            "Send review (\(reviewer.comments.count))",
-            13,
-            reviewer.comments.isEmpty ? Design.textFaint : Design.onAccent,
-            weight: .semibold
-        )
-        let sendRect = NSRect(
-            x: bounds.width - send.size().width - 44,
-            y: 10,
-            width: send.size().width + 28,
-            height: 30
-        )
-        (reviewer.comments.isEmpty ? Design.border : Design.accent).setFill()
-        NSBezierPath(roundedRect: sendRect, xRadius: 15, yRadius: 15).fill()
-        send.draw(at: NSPoint(x: sendRect.minX + 14, y: sendRect.midY - send.size().height / 2))
-        actionFrames.append(("send", 0, sendRect))
-        // A walkthrough of these changes, from the agent.
-        let walk = text("Walkthrough", 13, reviewer.files.isEmpty ? Design.textFaint : Design.text)
-        let walkRect = NSRect(
-            x: sendRect.minX - walk.size().width - 40,
-            y: 10,
-            width: walk.size().width + 28,
-            height: 30
-        )
-        Design.border.setStroke()
-        NSBezierPath(roundedRect: walkRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 15, yRadius: 15).stroke()
-        walk.draw(at: NSPoint(x: walkRect.minX + 14, y: walkRect.midY - walk.size().height / 2))
-        actionFrames.append(("walkthrough", 0, walkRect))
+        actionFrames = PaneBar.draw(
+            title: "Review",
+            detail: summary,
+            actions: [
+                .init(
+                    id: "send", title: "Send review (\(reviewer.comments.count))", primary: true,
+                    enabled: !reviewer.comments.isEmpty
+                ),
+                .init(id: "walkthrough", title: "Walkthrough", enabled: !reviewer.files.isEmpty),
+            ],
+            in: bounds
+        ).map { ($0.id, 0, $0.rect) }
+        Design.chrome.setFill()
+        NSRect(x: 0, y: PaneBar.height, width: bounds.width, height: Self.bar - PaneBar.height).fill()
+        Design.border.setFill()
+        NSRect(x: 0, y: Self.bar - 1, width: bounds.width, height: 1).fill()
         // The baselines as chips, newest last.
         baselineFrames = []
         var x: CGFloat = 20
@@ -97,7 +80,7 @@ final class ReviewView: NSView, ToolContent {
             let label = "\(baseline.name) · \(baseline.at.formatted(date: .omitted, time: .shortened))"
             let selected = index == reviewer.selectedBaseline
             let chip = text(label, 12, selected ? Design.text : Design.textMuted)
-            let rect = NSRect(x: x, y: 54, width: chip.size().width + 24, height: 28)
+            let rect = NSRect(x: x, y: PaneBar.height + 6, width: chip.size().width + 24, height: 28)
             guard rect.maxX < bounds.width - 16 else { break }
             (selected ? Design.selection : Design.editor).setFill()
             NSBezierPath(roundedRect: rect, xRadius: 14, yRadius: 14).fill()
@@ -167,12 +150,6 @@ final class ReviewView: NSView, ToolContent {
         }
         let heading = text(file.path, 14, weight: .semibold)
         heading.draw(at: NSPoint(x: left, y: y))
-        let hint = text(
-            "j/k files · J/K changes · x take back · c comment · w walkthrough · Return side by side",
-            11,
-            Design.textFaint
-        )
-        hint.draw(at: NSPoint(x: left + width - hint.size().width, y: y + 2))
         y += 30
         let lineHeight = EditorFont.metrics.height
         for (index, hunk) in diff.hunks.enumerated() {

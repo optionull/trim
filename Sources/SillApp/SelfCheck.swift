@@ -2687,7 +2687,7 @@ final class SelfCheck {
                     ?? app.packages.scanner.problem.map { _ in PackageReport(packages: []) }
             }
             try expect(app.packages.scanner.problem == nil, "the packages read: \(app.packages.scanner.problem ?? "")")
-            _ = try await session.channel.lua("vim.cmd('tabclose')")
+            _ = try await session.channel.lua("require'sill'.close_pane(require'sill'.pane_window('packages'))")
             return report
         }
         step("the packages: \(packages.packages.count) in all, \(packages.vulnerable.count) vulnerable, " +
@@ -3423,13 +3423,16 @@ final class SelfCheck {
         root.activityBar.onSelect?(.map)
         try await wait("the map pane") { $0.currentPaneKind == "map" }
         try await waitFor("the map's icon lit") { root.activityBar.currentPane == "map" ? true : nil }
-        _ = try await session.channel.lua("vim.cmd('tabclose')")
-        try await wait("the editor again") { $0.currentPaneKind != "map" }
+        // In place of the code, not a tab page of its own; q puts the code back.
+        try expect(latest?.tabs.count ?? 0 <= 1, "the map in place, not in a tab page: \(latest?.tabs.count ?? 0) tabs")
+        _ = await session.channel.request("nvim_input", params: [.string("q")])
+        try await wait("the editor again") { $0.currentPaneKind != "map" && !$0.paneRects.contains { $0.kind == "map" }
+        }
         root.activityBar.onSelect?(.explorer)
         try await waitFor("the explorer again") { tools.sidebar.activity == .explorer ? true : nil }
         // The bar's focus on the sidebar reaches nvim on its own: zen before it lands would see it reopen the sidebar.
         try await wait("the sidebar current") { $0.currentPaneKind == "sidebar" }
-        step("the activity bar switches the sidebar between its views; the map opens its pane, its icon lit")
+        step("the activity bar switches the sidebar between its views; the map opens in place, its icon lit, q back")
 
         // Zen: only the text, in a column in the middle; again, everything back.
         let hadPanes = Set(latest?.paneRects.map(\.kind) ?? [])
@@ -3559,7 +3562,7 @@ final class SelfCheck {
             try shot(to: path)
             step("saved \(path)")
         }
-        try await session.channel.command("tabclose")
+        _ = try await session.channel.lua("require'sill'.close_pane()")
         try await wait("back from the profile") { $0.currentPaneKind != "profile" }
         step(
             "the profiler: \(profile.profile.totalSamples.formatted()) samples as \(profile.blocksDrawn) blocks, a frame's hot path"
