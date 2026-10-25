@@ -1531,7 +1531,7 @@ final class SelfCheck {
             ("src/main.rs", "rust_analyzer", "total"), ("swift/Sources/poly/main.swift", "sourcekit", "total"),
             ("docs/README.md", "marksman", "Totals"), ("web/index.html", "html", "main"),
             ("web/site.css", "cssls", ".totals"), ("web/data.json", "jsonls", "totals"),
-            ("web/app.ts", "typescript", "total"),
+            ("web/app.ts", "typescript", "total"), ("fsharp/Pricing.fs", "fsautocomplete", "total"),
         ]
         for file in files {
             let started = CACurrentMediaTime()
@@ -1577,6 +1577,12 @@ final class SelfCheck {
         }.diagnostics.first { $0.path.hasSuffix("web/app.ts") && $0.severity == 1 }
         try expect(error?.line == 5, "on line 5: \(error.map { "\($0.line) \($0.message)" } ?? "")")
         step("TypeScript reports the string assigned to a number, on line 5")
+        // F#'s, from fsautocomplete once it has loaded the project.
+        let fsharp = try await wait("F#'s error", timeout: .seconds(120)) { screen in
+            screen.diagnostics.contains { $0.path.hasSuffix("fsharp/Pricing.fs") && $0.severity == 1 }
+        }.diagnostics.first { $0.path.hasSuffix("fsharp/Pricing.fs") && $0.severity == 1 }
+        try expect(fsharp?.line == 5, "on line 5: \(fsharp.map { "\($0.line) \($0.message)" } ?? "")")
+        step("F# reports the string given where an int is wanted, on line 5")
     }
 
     /// M7's exit (`SILL_CHECK=m7`, run in a copy of Tests/SillCoreTests/Fixtures/RustSample or SwiftSample): a native

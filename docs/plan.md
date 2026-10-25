@@ -633,8 +633,21 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   - Its own debugger and profiler exist too (DEBUGGING-SPEC, PROFILER-SPEC); sill keeps Passenger's for now.
   - Integration would be: download and pin it as Roslyn is now (it is a native binary: downloaded to the cache, not
     bundled, so nothing to sign); `[dotnet] server = "roslyn" | "sharplsp"`; F# files to it; the Razor HTML bridge
-    reworked to its pull-and-merge. Waiting on the owner: switch C# now or keep Roslyn as the default until large
-    solutions load as fast, and take F# from SharpLsp either way.
+    reworked to its pull-and-merge.
+  - Why docs-builder is slow (its source, 2026-10-25): the C# side is Roslyn's `MSBuildWorkspace`. A solution
+    without F# loads in one `LoadSolutionInfoAsync`; one that lists an .fsproj (docs-builder has build/build.fsproj)
+    goes through `RoslynProjectLoading.LoadEachProjectAsync`, a design-time build per C# project, one after another,
+    to slot in F# placeholders. The two or three reloads were not traced to a cause.
+  - Decision (owner, 2026-10-25): SharpLsp only for F# is too much. C# stays on Roslyn's server; F# comes from
+    fsautocomplete. Later, once the ideas list is done: performance work on SharpLsp upstream, and SharpLsp as the
+    single .NET server (C#, F#, Razor, navigation across C# and F#) is still worth pursuing.
+- F# (2026-10-25): fsautocomplete beside the other servers (`servers.lua`, `LanguageServers`): the person's on the
+  PATH (mise's here), else `dotnet tool install fsautocomplete --tool-path` at 0.86.0 into sill's cache (run from the
+  cache: a project's global.json may pin an absent SDK). Its root is the nearest .fsproj or solution; it is started
+  with `init_options = { AutomaticWorkspaceInit = true }`, without which it waits for the client to pick a
+  workspace and answers nothing. Checked: `SILL_CHECK=servers` with fsharp/ in the Polyglot fixture (symbols in
+  2 s, the type error on line 5), once through the cache install with the PATH lookup hidden; without the init
+  option the check fails.
 - File references from sessions (2026-10-25): ⌘-click on a path in a terminal pane opens it in the editor at its
   line. `SillCore.FileReference.find(in:at:directory:root:)` reads the clicked row for the forms agents, compilers
   and stack traces print (`path:line[:col]`, `path(line,col)`, `path#Lline`, `:line N`, Python's `File "…", line

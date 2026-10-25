@@ -8,7 +8,8 @@ import SillNvim
 /// The language servers beside Roslyn (M7), found or provisioned when nvim first asks for one (a file it serves
 /// opened): on the person's PATH first, else rust-analyzer from rustup and sourcekit-lsp from Xcode, else into sill's
 /// cache (never the app, never the person's own installs): marksman downloaded at a pinned version with its checksum
-/// checked, the web servers installed with npm at pinned versions. nvim is then told the command.
+/// checked, the web servers installed with npm at pinned versions, fsautocomplete as a .NET tool. nvim is then told
+/// the command.
 @MainActor
 final class LanguageServers {
     private let channel: NvimChannel
@@ -85,6 +86,7 @@ final class LanguageServers {
         case "jsonls": "JSON"
         case "html": "HTML"
         case "typescript": "TypeScript"
+        case "fsautocomplete": "F#"
         default: name
         }
     }
@@ -124,6 +126,9 @@ final class LanguageServers {
                 return [(directory as NSString).appendingPathComponent("node_modules/.bin/tsc"), "--lsp", "--stdio"]
             }
             return try await [web().appendingPathComponent("node_modules/.bin/tsc").path, "--lsp", "--stdio"]
+        case "fsautocomplete":
+            if let path = await onPath("fsautocomplete"), await answers(path, "--version") { return [path] }
+            return try await [fsautocomplete()]
         default:
             throw ServerFailure(description: "sill does not know the server \(name)")
         }
@@ -198,6 +203,27 @@ final class LanguageServers {
         chmod(binary + ".part", 0o755)
         try? FileManager.default.removeItem(atPath: binary)
         try FileManager.default.moveItem(atPath: binary + ".part", toPath: binary)
+        return binary
+    }
+
+    nonisolated static let fsautocompleteVersion = "0.86.0"
+
+    /// fsautocomplete, installed once into sill's cache as a .NET tool (NuGet checks the package's signature).
+    nonisolated static func fsautocomplete() async throws -> String {
+        let folder = cache.appendingPathComponent("fsautocomplete-\(fsautocompleteVersion)")
+        let binary = folder.appendingPathComponent("fsautocomplete").path
+        if FileManager.default.isExecutableFile(atPath: binary) { return binary }
+        guard await onPath("dotnet") != nil else {
+            throw ServerFailure(description: "F# needs the .NET SDK (dotnet) on your PATH")
+        }
+        // From the cache, not the project: a global.json there may pin an SDK that is not installed.
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        let installed = try await NativeRecorder.capture("/usr/bin/env", [
+            "dotnet", "tool", "install", "fsautocomplete", "--tool-path", folder.path,
+            "--version", fsautocompleteVersion,
+        ], in: cache.path)
+        guard installed.code == 0, FileManager.default.isExecutableFile(atPath: binary)
+        else { throw ServerFailure(description: "dotnet tool install failed: \(installed.output.suffix(300))") }
         return binary
     }
 

@@ -244,9 +244,10 @@ time in both, with its share of each run. Starting a program asks you first, unl
 
 ## Language servers
 
-Beside Roslyn, sill starts rust-analyzer, sourcekit-lsp, marksman, the HTML, CSS and JSON servers and TypeScript's own
-server the first time you open such a file, unless your nvim config already runs one for it. It uses yours when they
-are on your PATH; otherwise it downloads them into `~/Library/Caches/sill/servers` (the web servers with your npm).
+Beside Roslyn, sill starts rust-analyzer, sourcekit-lsp, marksman, the HTML, CSS and JSON servers, TypeScript's own
+server and fsautocomplete for F# the first time you open such a file, unless your nvim config already runs one for it.
+It uses yours when they are on your PATH; otherwise it downloads them into `~/Library/Caches/sill/servers` (the web
+servers with your npm, fsautocomplete as a .NET tool).
 
 ## Agents
 

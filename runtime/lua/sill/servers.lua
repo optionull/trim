@@ -1,5 +1,5 @@
 -- The language servers sill starts (M7) beside Roslyn: rust-analyzer, sourcekit-lsp, marksman, HTML, CSS and JSON
--- (vscode-langservers-extracted), and TypeScript (its own `tsc --lsp`). A server starts the first time a file of its
+-- (vscode-langservers-extracted), TypeScript (its own `tsc --lsp`) and F# (fsautocomplete). A server starts the first time a file of its
 -- kind opens, unless the person's config already runs one for that kind. sill finds each (on the PATH, from Xcode) or
 -- provisions it into its cache (marksman downloaded, the web servers with npm); nvim's own client talks to it.
 local M = {}
@@ -11,8 +11,19 @@ local function notify(method, ...)
   end
 end
 
---- Each server: the file types it serves, how its folder is found, what the person's config may call it.
+-- An F# project's folder: its nearest project file or solution.
+local function fsharp_root(name)
+  return name:match('%.fsproj$') or name:match('%.slnx?$')
+end
+
+--- Each server: the file types it serves, how its folder is found, what the person's config may call it, and what it
+--- is started with.
 M.specs = {
+  -- Without AutomaticWorkspaceInit fsautocomplete waits for the client to pick a workspace (Ionide's peek).
+  fsautocomplete = {
+    filetypes = { 'fsharp' }, root = { fsharp_root, '.git' }, aliases = { 'fsautocomplete', 'ionide' },
+    init_options = { AutomaticWorkspaceInit = true },
+  },
   rust_analyzer = { filetypes = { 'rust' }, root = { 'Cargo.toml', '.git' }, aliases = { 'rust_analyzer', 'rust-analyzer' } },
   sourcekit = { filetypes = { 'swift' }, root = { 'Package.swift', '.git' }, aliases = { 'sourcekit' } },
   marksman = { filetypes = { 'markdown' }, root = { '.marksman.toml', '.git' }, aliases = { 'marksman' } },
@@ -56,8 +67,12 @@ local function start(name, buf)
   if not cmd or not vim.api.nvim_buf_is_valid(buf) or theirs(spec, buf) then
     return
   end
-  local root = vim.fs.root(buf, spec.root) or vim.fn.getcwd()
-  vim.lsp.start({ name = 'sill_' .. name, cmd = cmd, root_dir = root }, { bufnr = buf })
+  local root
+  for _, marker in ipairs(spec.root) do
+    root = root or vim.fs.root(buf, marker)
+  end
+  vim.lsp.start({ name = 'sill_' .. name, cmd = cmd, root_dir = root or vim.fn.getcwd(),
+    init_options = spec.init_options }, { bufnr = buf })
 end
 
 --- A file of some kind opened: its server started, or asked of sill the first time.
