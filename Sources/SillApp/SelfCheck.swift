@@ -3419,16 +3419,17 @@ final class SelfCheck {
                 .count == changes ? true : nil
         }
         step("source control lists git's \(changes) changes")
-        // Packages is a tab of its own (board 3), not a sidebar view.
-        root.activityBar.onSelect?(.packages)
-        try await wait("the packages pane") { $0.currentPaneKind == "packages" }
+        // The map is a pane, not a sidebar view: its icon is lit while it shows.
+        root.activityBar.onSelect?(.map)
+        try await wait("the map pane") { $0.currentPaneKind == "map" }
+        try await waitFor("the map's icon lit") { root.activityBar.currentPane == "map" ? true : nil }
         _ = try await session.channel.lua("vim.cmd('tabclose')")
-        try await wait("the editor again") { $0.currentPaneKind != "packages" }
+        try await wait("the editor again") { $0.currentPaneKind != "map" }
         root.activityBar.onSelect?(.explorer)
         try await waitFor("the explorer again") { tools.sidebar.activity == .explorer ? true : nil }
         // The bar's focus on the sidebar reaches nvim on its own: zen before it lands would see it reopen the sidebar.
         try await wait("the sidebar current") { $0.currentPaneKind == "sidebar" }
-        step("the activity bar switches the sidebar between its views; packages opens its tab")
+        step("the activity bar switches the sidebar between its views; the map opens its pane, its icon lit")
 
         // Zen: only the text, in a column in the middle; again, everything back.
         let hadPanes = Set(latest?.paneRects.map(\.kind) ?? [])

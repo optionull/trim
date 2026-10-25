@@ -1,8 +1,12 @@
 # sill
 
-A native macOS code editor where nvim owns buffers, modes and keymaps and the app owns pixels, windows
-and integrations: a Metal-rendered grid, Ghostty terminals as ordinary splits, a profiler, packages,
-diff and three-way merge, and a bridge that hands build errors and profiles to a coding agent.
+A native macOS explorer of a codebase, for steering the coding agents that change it. nvim owns buffers, modes and
+keymaps and the app owns pixels, windows and integrations: a Metal-rendered grid, a code map, traces, baskets of
+what an investigation found, reviews of what an agent did, and Ghostty terminals as ordinary splits. The tools of an
+IDE (build, run, debug, a profiler, packages) are in the Project menu, out of the way until needed.
+
+The activity bar on the left is the front door: Explorer, Changes and Agents switch the sidebar; under a rule, the
+code map, the baskets and the review open their panes, and the icon of the one showing is lit.
 
 [docs/plan.md](docs/plan.md) is the plan; [docs/designs/](docs/designs/) holds the nine boards. Days 1 to 4 of the
 plan's first week are done: sill embeds nvim as a multigrid UI drawn by an instanced Metal grid, and a terminal pane
@@ -160,7 +164,7 @@ font, the chrome, which nvim config, the agents, dotnet, heed); what nvim has an
 
 ## Packages
 
-The activity bar's packages (`:SillPackages`) reads the solution's NuGet packages with the SDK (`dotnet list package`):
+Packages (the Project menu, `:SillPackages`) reads the solution's NuGet packages with the SDK (`dotnet list package`):
 vulnerable ones first, with the advisory and the version that fixes it (from osv.dev), then deprecated and outdated
 ones (their newest versions from nuget.org). Update moves one to its fix or its newest patch in the file that says its
 version (Directory.Packages.props or the project); Update security and patches does every one at once; Ask agent hands

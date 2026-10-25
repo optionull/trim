@@ -2,39 +2,16 @@ import AppKit
 import SillCore
 import SillEditor
 
-/// The title bar under the traffic lights: the project and branch, centred, and Run.
+/// The title bar under the traffic lights: the project and branch, centred, and nothing else (Run is in the
+/// Project menu, ⌘R).
 final class TitleBarView: NSView {
     static let height: CGFloat = 40
     var title = "" {
         didSet { if title != oldValue { needsDisplay = true } }
     }
 
-    var onRun: (() -> Void)?
-    private let run = PillButton(title: "Run")
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        run.target = self
-        run.action = #selector(runClicked)
-        addSubview(run)
-    }
-
-    @available(*, unavailable)
-    required init?(coder _: NSCoder) { fatalError("not used") }
-
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
-
-    @objc private func runClicked() { onRun?() }
-
-    override func layout() {
-        super.layout()
-        let size = run.intrinsicContentSize
-        run.frame = NSRect(
-            x: bounds.width - size.width - 12, y: (bounds.height - size.height) / 2, width: size.width,
-            height: size.height
-        )
-    }
 
     override func draw(_: NSRect) {
         Design.bar(Design.chrome).setFill()
@@ -82,27 +59,41 @@ final class PillButton: NSButton {
     }
 }
 
-/// What the activity bar switches the sidebar between.
+/// What the activity bar offers: the sidebar's views (the code, its changes, the agents), then the panes sill is for,
+/// understanding the code and steering (the code map, the baskets, the review). The tools of an IDE (debugger,
+/// profiler, packages, telemetry) are in the Project menu, not here.
 enum Activity: String, CaseIterable {
-    case explorer, sourceControl, agents, packages, profiler
+    case explorer, sourceControl, agents, map, baskets, review
 
     var symbol: String {
         switch self {
         case .explorer: "folder"
         case .sourceControl: "arrow.triangle.branch"
         case .agents: "sparkles"
-        case .packages: "shippingbox"
-        case .profiler: "chart.bar.xaxis"
+        case .map: "map"
+        case .baskets: "basket"
+        case .review: "eye"
         }
     }
 
     var title: String {
         switch self {
         case .explorer: "Explorer"
-        case .sourceControl: "Source Control"
+        case .sourceControl: "Changes"
         case .agents: "Agents"
-        case .packages: "Packages"
-        case .profiler: "Profiler"
+        case .map: "Code map"
+        case .baskets: "Baskets"
+        case .review: "Review"
+        }
+    }
+
+    /// The pane it opens (in nvim's tab page), when it is not a sidebar view.
+    var pane: String? {
+        switch self {
+        case .map: "map"
+        case .baskets: "basket"
+        case .review: "review"
+        default: nil
         }
     }
 }
@@ -115,6 +106,11 @@ final class ActivityBarView: NSView {
         didSet { if selected != oldValue { needsDisplay = true } }
     }
 
+    /// The pane showing now (nvim's current window's kind): its icon is lit.
+    var currentPane: String? {
+        didSet { if currentPane != oldValue { needsDisplay = true } }
+    }
+
     /// A count on an icon: the agents that need you.
     var badges: [Activity: Int] = [:] {
         didSet { if badges != oldValue { needsDisplay = true } }
@@ -125,9 +121,10 @@ final class ActivityBarView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// The sidebar's views, then a gap and a rule, then the panes.
     private func rect(_ activity: Activity) -> NSRect {
         let index = CGFloat(Activity.allCases.firstIndex(of: activity) ?? 0)
-        return NSRect(x: 0, y: 8 + index * 44, width: bounds.width, height: 44)
+        return NSRect(x: 0, y: 8 + index * 44 + (activity.pane != nil ? 17 : 0), width: bounds.width, height: 44)
     }
 
     override func draw(_: NSRect) {
@@ -135,9 +132,13 @@ final class ActivityBarView: NSView {
         bounds.fill()
         Design.border.setFill()
         if !Design.islands { NSRect(x: bounds.width - 1, y: 0, width: 1, height: bounds.height).fill() }
+        if let firstPane = Activity.allCases.first(where: { $0.pane != nil }) {
+            Design.border.setFill()
+            NSRect(x: 14, y: rect(firstPane).minY - 9, width: bounds.width - 28, height: 1).fill()
+        }
         for activity in Activity.allCases {
             let rect = rect(activity)
-            let active = activity == selected
+            let active = activity.pane.map { $0 == currentPane } ?? (activity == selected)
             if active {
                 Design.selection.setFill()
                 NSBezierPath(roundedRect: rect.insetBy(dx: 6, dy: 4), xRadius: 6, yRadius: 6).fill()

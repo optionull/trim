@@ -458,6 +458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         state.debug = debugger?.status ?? follower?.status
         root.statusBar.state = state
         root.activityBar.selected = screen.paneRects.contains { $0.kind == "sidebar" } ? tools.sidebar.activity : nil
+        root.activityBar.currentPane = screen.currentPaneKind
     }
 
     private func wireChrome() {
@@ -467,8 +468,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         root.activityBar.onSelect = { [weak self] activity in
             guard let self else { return }
-            // The packages take a tab page of their own (board 3), as the profiler does.
-            if activity == .packages { return Nvim.lua(channel, "vim.cmd('SillPackages')") }
+            // The panes: opened (the current basket, else a choice of them).
+            switch activity {
+            case .map: return Nvim.lua(channel, "vim.cmd('SillMap')")
+            case .review: return Nvim.lua(channel, "vim.cmd('SillReview')")
+            case .baskets:
+                if let current = baskets.current { return baskets.open(current) }
+                return baskets.pick()
+            default: break
+            }
             let showing = tools.screen.paneRects.contains { $0.kind == "sidebar" }
             if showing, activity == tools.sidebar.activity {
                 Nvim.lua(channel, "require'sill'.toggle('sidebar')")
@@ -478,7 +486,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 Nvim.lua(channel, "require'sill'.focus('sidebar')")
             }
         }
-        root.titleBar.onRun = { [weak self] in self?.run() }
         editor.contextMenu = { [weak self] in
             guard let self else { return NSMenu() }
             return ContextMenu.menu(directory: workingDirectory, channel: channel) { [weak self] command in
@@ -551,6 +558,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc func buildProject(_: Any?) { builds.build() }
+    @objc func runProject(_: Any?) { run() }
 
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
 
@@ -745,6 +753,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(projectItem)
         let projectMenu = NSMenu(title: "Project")
         projectMenu.addItem(withTitle: "Build", action: #selector(buildProject(_:)), keyEquivalent: "b")
+        projectMenu.addItem(withTitle: "Run", action: #selector(runProject(_:)), keyEquivalent: "r")
+        projectMenu.addItem(.separator())
+        // The tools of an IDE: there when needed, out of the way otherwise.
+        for (title, command) in [
+            ("Debug…", "SillDebug"),
+            ("Profile", "SillProfile"),
+            ("Packages", "SillPackages"),
+            ("Telemetry…", "SillTelemetry"),
+            ("Terminal", "SillTerminal"),
+        ] {
+            projectMenu.addItem(ClosureItem(title: title) { [weak self] in
+                guard let self else { return }
+                editor.window?.makeFirstResponder(editor)
+                Nvim.lua(session.channel, "vim.cmd(...)", [.string(command)])
+            })
+        }
         projectItem.submenu = projectMenu
         NSApp.mainMenu = menu
     }

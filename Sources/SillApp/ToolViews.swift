@@ -249,15 +249,8 @@ final class SidebarView: NSView {
         case .explorer: explorer
         case .sourceControl: sourceControl
         case .agents: agents
-        case .packages: EmptyStateView(
-                symbol: "shippingbox", title: "Packages",
-                body: "Vulnerable, outdated and deprecated packages of the open solution (board 3, M9)."
-            )
-        case .profiler: EmptyStateView(
-                symbol: "chart.bar.xaxis", title: "Profiler",
-                body: ":SillProfile runs the project's .NET program under the profiler: its CPU profile, and heap " +
-                    "snapshots compared (s to take one, x to stop). :SillProfile synthetic shows an 11.8M-sample one."
-            )
+        // The panes are not sidebar views.
+        case .map, .baskets, .review: explorer
         }
         if activity == .sourceControl { sourceControl.refresh() }
         addSubview(content)
@@ -341,8 +334,12 @@ final class EmptyStateView: NSView, ToolContent {
 final class BottomPanelView: NSView {
     static let header: CGFloat = 36
     enum Tab: String, CaseIterable {
-        case problems = "Problems", tests = "Tests", output = "Output", debug = "Debug"
+        case problems = "Problems", output = "Output", debug = "Debug"
     }
+
+    /// The tabs shown: Debug once a debug session has used it.
+    private var tabs: [Tab] { debugUsed ? Tab.allCases : [.problems, .output] }
+    private var debugUsed = false
 
     private let channel: NvimChannel
     private var metrics: CellMetrics { EditorFont.metrics }
@@ -390,6 +387,7 @@ final class BottomPanelView: NSView {
 
     func select(_ tab: Tab) {
         self.tab = tab
+        if tab == .debug { debugUsed = true }
         needsLayout = true
         needsDisplay = true
     }
@@ -416,7 +414,7 @@ final class BottomPanelView: NSView {
 
         tabFrames = []
         var x: CGFloat = 16
-        for tab in Tab.allCases {
+        for tab in tabs {
             let active = tab == self.tab
             let label = NSAttributedString(string: tab.rawValue, attributes: [
                 .font: Design.ui(13, weight: active ? .semibold : .regular),
@@ -452,16 +450,9 @@ final class BottomPanelView: NSView {
         let list = NSRect(x: 0, y: Self.header, width: bounds.width, height: bounds.height - Self.header)
         switch tab {
         case .problems where problems.isEmpty:
-            drawEmpty(
-                "No problems",
-                "nvim's diagnostics show here: language servers' errors and warnings, and build " +
-                    "errors once build capture comes (M3).",
-                in: list
-            )
+            drawEmpty("No problems", "Errors and warnings from the language servers and the last build.", in: list)
         case .problems:
             drawProblems(in: list)
-        case .tests:
-            drawEmpty("No test run yet", "Test results come with a test runner, after M3.", in: list)
         case .output where output.isEmpty:
             drawEmpty("No output", "Build (⌘B) and its output shows here.", in: list)
         case .output:
@@ -586,7 +577,7 @@ final class BottomPanelView: NSView {
         case "\r":
             open(selected)
         case "\t":
-            let all = Tab.allCases
+            let all = tabs
             select(all[(all.firstIndex(of: tab)! + 1) % all.count])
         default:
             return false

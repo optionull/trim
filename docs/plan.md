@@ -855,6 +855,13 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   layout, `Tax.` offering Of from Roslyn in the native menu), `SILL_CHECK=compat` (a stand-in config with a start
   screen and its own notify: both undone, the config loaded and told); not closing start screens fails it. A wrong
   `fillchars` (two glyphs lost) made the whole config fail to load: found by the check.
+- The front door (2026-10-25, step 3 of the deep look): the activity bar is what sill is for. Explorer, Changes
+  (source control) and Agents switch the sidebar; under a rule, Map, Baskets and Review open their panes, and the
+  icon of the pane showing is lit (nvim's current window's kind). Packages and the Profiler's placeholder left the
+  bar; the title bar lost Run. The Project menu has them instead: Build (⌘B), Run (⌘R), then Debug, Profile,
+  Packages, Telemetry and Terminal. The bottom panel shows Problems and Output, and Debug once a debug session has
+  used it; the Tests placeholder is gone, and no empty text names a milestone. Checked in the chrome check (the map
+  from the bar, its icon lit, the editor after); not lighting the icon fails it.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
