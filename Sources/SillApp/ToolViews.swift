@@ -38,6 +38,9 @@ final class ToolPanes {
     /// The code map, made the first time it opens.
     private(set) var map: CodeMapView?
     var makeMap: (() -> CodeMapView)?
+    /// A session's replay, made the first time it opens.
+    private(set) var replay: ReplayView?
+    var makeReplay: (() -> ReplayView)?
     /// The review pane, made the first time it opens.
     private(set) var review: ReviewView?
     var makeReview: (() -> ReviewView)?
@@ -135,6 +138,19 @@ final class ToolPanes {
         } else {
             basket?.isHidden = true
         }
+        if let rect = screen.paneRects.first(where: { $0.kind == "replay" }), let make = makeReplay {
+            let view = replay ?? {
+                let made = make()
+                editor.addSubview(made)
+                replay = made
+                return made
+            }()
+            view.frame = editor.rect(row: rect.row, col: rect.col, width: rect.width, height: rect.height)
+            view.isHidden = false
+            covered.insert(rect.grid)
+        } else {
+            replay?.isHidden = true
+        }
         if let rect = screen.paneRects.first(where: { $0.kind == "trace" }), let make = makeTrace {
             let view = trace ?? {
                 let made = make()
@@ -200,6 +216,7 @@ final class ToolPanes {
         case "telemetry": telemetry?.handleKey(event) ?? false
         case "map": map?.handleKey(event) ?? false
         case "trace": trace?.handleKey(event) ?? false
+        case "replay": replay?.handleKey(event) ?? false
         case "basket": basket?.handleKey(event) ?? false
         default: false
         }

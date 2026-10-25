@@ -587,6 +587,7 @@ M.keys = {
   { 'n', '<leader>iw', '<Cmd>SillWalk<CR>', 'Walkthroughs' },
   { 'n', '<leader>ir', '<Cmd>SillReview<CR>', 'Review the changes' },
   { 'n', '<leader>if', '<Cmd>SillFollow<CR>', 'Follow the agent' },
+  { 'n', '<leader>ih', '<Cmd>SillReplay<CR>', "Replay an agent's session" },
 }
 
 --- From the right-click menu: the selection when there is one, else the line, to the basket.
@@ -614,6 +615,13 @@ function M.ask_here()
 end
 
 --- sill's baskets to pick from: { file, label } each; the one picked opens.
+--- The sessions to replay: { session, label } each; the one picked opens.
+function M.pick_replay(items)
+  vim.ui.select(items, { prompt = 'Replay', format_item = function(item) return item[2] end }, function(item)
+    if item then notify('sill_replay', item[1]) end
+  end)
+end
+
 function M.pick_basket(items)
   vim.ui.select(items, { prompt = 'Basket', format_item = function(item) return item[2] end }, function(item)
     if item then notify('sill_basket', { action = 'open', arg = item[1] }) end
@@ -757,6 +765,9 @@ function M.setup()
   vim.api.nvim_create_user_command('SillHooks', function(opts) notify('sill_hooks', opts.args ~= '' and opts.args or 'status') end, {
     nargs = '?', complete = function() return { 'install', 'remove', 'status' } end,
     desc = "Agent hooks: install tells sill what every agent in this project does (.claude/settings.local.json)",
+  })
+  vim.api.nvim_create_user_command('SillReplay', function(opts) notify('sill_replay', opts.args) end, {
+    nargs = '?', desc = "Replay an agent's session: its prompts, what its tools did, and each turn's changes",
   })
   vim.api.nvim_create_user_command('SillMap', function() notify('sill_map') end,
     { desc = "The code map: the repository's projects, what each builds on, where it starts, what changes most" })

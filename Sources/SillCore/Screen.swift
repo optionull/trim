@@ -229,6 +229,8 @@ public struct Screen: Sendable {
     public private(set) var followAsks = 0
     /// `:SillHooks install|remove|status`.
     public private(set) var hooksAsks: [String] = []
+    /// `:SillReplay [session]`: a session's log to replay ("" to pick one).
+    public private(set) var replayAsks: [String] = []
     /// `:SillMap`s asked for.
     public private(set) var mapAsks = 0
     /// `:SillBasket`s: what is asked (new, add, send, open, or pick), its argument, and for add the file, its lines
@@ -437,6 +439,8 @@ public struct Screen: Sendable {
             followAsks += 1
         case let .notification(method, args) where method == "sill_hooks":
             hooksAsks.append(args.first?.stringValue ?? "status")
+        case let .notification(method, args) where method == "sill_replay":
+            replayAsks.append(args.first?.stringValue ?? "")
         case let .notification(method, _) where method == "sill_map":
             mapAsks += 1
         case let .notification(method, args) where method == "sill_basket":

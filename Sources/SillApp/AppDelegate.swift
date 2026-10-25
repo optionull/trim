@@ -81,6 +81,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         telemetry = TelemetryWatch(app: self, channel: session.channel)
         hooks = Hooks(app: self, channel: session.channel, directory: workingDirectory)
         hooks.start()
+        replays = Replays(app: self, channel: session.channel, directory: workingDirectory)
+        tools.makeReplay = { [weak self] in
+            guard let self else { fatalError("the app is gone") }
+            let view = ReplayView(replays: replays)
+            replays.onChange = { [weak view] in view?.changed() }
+            return view
+        }
         tracer = Tracer(app: self, channel: session.channel, directory: workingDirectory)
         tools.makeTrace = { [weak self] in
             guard let self else { fatalError("the app is gone") }
@@ -334,6 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var telemetry: TelemetryWatch!
     private(set) var mapper: CodeMapper!
     private(set) var tracer: Tracer!
+    private(set) var replays: Replays!
     private(set) var hooks: Hooks!
     private(set) var baskets: Baskets!
     private var asksHandled = 0
@@ -367,6 +375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         telemetry.update(screen)
         mapper.update(screen)
         tracer.update(screen)
+        replays.update(screen)
         hooks.update(screen)
         baskets.update(screen)
         for asked in screen.askQuestions.dropFirst(asksHandled) {

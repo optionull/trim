@@ -1324,8 +1324,14 @@ final class SelfCheck {
             names().last == "turn ended" ? true : nil
         }
         let log = (try? String(contentsOfFile: root + "/.sill/sessions/check-1.jsonl", encoding: .utf8)) ?? ""
-        try expect(log.split(separator: "\n").count == 7 && log.contains("\"tool_name\":\"Edit\""), "the log: \(log)")
-        step("an edit: followed as the agent's, planning over; the turn's end: a baseline; seven events in the log")
+        let trees = log.split(separator: "\n").filter { $0.contains("\"tree\":") }
+        try expect(
+            log.split(separator: "\n").count - trees.count == 7 && log.contains("\"tool_name\":\"Edit\"") &&
+                trees.count == 2 && trees.last?.contains("\"of\":\"Stop\"") == true,
+            "the log: \(log)"
+        )
+        step("an edit: followed as the agent's, planning over; the turn's end: a baseline; seven events in the log, " +
+            "and the trees at the prompt and the turn's end")
 
         // Editor context: the file open and the lines selected last go with the next prompt, and are not told again.
         _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(root + "/Tax.cs")])
@@ -1432,6 +1438,49 @@ final class SelfCheck {
             "as it was: \(left)"
         )
         step("the agents sill starts get them with --settings; :SillHooks remove leaves the settings as they were")
+
+        // The first session replayed: its one turn, what its tools did, and its change to Pricing.cs (3.5m to 3.6m),
+        // between the trees logged at its prompt and its end.
+        let replays = try require(app.replays, "the replays")
+        _ = try await session.channel.lua("vim.cmd('SillReplay check-1')")
+        try await wait("the replay") { $0.currentPaneKind == "replay" }
+        _ = try await waitFor("the turn's changes", timeout: .seconds(15)) {
+            !replays.reading && (!replays.files.isEmpty || replays.missing != nil) ? true : nil
+        }
+        let turn = try require(replays.log?.turns.first, "the turn")
+        let diff = replays.diffs["Pricing.cs"]?.hunks.flatMap(\.lines) ?? []
+        try expect(
+            replays.log?.turns.count == 1 && turn.mode == "plan" && turn.before != nil && turn.after != nil &&
+                // The investigation's edits after it came under the same session, with no prompt: the same turn.
+                Array(turn.steps.map(\.tool).prefix(5)) == ["Write", "Write", "plan", "approved", "Edit"] &&
+                replays.files.map(\.path) == ["Pricing.cs"] &&
+                diff.contains { $0.hasPrefix("-") && $0.contains("3.5m") } &&
+                diff.contains { $0.hasPrefix("+") && $0.contains("3.6m") },
+            "the replay: \(replays.log?.turns.count ?? 0) turns, steps \(turn.steps.map(\.tool)), files " +
+                "\(replays.files.map(\.path)), \(replays.missing ?? "")"
+        )
+        // A file opened from it opens beside it: the replay stays.
+        replays.reveal("Pricing.cs")
+        _ = try await waitFor("Pricing.cs beside the replay", timeout: .seconds(5)) {
+            (self.latest?.paneRects.contains { $0.kind == "replay" } ?? false) ? true : nil
+        }
+        var shown = ""
+        func beside() -> Bool { Set(shown.split(separator: ":")).isSuperset(of: ["Pricing.cs", "replay"]) }
+        for _ in 0 ..< 50 where !beside() {
+            try await Task.sleep(for: .milliseconds(100))
+            shown = try await session.channel.lua("""
+            local names = {}
+            for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+              local b = vim.api.nvim_win_get_buf(w)
+              if vim.b[b].sill_kind == 'replay' then table.insert(names, 'replay')
+              elseif vim.bo[b].buftype == '' then table.insert(names, vim.fn.fnamemodify(vim.api.nvim_buf_get_name(b), ':t')) end
+            end
+            table.sort(names)
+            return table.concat(names, ':')
+            """).stringValue ?? ""
+        }
+        try expect(beside(), "the code beside the replay: \(shown)")
+        step("the session replayed: one planned turn, its steps, its change to Pricing.cs; the file opens beside it")
     }
 
     /// A hook command run as an agent runs it: `input` on stdin; its status and what it printed.
@@ -1746,7 +1795,7 @@ final class SelfCheck {
         end
         return out
         """).arrayValue?.compactMap(\.stringValue) ?? []
-        try expect(keys.count == 12 && keys.allSatisfy { $0.hasSuffix(" set") }, "the keys: \(keys)")
+        try expect(keys.count == 13 && keys.allSatisfy { $0.hasSuffix(" set") }, "the keys: \(keys)")
         let codeMenu = try require(
             NSApp.mainMenu?.items.first { $0.submenu?.title == "Code" }?.submenu,
             "the Code menu"

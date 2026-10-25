@@ -216,6 +216,14 @@ running.
 
 ![A plan presented for approval: its steps, and the code it names as cells](docs/showcase-plan-2026-10-25.png)
 
+## Replaying a session
+
+`:SillReplay` (`␣ih`, Code ▸ Replay a Session…) picks one of the agent sessions sill's hooks logged and replays it:
+its prompts down the left, with what the agent's tools did for the one selected (the files it read and wrote, the
+commands it ran, its plan presented and approved), and that turn's changes on the right, file by file. A turn's
+changes are between the worktree as it was at its prompt and at its end (git trees, kept by git for two weeks).
+`↵` opens a file at its first change, beside the replay.
+
 ## Following an agent
 
 sill watches the worktree while an agent works: every file it changes is marked in the explorer for the session, and

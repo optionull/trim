@@ -897,6 +897,17 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   that replaced the pane, or with tab pages of the person's own went to the wrong one. `open_beside` opens in another
   editor window of the tab page (the last used first), else in a new one to the right of the pane with the code's
   window options; the pane stays. Checked by the replay's step (below); `open` in its place fails it.
+- Session replay (2026-10-25). Each session's log now also keeps the worktree's tree at each prompt and each turn's
+  end (`{"tree":…, "of":"UserPromptSubmit"|"Stop"}`, from the review baselines `Reviewer.mark` takes, handed back by
+  a `then`). `SessionLog` (SillCore) reads a log into turns: the prompt, the mode, the steps (the tool and its file,
+  command or pattern; a plan presented and approved), the end, and the two trees; tools before any prompt are a turn
+  without one, and events after a turn's end with no new prompt stay in it. `:SillReplay [session]` (`␣ih`, the Code
+  menu) picks or opens one; the replay pane lists the turns, the selected one's steps, and its changes between its
+  trees (a turn not ended: to the next turn's start, else the worktree now), file by file with the diff; `↵` opens
+  a file beside it. Trees are unreferenced, so git prunes them after two weeks: the replay says so. Checked in the
+  hooks check (the first session: one planned turn, its steps, its change to Pricing.cs, the file opened beside the
+  replay) and `SessionLogTests`; not handing the tree back fails it. Not done: stepping through a turn edit by edit
+  (the log has no content per edit), and replaying sessions from before trees were logged.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

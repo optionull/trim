@@ -159,7 +159,10 @@ final class Hooks {
         switch name {
         case "UserPromptSubmit":
             let prompt = (event["prompt"] as? String ?? "").replacingOccurrences(of: "\n", with: " ")
-            app?.reviewer?.mark("prompt: " + (prompt.count > 40 ? prompt.prefix(40) + "…" : prompt))
+            app?.reviewer?
+                .mark("prompt: " + (prompt.count > 40 ? prompt.prefix(40) + "…" : prompt)) { [weak self] tree in
+                    self?.log(tree: tree, of: name, session: session)
+                }
         case "PreToolUse" where tool == "ExitPlanMode":
             if let plan = input["plan"] as? String { showPlan(plan, session: session, status: "presented") }
         case "PostToolUse" where tool == "ExitPlanMode":
@@ -181,7 +184,7 @@ final class Hooks {
             app?.follower?.agentWrote(absolute)
             app?.baskets?.editedWhileInvestigating(absolute, tool: tool ?? "")
         case "Stop":
-            app?.reviewer?.mark("turn ended")
+            app?.reviewer?.mark("turn ended") { [weak self] tree in self?.log(tree: tree, of: name, session: session) }
             app?.baskets?.turnEnded()
         default: break
         }
@@ -211,10 +214,15 @@ final class Hooks {
     }
 
     /// The session's log: one line per event, the parts that tell what happened.
-    private func log(_ event: [String: Any], session: String) {
+    /// The worktree's tree at a prompt or a turn's end, in the session's log: what its replay diffs.
+    private func log(tree: String, of event: String, session: String) {
+        log(["at": ISO8601DateFormatter().string(from: Date()), "tree": tree, "of": event], session: session, raw: true)
+    }
+
+    private func log(_ event: [String: Any], session: String, raw: Bool = false) {
         let folder = SillFolder.path(for: directory) + "/sessions"
         try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        var line: [String: Any] = ["at": ISO8601DateFormatter().string(from: Date())]
+        var line: [String: Any] = raw ? event : ["at": ISO8601DateFormatter().string(from: Date())]
         for key in ["hook_event_name", "permission_mode", "tool_name", "prompt_id"] {
             line[key] = event[key]
         }

@@ -54,13 +54,15 @@ final class Reviewer {
     /// A baseline now, named for why it was taken.
     /// `joining`: a moment that matters even when nothing changed (a plan approved) joins the last baseline's name
     /// then, rather than being dropped.
-    func mark(_ name: String, joining: Bool = false) {
+    /// `then` gets the worktree's tree, a new baseline or not: a session's log keeps it for its replay.
+    func mark(_ name: String, joining: Bool = false, then: (@MainActor (String) -> Void)? = nil) {
         let directory = directory
         // In the order asked: a slow snapshot must not take a later moment's worktree under its own name.
         let previous = marking
         marking = Task {
             await previous?.value
             guard let tree = await Task.detached(operation: { Review.snapshot(in: directory) }).value else { return }
+            then?(tree)
             // The same worktree as the last baseline is not a new one.
             if baselines.last?.tree == tree {
                 if joining, let last = baselines.last, !last.name.contains(name) {
