@@ -784,6 +784,9 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   a line-number gutter and its rule, a footer inside the same 1 pt border for a piece's details and an example's
   output, a modified-coloured border on a piece changed since it was added, a diff's added and removed rows tinted
   across. Looked at in the basket and review walkthrough screenshots; the checks drive the same actions.
+  - Monospaced throughout (owner: "Monospace font the whole thing. Different sizes and colors is fine"): the
+    notebook's text is the editor's font at each size, bold from semibold up (`WalkView.font`); `code spans` keep
+    their colour to stand out.
   - Also: a basket piece's context collected after the piece had changed (lines joined) was saved under its old
     anchor, counting it twice in the Context menu; it is dropped now. The basket check waits for exactly the
     basket's pieces, but the race clears on the next read, so removing the guard does not fail it reliably.
