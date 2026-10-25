@@ -1255,6 +1255,40 @@ final class SelfCheck {
         let status = (Review.git(["status", "--porcelain"], in: root) ?? "?").trimmingCharacters(in: .newlines)
         try expect(status == " M Pricing.cs", "git sees only Pricing.cs: \(status)")
         step("basket_conclude writes the findings; the next piece starts a new basket; git sees nothing of .sill")
+
+        // The keys and the Code menu: every key the menu names is set, and the menu's Add to Basket takes a selection.
+        let keys = try await session.channel.lua("""
+        local out = {}
+        for _, key in ipairs(require'sill'.keys) do
+          local map = vim.fn.maparg(key[2], key[1], false, true)
+          table.insert(out, key[1] .. ' ' .. key[2]:gsub('<leader>', '␣') .. ' ' .. (map.desc == key[4] and 'set' or 'missing'))
+        end
+        return out
+        """).arrayValue?.compactMap(\.stringValue) ?? []
+        try expect(keys.count == 12 && keys.allSatisfy { $0.hasSuffix(" set") }, "the keys: \(keys)")
+        let codeMenu = try require(
+            NSApp.mainMenu?.items.first { $0.submenu?.title == "Code" }?.submenu,
+            "the Code menu"
+        )
+        let hints = codeMenu.items.compactMap(\.toolTip)
+        for hint in hints {
+            let key = String(hint.split(separator: " ").first ?? "")
+            try expect(keys.contains { $0.contains(" \(key) ") }, "\(hint) names a key that is set")
+        }
+        _ = try await session.channel.lua(
+            "require'sill'.open(...); vim.cmd('normal! 3GVj')",
+            args: [.string(root + "/Report.cs")]
+        )
+        let add = try require(codeMenu.items.first { $0.title == "Add to Basket" } as? ClosureItem, "Add to Basket")
+        try expect(add.keyEquivalent == "b" && add.keyEquivalentModifierMask == [.command, .shift], "⇧⌘B")
+        add.chosen()
+        _ = try await waitFor("Report.cs:3-4 in it", timeout: .seconds(10)) {
+            ((try? String(contentsOfFile: next, encoding: .utf8)) ?? "").contains("@code Report.cs:3-4 #") ? true : nil
+        }
+        step(
+            "\(keys.count) keys under ␣i, each named in the Code menu (\(hints.count) entries); its Add to Basket (⇧⌘B) " +
+                "takes the Visual selection"
+        )
     }
 
     /// Tracing a symbol (`SILL_CHECK=trace`, in a restored copy of the TraceShop fixture, `SILL_AGENT=echo`): Roslyn's

@@ -45,6 +45,11 @@ enum ContextMenu {
         menu.addItem(item("Find usages") { Nvim.lua(channel, "require'sill'.lsp('references')") })
         menu.addItem(item("Rename") { Nvim.lua(channel, "require'sill'.lsp('rename')") })
         menu.addItem(.separator())
+        menu.addItem(item("Add to basket") { Nvim.lua(channel, "require'sill'.basket_add_here()") })
+        menu.addItem(item("Ask about this…") { Nvim.lua(channel, "require'sill'.ask_here()") })
+        menu.addItem(item("Who calls this") { Nvim.lua(channel, "vim.cmd('SillTrace')") })
+        menu.addItem(item("What this calls") { Nvim.lua(channel, "vim.cmd('SillTrace callees')") })
+        menu.addItem(.separator())
         menu.addItem(item("Blame line") { Nvim.lua(channel, "require'sill'.blame()") })
         menu.addItem(item("History of file") {
             run("git log --oneline --follow -- \"$(git rev-parse --show-prefix 2>/dev/null)\"")
@@ -99,7 +104,7 @@ final class ClosureItem: NSMenuItem {
     @available(*, unavailable)
     required init(coder _: NSCoder) { fatalError("not used") }
 
-    @objc private func chosen() { run() }
+    @objc func chosen() { run() }
 
     /// What choosing it does, for the self-check.
     func choose() { run() }

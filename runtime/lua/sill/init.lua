@@ -457,6 +457,47 @@ function M.zen()
   end
 end
 
+--- sill's keys for understanding code: { mode, keys, what they do, description }. The menu bar's Code menu names
+--- them too.
+M.keys = {
+  { 'n', '<leader>ib', '<Cmd>SillBasket add<CR>', 'Add the line to the basket' },
+  { 'x', '<leader>ib', ':SillBasket add<CR>', 'Add the selection to the basket' },
+  { 'n', '<leader>iB', '<Cmd>SillBasket<CR>', 'Baskets' },
+  { 'n', '<leader>is', ':SillBasket send ', 'Send the basket with a question' },
+  { 'n', '<leader>it', '<Cmd>SillTrace<CR>', 'Trace: who calls this' },
+  { 'n', '<leader>iT', '<Cmd>SillTrace callees<CR>', 'Trace: what this calls' },
+  { 'x', '<leader>ia', ':SillAsk<CR>', 'Ask the agent about the selection' },
+  { 'n', '<leader>ii', ':SillInvestigate ', 'Investigate a question' },
+  { 'n', '<leader>im', '<Cmd>SillMap<CR>', 'Code map' },
+  { 'n', '<leader>iw', '<Cmd>SillWalk<CR>', 'Walkthroughs' },
+  { 'n', '<leader>ir', '<Cmd>SillReview<CR>', 'Review the changes' },
+  { 'n', '<leader>if', '<Cmd>SillFollow<CR>', 'Follow the agent' },
+}
+
+--- From the right-click menu: the selection when there is one, else the line, to the basket.
+function M.basket_add_here()
+  local mode = vim.fn.mode()
+  if mode == 'v' or mode == 'V' or mode == '\22' then
+    local from, to = vim.fn.line('v'), vim.fn.line('.')
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<Esc>', true, false, true), 'nx', false)
+    vim.cmd(math.min(from, to) .. ',' .. math.max(from, to) .. 'SillBasket add')
+  else
+    vim.cmd('SillBasket add')
+  end
+end
+
+--- From the menus: the selection asked about, when there is one.
+function M.ask_here()
+  local mode = vim.fn.mode()
+  if mode == 'v' or mode == 'V' or mode == '\22' then
+    local from, to = vim.fn.line('v'), vim.fn.line('.')
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<Esc>', true, false, true), 'nx', false)
+    vim.cmd(math.min(from, to) .. ',' .. math.max(from, to) .. 'SillAsk')
+  else
+    vim.notify('Select the code to ask about first', vim.log.levels.INFO)
+  end
+end
+
 --- sill's baskets to pick from: { file, label } each; the one picked opens.
 function M.pick_basket(items)
   vim.ui.select(items, { prompt = 'Basket', format_item = function(item) return item[2] end }, function(item)
@@ -604,6 +645,14 @@ function M.setup()
   if vim.fn.maparg('<leader>a', 'n') == '' then
     vim.keymap.set('n', '<leader>a', '<Cmd>SillAgent next<CR>', { desc = 'Next agent that needs you' })
   end
+  -- Understanding code, under <leader>i: each a key for a command, set only where the person's config has none.
+  for _, key in ipairs(M.keys) do
+    if vim.fn.maparg(key[2], key[1]) == '' then
+      vim.keymap.set(key[1], key[2], key[3], { desc = key[4] })
+    end
+  end
+  local ok, which_key = pcall(require, 'which-key')
+  if ok and which_key.add then which_key.add({ { '<leader>i', group = 'sill: understand' } }) end
   vim.api.nvim_create_user_command('SillChrome', M.chrome, { desc = "sill's window: sidebar, panel, colours" })
   vim.api.nvim_create_user_command('SillZen', M.zen, { desc = 'Zen: only the text, in a column; again to come back' })
   -- :SillProfile runs the project's .NET program under the profiler (M6); snapshot and stop act on the run;

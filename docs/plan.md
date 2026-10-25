@@ -744,6 +744,14 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   - Checked: `SILL_CHECK=investigate` (the ask, every tool as an agent calls them, the notebook's sections, tree,
     files and findings, the skill installed into a scratch home); a basket lookup that ignores the name fails it.
   - Not checked: a real agent running an investigation end to end.
+- Keys and discoverability (2026-10-25, owner: "Do these commands have short bindings? Also make these
+  discoverable"). Only `<leader>a` had a key. The understanding commands now have keys under `<leader>i` (free in the
+  owner's LazyVim, checked by dumping its leader maps: s, f, g, b, c, x, q, u are taken), from `sill.keys`, each set
+  only where `maparg` is empty, a which-key group "sill: understand". The menu bar's Code menu (`CodeMenu`) lists
+  them with ⇧⌘ keys for five (B basket, H who calls, I investigate, M map) and the nvim key and command as each
+  item's tooltip; the right-click menu adds Add to basket, Ask about this, Who calls this, What this calls.
+  `basket_add_here` and `ask_here` take a Visual selection's lines. Checked in the basket check (all twelve keys set,
+  every key the menu names exists, ⇧⌘B's item adds a Visual selection's lines); ignoring the selection fails it.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

@@ -708,6 +708,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let zen = viewMenu.addItem(withTitle: "Zen", action: #selector(toggleZen(_:)), keyEquivalent: "z")
         zen.keyEquivalentModifierMask = [.command, .control]
         viewItem.submenu = viewMenu
+        let codeItem = NSMenuItem()
+        menu.addItem(codeItem)
+        codeItem.submenu = CodeMenu.menu { [weak self] lua in
+            guard let self else { return }
+            // The editor has the keyboard for what follows (a command line to finish, a picker).
+            editor.window?.makeFirstResponder(editor)
+            Nvim.lua(session.channel, lua)
+        }
         let projectItem = NSMenuItem()
         menu.addItem(projectItem)
         let projectMenu = NSMenu(title: "Project")

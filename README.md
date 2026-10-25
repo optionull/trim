@@ -199,6 +199,25 @@ asks.
 
 ![Tracing Tax.Of: Pricing.Total calls it, and Checkout.Run and Report.Print call that, each with the line of its call](docs/showcase-trace-2026-10-25.png)
 
+## Keys for understanding code
+
+Everything here is a command; the keys are under `<leader>i`, set only where your config has nothing (which-key shows
+them as "sill: understand"). The menu bar's **Code** menu lists them too, with the key and command on hover, and the
+right-click menu has the ones that act on the code under it.
+
+| Key | Command | ⌘ |
+|---|---|---|
+| `<leader>ib` (a selection: its lines) | `:SillBasket add` | ⇧⌘B |
+| `<leader>iB` | `:SillBasket` (pick a basket) | |
+| `<leader>is` | `:SillBasket send <question>` | |
+| `<leader>it` / `<leader>iT` | `:SillTrace` / `:SillTrace callees` | ⇧⌘H |
+| `<leader>ia` (a selection) | `:SillAsk` | |
+| `<leader>ii` | `:SillInvestigate <question>` | ⇧⌘I |
+| `<leader>im` | `:SillMap` | ⇧⌘M |
+| `<leader>iw` | `:SillWalk` | |
+| `<leader>ir` | `:SillReview` | |
+| `<leader>if` | `:SillFollow` | |
+
 ## Context baskets
 
 Collect the code you want to ask about while you read, then ask about all of it at once. `:SillBasket add [note]` adds
