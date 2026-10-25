@@ -100,9 +100,11 @@ final class TerminalPanes {
                 guard let self, let surface else { return false }
                 return openReference(in: row, at: column, from: surface.workingDirectory)
             }
+            // A link (OSC 8) to a file, ⌘-clicked: its line from a `#L7` fragment, as code hosts write it.
             surface.onOpenURL = { [weak self] url in
                 guard url.isFileURL else { return false }
-                return self?.openReference(in: url.path, at: 0, from: nil) ?? false
+                let line = url.fragment.flatMap { $0.hasPrefix("L") ? Int($0.dropFirst().prefix { $0.isNumber }) : nil }
+                return self?.openReference(in: url.path + (line.map { ":\($0)" } ?? ""), at: 0, from: nil) ?? false
             }
             let view: NSView = surface
         #else

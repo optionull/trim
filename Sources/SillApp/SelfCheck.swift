@@ -1990,6 +1990,45 @@ final class SelfCheck {
             try expect(window.firstResponder === editor, "the keyboard back with nvim")
             step("⌘-click on src/a.txt:7 in the terminal opened a.txt at line 7 in the editor")
 
+            // A link (OSC 8) whose text is no path, as an agent prints one: Ghostty's own link handling opens it.
+            let target = try URL(fileURLWithPath: require(app, "the app").workingDirectory + "/src/a.txt")
+                .absoluteString + "#L3"
+            panes.focus(pane)
+            // BEL ends each sequence: fish reads \\ in single quotes as one backslash, so ESC \ would not survive it.
+            type("printf 'sill-link \\033]8;;\(target)\\athe rounding\\033]8;;\\a\\n'")
+            press("\r", keyCode: 36)
+            _ = try await waitFor("the link printed", timeout: .seconds(15)) {
+                (surface.visibleText() ?? "").components(separatedBy: "\n").first { $0.hasPrefix("sill-link ") }
+            }
+            // The screen row it is on: the long command above it wraps, so found through the pane's own row reading.
+            let linkColumn = "sill-link the r".count
+            let linkPoint = try require((0 ..< 200).lazy.map { row in
+                NSPoint(
+                    x: GhosttyRuntime.padding.x + (CGFloat(linkColumn) + 0.5) * size.width,
+                    y: surface.bounds.height - GhosttyRuntime.padding.y - (CGFloat(row) + 0.5) * size.height
+                )
+            }.first { point in
+                surface.row(at: point).map { $0.0.hasPrefix("sill-link ") && $0.1 == linkColumn } ?? false
+            }, "the link's row")
+            // As a real click: no move first (the pane tracks no hovering); the press tells Ghostty where it is.
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try require(NSEvent.mouseEvent(
+                    with: type, location: surface.convert(linkPoint, to: nil), modifierFlags: .command,
+                    timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                    pressure: 1
+                ), "a ⌘-click on the link")
+                if type == .leftMouseDown { surface.mouseDown(with: event) } else { surface.mouseUp(with: event) }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            at = ""
+            for _ in 0 ..< 50 where at != "a.txt:3" {
+                try await Task.sleep(for: .milliseconds(100))
+                at = try await session.channel.lua(
+                    "return vim.fn.expand('%:t') .. ':' .. vim.api.nvim_win_get_cursor(0)[1]"
+                ).stringValue ?? ""
+            }
+            try expect(at == "a.txt:3", "the link left the editor at \(at), not a.txt:3")
+            step("⌘-click on an OSC 8 link (\"the rounding\" to a.txt#L3) opened a.txt at line 3")
 
             // What another app hands over: a sill:// link with a line and column, and a file.
             let app = try require(app, "the app")

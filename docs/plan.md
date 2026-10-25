@@ -667,7 +667,7 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     `FileReference(url:)` reads them (absolute paths only). Until nvim is up they wait; a cold launch from `/` starts
     in the first file's repository. Files AppKit hands over from the command line are skipped (nvim opens those,
     and git's merge files must not open as files). The refs check calls the handler with both.
-  - Not checked: Ghostty's own ⌘-click on a URL (OPEN_URL) and an OSC 8 link; wide characters before a path shift
+  - Not checked: Ghostty's own ⌘-click on a plain URL (OPEN_URL; an OSC 8 link is, see below); wide characters before a path shift
     the column; a real `open sill://…` through LaunchServices (that registers the build with the system), and the
     cold launch.
   - Next, in heed (its own repo, the owner's call): ⌘-click on a reference in a heed session could hand it to sill
@@ -883,6 +883,15 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   `EditorContextTests`; forgetting what was told fails the check. `:normal!` ends visual mode without ModeChanged, so
   the check selects with `nvim_input`. Not yet seen in a real Claude Code session: that the context reaches the model
   is Claude Code's documented behaviour, not checked here.
+- OSC 8 links in terminal panes (2026-10-25, the experiment after editor context). A link an agent or tool prints
+  (`ESC ] 8 ; ; file:///…/a.txt#L3 BEL the rounding ESC ] 8 ; ; BEL`), whose text is no path, opens in the editor
+  on ⌘-click: sill's own row reading finds no file in "the rounding", so the click goes to Ghostty, whose press and
+  release each report the position with ⌘ (the pane tracks no hovering, and needs none), so it finds the link and
+  hands its URL to OPEN_URL; a `file://` URL opens in sill with its line from a `#L<n>` fragment. Checked in the refs
+  check, by a click alone (no move first); ignoring the fragment fails it. Found on the way: fish reads `\\` in
+  single quotes as one backslash, so the check ends the sequences with BEL; and a long command line wraps, so the
+  link's screen row is found through the pane's own row reading. Not done: a pointing hand over a link (Ghostty's
+  MOUSE_SHAPE needs hover events the pane does not track), and the URL shown on hover (MOUSE_OVER_LINK).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
