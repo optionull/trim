@@ -204,7 +204,7 @@ final class Tracer {
         guard let node = tree?.nodes[safe: index] else { return }
         // A caller opens where it makes the call.
         let line = tree?.direction == .incoming ? node.item.at ?? node.item.line : node.item.line
-        Nvim.lua(channel, "vim.cmd('tabprevious'); require'sill'.open(...)", [
+        Nvim.lua(channel, "require'sill'.open_beside(...)", [
             .string(node.item.path), .int(Int64(line)),
         ])
     }

@@ -88,7 +88,7 @@ final class CodeMapper {
     /// A file of the map (from the repository's root), in the editor.
     func open(_ path: String, line: Int = 1) {
         let file = (directory as NSString).appendingPathComponent(path)
-        Nvim.lua(channel, "vim.cmd('tabprevious'); require'sill'.open(...)", [.string(file), .int(Int64(line))])
+        Nvim.lua(channel, "require'sill'.open_beside(...)", [.string(file), .int(Int64(line))])
     }
 
     // MARK: Asking the agent

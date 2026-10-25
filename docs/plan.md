@@ -892,6 +892,11 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   single quotes as one backslash, so the check ends the sequences with BEL; and a long command line wraps, so the
   link's screen row is found through the pane's own row reading. Not done: a pointing hand over a link (Ghostty's
   MOUSE_SHAPE needs hover events the pane does not track), and the URL shown on hover (MOUSE_OVER_LINK).
+- Code opened from a pane opens beside it (2026-10-25, a regression of panes in place). The map, a trace, a notebook
+  and the packages opened code with `tabprevious` then `open`, from when they were tab pages: with the pane in place,
+  that replaced the pane, or with tab pages of the person's own went to the wrong one. `open_beside` opens in another
+  editor window of the tab page (the last used first), else in a new one to the right of the pane with the code's
+  window options; the pane stays. Checked by the replay's step (below); `open` in its place fails it.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

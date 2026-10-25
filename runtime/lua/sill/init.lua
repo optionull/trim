@@ -371,6 +371,34 @@ vim.api.nvim_create_autocmd('ModeChanged', {
   end,
 })
 
+--- Opens `path` from a tool pane in place (the map, a trace, a notebook), keeping the pane: in another editor window of
+--- the tab page, else in a new one beside the pane, with the code's window options. Elsewhere it is `open`.
+function M.open_beside(path, line, col)
+  local place
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if vim.w[win].sill_place and vim.b[vim.api.nvim_win_get_buf(win)].sill_pane then place = win end
+  end
+  if not place then return M.open(path, line, col) end
+  local target
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if win ~= place and not is_pane(win) and vim.api.nvim_win_get_config(win).relative == '' then
+      target = target or win
+      if win == vim.g.sill_editor_win then target = win end
+    end
+  end
+  if not target then
+    vim.api.nvim_set_current_win(place)
+    vim.cmd('rightbelow vnew')
+    target = vim.api.nvim_get_current_win()
+    vim.w[target].sill_place = nil
+    vim.w[target].sill_before = nil
+    local before = vim.w[place].sill_before
+    for name, value in pairs(before and before.options or {}) do vim.wo[target][name] = value end
+  end
+  vim.g.sill_editor_win = target
+  M.open(path, line, col)
+end
+
 --- Shows buffer `buf` in the last editor window used, at `line` and `col`: where a problem is, named file or not.
 function M.goto(buf, line, col)
   local win = M.editor_window()

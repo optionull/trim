@@ -280,7 +280,7 @@ final class Walker {
         guard let found = found[safe: step] else { return }
         let place = block.flatMap { found[$0] } ?? found.keys.sorted().compactMap { found[$0] }.first { $0.path != nil }
         guard let place, let file = place.path else { return }
-        Nvim.lua(channel, "vim.cmd('tabprevious'); require'sill'.open(...)", [.string(file), .int(Int64(place.from))])
+        Nvim.lua(channel, "require'sill'.open_beside(...)", [.string(file), .int(Int64(place.from))])
     }
 
     // MARK: Asking

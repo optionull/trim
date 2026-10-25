@@ -35,7 +35,7 @@ final class Packages {
         view.onAskAgent = { [weak self] package in self?.ask(package) }
         view.onOpen = { [weak self] path in
             guard let self else { return }
-            Nvim.lua(channel, "vim.cmd('tabprevious'); require'sill'.open(...)", [.string(path)])
+            Nvim.lua(channel, "require'sill'.open_beside(...)", [.string(path)])
         }
         if scanner.report == nil { scanner.scan() }
         return view
