@@ -169,6 +169,22 @@ An agent asks the same through `telemetry_watch`, `telemetry_logs`, `telemetry_t
 working here; its answer comes back through sill's `annotate` tool and shows under the lines, beside the code it is
 about. `:SillAsk clear` removes the answers.
 
+## Agent hooks
+
+With Claude Code's hooks, an agent tells sill what it does instead of sill guessing. The agents sill starts get them
+(`--settings`); `:SillHooks install` puts them in the project's `.claude/settings.local.json` for every agent there
+(your settings kept beside it as `settings.local.json.before-sill`, neither ever committed; `:SillHooks remove` takes
+them out). Each hook sends its event to sill over a socket of this worktree's and does nothing when sill is not
+running.
+
+- Every prompt is a review baseline, and so is the end of each turn: a review per prompt.
+- The files the agent's tools edit are followed as its own.
+- Planning is noticed when it starts; a plan presented for approval opens as a notebook (`.sill/plans/`) with the
+  code it names as cells, and an approved plan names the review baseline it starts from.
+- Each session's events are logged in `.sill/sessions/<session>.jsonl`.
+
+![A plan presented for approval: its steps, and the code it names as cells](docs/showcase-plan-2026-10-25.png)
+
 ## Following an agent
 
 sill watches the worktree while an agent works: every file it changes is marked in the explorer for the session, and

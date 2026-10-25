@@ -62,6 +62,12 @@ final class SelfCheck {
                 fflush(stdout)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "hooks" {
+                try await hooksSteps()
+                print("sill check (agent hooks): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "investigate" {
                 try await investigateSteps()
                 print("sill check (investigations): passed")
@@ -1020,6 +1026,148 @@ final class SelfCheck {
             FileManager.default.fileExists(atPath: skill) ? true : nil
         }
         step("step 2 shows Clock.Tick's first three lines; :SillWalk skill installed the skill at \(skill)")
+    }
+
+    /// Agent hooks (`SILL_CHECK=hooks`, in a restored git copy of TraceShop, `SILL_AGENT=echo`): `:SillHooks install`
+    /// puts them beside the project's own local settings (kept as they were, never committed); then the installed
+    /// command, run as Claude Code runs it, for a prompt in plan mode, the plan presented and approved, an edit and the
+    /// turn's end: planning noticed, the plan a notebook with the code it names, baselines for the prompt, the
+    /// approved plan and the turn, the edit followed, a log of the session. The agents sill starts get the hooks too;
+    /// `:SillHooks remove` takes them out.
+    private func hooksSteps() async throws {
+        let app = try require(app, "the app")
+        let hooks = try require(app.hooks, "the hooks")
+        let root = app.workingDirectory
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        try FileManager.default.createDirectory(atPath: root + "/.claude", withIntermediateDirectories: true)
+        let theirs = #"{"permissions":{"allow":["Bash(ls)"]}}"#
+        try theirs.write(toFile: root + "/.claude/settings.local.json", atomically: true, encoding: .utf8)
+        _ = try await session.channel.lua("vim.cmd('SillHooks install')")
+        _ = try await waitFor("installed") { hooks.installed ? true : nil }
+        let settings = try require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: hooks.localSettings)))
+                as? [String: Any], "the settings"
+        )
+        try expect((settings["permissions"] as? [String: Any]) != nil, "theirs kept: \(settings)")
+        try expect(
+            (try? String(contentsOfFile: hooks.localSettings + ".before-sill", encoding: .utf8)) == theirs,
+            "the file as it was, kept beside it"
+        )
+        let command = try require(
+            ((settings["hooks"] as? [String: Any])?["Stop"] as? [[String: Any]])?.first
+                .flatMap { ($0["hooks"] as? [[String: Any]])?.first?["command"] as? String },
+            "the hook command"
+        )
+        let status = (Review.git(["status", "--porcelain"], in: root) ?? "?").trimmingCharacters(in: .newlines)
+        try expect(status.isEmpty, "git sees none of it: \(status)")
+        step(":SillHooks install: sill's hooks beside the project's own settings (kept as they were); git sees none")
+
+        /// The hook as Claude Code runs it: the event on stdin.
+        func fire(_ event: [String: Any]) throws {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", command]
+            let input = Pipe()
+            process.standardInput = input
+            process.standardOutput = FileHandle.nullDevice
+            try process.run()
+            try input.fileHandleForWriting.write(JSONSerialization.data(withJSONObject: event, options: .prettyPrinted))
+            try input.fileHandleForWriting.close()
+            process.waitUntilExit()
+            try expect(process.terminationStatus == 0, "the hook exits 0")
+        }
+        let base: [String: Any] = ["session_id": "check-1", "cwd": root]
+        func names() -> [String] { app.reviewer?.baselines.map(\.name) ?? [] }
+        // A change since sill opened: an unchanged worktree is no new baseline.
+        try "notes".write(toFile: root + "/notes.txt", atomically: true, encoding: .utf8)
+        try fire(base.merging([
+            "hook_event_name": "UserPromptSubmit",
+            "permission_mode": "plan",
+            "prompt": "Make the tax round once",
+        ]) { $1 })
+        _ = try await waitFor("planning noticed") { hooks.planning.contains("check-1") ? true : nil }
+        _ = try await waitFor("the prompt's baseline", timeout: .seconds(10)) {
+            names().contains("prompt: Make the tax round once") ? true : nil
+        }
+        step("a prompt in plan mode: planning noticed, a baseline named after the prompt")
+
+        let plan = "# Round the tax once\n\n## Steps\n1. Stop rounding in Tax.cs:5.\n2. Round in Pricing.cs:6."
+        try fire(base.merging([
+            "hook_event_name": "PreToolUse",
+            "permission_mode": "plan",
+            "tool_name": "ExitPlanMode",
+            "tool_input": ["plan": plan],
+        ]) { $1 })
+        let notebook = try await waitFor("the plan's notebook") { hooks.lastPlan }
+        try await wait("the plan shown") { $0.currentPaneKind == "walk" }
+        let walk = Walkthrough((try? String(contentsOfFile: notebook, encoding: .utf8)) ?? "")
+        try expect(
+            notebook.hasPrefix(root + "/.sill/plans/") && walk.title == "Round the tax once" &&
+                walk.status == "presented" && walk.steps.map(\.title) == ["Steps", "Code it names"] &&
+                walk.steps[1].blocks.map { if case let .code(anchor, _) = $0 { anchor.text } else { "" } } ==
+                ["Tax.cs:3-11", "Pricing.cs:4-12"],
+            "the plan: \(notebook) \(walk.title) \(walk.steps.map(\.title))"
+        )
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            _ = try await waitFor("its code found", timeout: .seconds(30)) {
+                app.walker?.resolving == false && app.walker?.found.isEmpty == false ? true : nil
+            }
+            app.tools.walk?.display()
+            try self.shot(to: shot)
+        }
+        try fire(base.merging([
+            "hook_event_name": "PostToolUse",
+            "permission_mode": "plan",
+            "tool_name": "ExitPlanMode",
+            "tool_input": [:],
+            "tool_response": ["plan": plan],
+        ]) { $1 })
+        _ = try await waitFor("approved", timeout: .seconds(10)) {
+            names().contains { $0.hasSuffix("plan approved: Round the tax once") } &&
+                (try? String(contentsOfFile: notebook, encoding: .utf8))?
+                .contains("status: approved") == true ? true : nil
+        }
+        step("the plan presented: a notebook in .sill/plans with the code it names, shown; approved: a baseline")
+
+        let pricing = root + "/Pricing.cs"
+        try (String(contentsOfFile: pricing, encoding: .utf8)).replacingOccurrences(of: "3.5m", with: "3.6m")
+            .write(toFile: pricing, atomically: true, encoding: .utf8)
+        try fire(base.merging([
+            "hook_event_name": "PostToolUse",
+            "permission_mode": "acceptEdits",
+            "tool_name": "Edit",
+            "tool_input": ["file_path": pricing],
+        ]) { $1 })
+        _ = try await waitFor("the edit followed") { app.follower?.touched["Pricing.cs"] != nil ? true : nil }
+        try expect(!hooks.planning.contains("check-1"), "planning over")
+        try fire(base.merging(["hook_event_name": "Stop", "permission_mode": "acceptEdits"]) { $1 })
+        _ = try await waitFor("the turn's baseline", timeout: .seconds(10)) {
+            names().last == "turn ended" ? true : nil
+        }
+        let log = (try? String(contentsOfFile: root + "/.sill/sessions/check-1.jsonl", encoding: .utf8)) ?? ""
+        try expect(log.split(separator: "\n").count == 5 && log.contains("\"tool_name\":\"Edit\""), "the log: \(log)")
+        step("an edit: followed as the agent's, planning over; the turn's end: a baseline; five events in the log")
+
+        try expect(
+            app.agents.agentCommand(prompt: "x").contains("--settings '\(hooks.settingsPath)'"),
+            "the agents sill starts get the hooks"
+        )
+        try expect(
+            FileManager.default.contents(atPath: hooks.settingsPath).map { String(decoding: $0, as: UTF8.self) }?
+                .contains(Hooks.marker) == true,
+            "in their settings"
+        )
+        _ = try await session.channel.lua("vim.cmd('SillHooks remove')")
+        _ = try await waitFor("removed") { hooks.installed ? nil : true }
+        let left = try require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: hooks.localSettings)))
+                as? [String: Any], "the settings"
+        )
+        try expect(
+            NSDictionary(dictionary: left).isEqual(to: ["permissions": ["allow": ["Bash(ls)"]]]),
+            "as it was: \(left)"
+        )
+        step("the agents sill starts get them with --settings; :SillHooks remove leaves the settings as they were")
     }
 
     /// Investigations (`SILL_CHECK=investigate`, in a restored git copy of TraceShop, `SILL_AGENT=echo`, a scratch

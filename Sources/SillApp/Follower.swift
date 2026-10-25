@@ -62,6 +62,11 @@ final class Follower {
         }
     }
 
+    /// An agent's tool wrote a file (its hook says so): followed as the agent's, whatever the file system said.
+    func agentWrote(_ path: String) {
+        changed([path])
+    }
+
     /// An agent read a file (through sill's MCP server).
     func read(_ path: String) {
         reading = relative(path)

@@ -80,6 +80,30 @@ public struct FileReference: Equatable, Sendable {
         )
     }
 
+    /// Every reference in `text` to a file that exists, in order, once each (by path and line).
+    public static func all(
+        in text: String, directory: String, root: String,
+        exists: (String) -> Bool = { path in
+            var folder: ObjCBool = false
+            return FileManager.default.fileExists(atPath: path, isDirectory: &folder) && !folder.boolValue
+        }
+    ) -> [FileReference] {
+        guard let pattern else { return [] }
+        var found: [FileReference] = []
+        for line in text.components(separatedBy: "\n") {
+            let ns = line as NSString
+            for match in pattern.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
+                let column = (ns.substring(to: match.range.location) as String).count
+                if let reference = find(in: line, at: column, directory: directory, root: root, exists: exists),
+                   !found.contains(where: { $0.path == reference.path && $0.line == reference.line })
+                {
+                    found.append(reference)
+                }
+            }
+        }
+        return found
+    }
+
     private static func resolve(
         _ name: String, _ directory: String, _ root: String, _ exists: (String) -> Bool
     ) -> String? {

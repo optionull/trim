@@ -79,6 +79,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         walker = Walker(app: self, channel: session.channel, directory: workingDirectory)
         follower = Follower(app: self, channel: session.channel, directory: workingDirectory)
         telemetry = TelemetryWatch(app: self, channel: session.channel)
+        hooks = Hooks(app: self, channel: session.channel, directory: workingDirectory)
+        hooks.start()
         tracer = Tracer(app: self, channel: session.channel, directory: workingDirectory)
         tools.makeTrace = { [weak self] in
             guard let self else { fatalError("the app is gone") }
@@ -325,6 +327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var telemetry: TelemetryWatch!
     private(set) var mapper: CodeMapper!
     private(set) var tracer: Tracer!
+    private(set) var hooks: Hooks!
     private(set) var baskets: Baskets!
     private var asksHandled = 0
     /// Roslyn's provisioning: what the status bar says while it downloads.
@@ -357,6 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         telemetry.update(screen)
         mapper.update(screen)
         tracer.update(screen)
+        hooks.update(screen)
         baskets.update(screen)
         for asked in screen.askQuestions.dropFirst(asksHandled) {
             agents.ask(path: asked.path, from: asked.from, to: asked.to, lines: asked.lines, question: asked.question)
@@ -626,6 +630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Quit (⌘Q, the window closed) in merge or diff mode: what the result file says.
         if tool != nil { exit(toolStatus(nvim: 0)) }
         agents?.stop()
+        hooks?.stop()
         let session = session, sidecar = sidecar
         Task {
             await session.stop()

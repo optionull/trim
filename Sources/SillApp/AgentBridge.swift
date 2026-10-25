@@ -933,7 +933,9 @@ final class AgentBridge {
     /// The agent command line: `claude` with sill's MCP server and the prompt (`SILL_AGENT` names another command).
     func agentCommand(prompt: String) -> String {
         let agent = Settings.shared.value("SILL_AGENT") ?? "claude"
-        return "\(agent) --mcp-config \(shellQuote(configPath)) \(shellQuote(prompt))"
+        // Its hooks tell sill what it does.
+        let hooks = app?.hooks.map { " --settings \(shellQuote($0.settingsPath))" } ?? ""
+        return "\(agent) --mcp-config \(shellQuote(configPath))\(hooks) \(shellQuote(prompt))"
     }
 
     /// The prompt Send to agent gives: the problems, and how to use sill's tools on them.
@@ -985,7 +987,7 @@ final class AgentBridge {
     /// The words that give an agent sill's MCP server, for the agents sill knows how to tell.
     func mcpArguments(agent: String) -> [String] {
         switch agent {
-        case "claude": return ["--mcp-config", configPath]
+        case "claude": return ["--mcp-config", configPath] + (app?.hooks.map { ["--settings", $0.settingsPath] } ?? [])
         case "codex":
             guard let path = socketPath else { return [] }
             return [

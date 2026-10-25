@@ -790,6 +790,27 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   - Also: a basket piece's context collected after the piece had changed (lines joined) was saved under its old
     anchor, counting it twice in the Context menu; it is dropped now. The basket check waits for exactly the
     basket's pieces, but the race clears on the next read, so removing the guard does not fail it reliably.
+- Agent hooks, first step (2026-10-25, owner: "Love it, project local option"; plan start and end asked for). Read
+  against Claude Code's hooks reference: about 30 events; tool events take matchers; `permission_mode` (`plan` while
+  planning) is on many events, and no event marks entering plan mode; `ExitPlanMode`'s PreToolUse has the plan
+  (injected `plan`, `planFilePath`), its PostToolUse the approved one (`tool_response.plan`). `SillAgent.HookServer`:
+  a socket per worktree (`$TMPDIR/sill-hooks-<fingerprint of the root>.sock`), one event per connection, answered
+  within 1.5 s or not at all; the hook command is `{ tr -d '\n'; echo; } | nc -U -w 2 <socket> || true`, so an
+  absent sill costs nothing. `Hooks`: UserPromptSubmit is a baseline ("prompt: …"), Stop another ("turn ended");
+  PostToolUse of Edit/Write/MultiEdit/NotebookEdit goes to the follower as the agent's; planning starts at the first
+  event in plan mode and ends at one in another; ExitPlanMode presented writes `.sill/plans/<time>-<title>.plan.md`
+  (`SillCore.PlanFile`: the plan, its files as `@code` cells) and shows it, approved sets its status and a baseline
+  that joins the last one's name when nothing changed (`Reviewer.mark(joining:)`); each event is a line in
+  `.sill/sessions/<id>.jsonl`. Installed with `--settings` for the agents sill starts and `:SillHooks
+  install|remove|status` (`HookSettings`: beside the person's own hooks, recognised by the socket name; the file
+  backed up once as `.before-sill`; both kept out of git).
+  - Checked: `HookServerTests` (the real command through sh, a pretty-printed event, no sill), `PlanFileTests`
+    (the notebook, /private paths, installing and removing beside the person's settings), `SILL_CHECK=hooks` (the
+    installed command for a prompt in plan mode, the plan presented and approved, an edit, the turn's end; the log;
+    `--settings`; remove); not noticing planning, and matching only one spelling of the root, fail them.
+  - Not checked: a real Claude Code session (the events are built from its reference), what a rejected plan sends,
+    and an `EnterPlanMode` tool call. Not built: approving a plan from sill (not asked for). Next: the investigation
+    guards (edits denied while one is open, no stop before its findings), editor context on prompts.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

@@ -628,6 +628,10 @@ function M.setup()
     nargs = '+', complete = function() return { 'skill' } end,
     desc = 'Ask the agent to investigate a question through sill, into a basket; skill installs the skill',
   })
+  vim.api.nvim_create_user_command('SillHooks', function(opts) notify('sill_hooks', opts.args ~= '' and opts.args or 'status') end, {
+    nargs = '?', complete = function() return { 'install', 'remove', 'status' } end,
+    desc = "Agent hooks: install tells sill what every agent in this project does (.claude/settings.local.json)",
+  })
   vim.api.nvim_create_user_command('SillMap', function() notify('sill_map') end,
     { desc = "The code map: the repository's projects, what each builds on, where it starts, what changes most" })
   vim.api.nvim_create_user_command('SillFollow', function() notify('sill_follow') end,
