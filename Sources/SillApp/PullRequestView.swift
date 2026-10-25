@@ -54,6 +54,8 @@ final class PullRequestView: NSView, ToolContent {
             detail: detail + (pulls.reading && pr != nil ? " · reading…" : ""),
             actions: pr == nil ? [] : [
                 .init(id: "agent", title: "Send to agent", primary: attention),
+                .init(id: "review", title: "Review"),
+                .init(id: "walkthrough", title: "Walkthrough"),
                 .init(id: "open", title: "Open on GitHub"),
             ],
             in: bounds
@@ -150,13 +152,21 @@ final class PullRequestView: NSView, ToolContent {
                 Design.textFaint
             ))
         }
-        PaneBar.drawKeys("a send to agent · o open on GitHub · a click on a check opens it · r read again", in: bounds)
+        PaneBar.drawKeys(
+            "v review · w walkthrough · a send to agent · o open on GitHub · a click on a check opens it · r read again",
+            in: bounds
+        )
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if let (id, _) = actionFrames.first(where: { $0.1.contains(point) }) {
-            if id == "agent" { pulls.sendToAgent() } else { pulls.openInBrowser() }
+            switch id {
+            case "agent": pulls.sendToAgent()
+            case "review": pulls.review()
+            case "walkthrough": pulls.walkthrough()
+            default: pulls.openInBrowser()
+            }
         } else if let (link, _) = checkFrames.first(where: { $0.1.contains(point) }), let url = URL(string: link) {
             NSWorkspace.shared.open(url)
         }
@@ -172,6 +182,8 @@ final class PullRequestView: NSView, ToolContent {
         switch event.charactersIgnoringModifiers ?? "" {
         case "a": pulls.sendToAgent()
         case "o": pulls.openInBrowser()
+        case "v": pulls.review()
+        case "w": pulls.walkthrough()
         case "r": pulls.refresh()
         default: return false
         }

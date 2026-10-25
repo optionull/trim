@@ -14,6 +14,8 @@ final class Reviewer {
         var name: String
         var tree: String
         var at: Date
+        /// Kept first and never dropped for newer ones: where a pull request's branch left its base.
+        var pinned = false
     }
 
     struct Comment: Equatable {
@@ -72,7 +74,11 @@ final class Reviewer {
                 return
             }
             baselines.append(Baseline(name: name, tree: tree, at: Date()))
-            if baselines.count > 12 { baselines.removeFirst(baselines.count - 12) }
+            // The oldest go, a pinned one stays.
+            while baselines.count > 12, let oldest = baselines.firstIndex(where: { !$0.pinned }) {
+                baselines.remove(at: oldest)
+                if selectedBaseline > oldest { selectedBaseline -= 1 }
+            }
             changed()
         }
     }
@@ -94,6 +100,14 @@ final class Reviewer {
             if ask == "mark" { mark("marked") } else { refresh() }
         }
         handled = screen.reviewAsks.count
+    }
+
+    /// A baseline that stays (a pull request's base), first and selected: it replaces the one pinned before.
+    func pin(_ name: String, tree: String) {
+        baselines.removeAll { $0.pinned }
+        baselines.insert(Baseline(name: name, tree: tree, at: Date(), pinned: true), at: 0)
+        selectedBaseline = 0
+        refresh()
     }
 
     func select(baseline index: Int) {
@@ -221,12 +235,13 @@ final class Reviewer {
     /// changed as isolated scripts it can run.
     func askForWalkthrough() {
         guard let base = baseline, let agents = app?.agents else { return }
-        let directory = directory, files = files
+        let directory = directory
         Task {
             // .sill first: kept out of git before the snapshot, so the walkthrough is never part of a change.
-            let (sill, now) = await Task.detached {
+            let (sill, now, files) = await Task.detached { () -> (String, String?, [Review.File]) in
                 let sill = SillFolder.path(for: directory)
-                return (sill, Review.snapshot(in: directory))
+                let now = Review.snapshot(in: directory)
+                return (sill, now, now.map { Review.files(from: base.tree, to: $0, in: directory) } ?? [])
             }.value
             guard let now else { return }
             let stamp = Date()

@@ -924,6 +924,13 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   with no file open the editor context was an empty Lua table, which comes as an array, so the prompt was told
   nothing at all (the basket included); and a crash left macOS's "reopen windows?" alert blocking every later start
   of sill, so sill registers `ApplePersistenceIgnoreState` (it restores no windows).
+- From the pull request to a review and a walkthrough (2026-10-25, owner: "e.g. walkthrough from pr, review PR").
+  The PR pane's Review (`v`) pins a baseline at where the branch left its base (`git merge-base HEAD origin/<base>`,
+  the local base when origin's is not fetched, as a tree) and opens the Review pane on it; Walkthrough (`w`) pins the
+  same and asks for the review walkthrough. A pinned baseline stays first and is never dropped for newer ones (the
+  twelve kept are the newest of the rest); a new pin replaces it. `askForWalkthrough` now reads the files between the
+  baseline and the worktree itself rather than the pane's last list. Checked in the PR check (a.txt +2 against main,
+  pinned; the walkthrough's prompt); comparing with HEAD instead of the merge base fails it.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

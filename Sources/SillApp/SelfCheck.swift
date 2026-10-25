@@ -1531,6 +1531,39 @@ final class SelfCheck {
         try await wait("the pull request's pane") { $0.currentPaneKind == "pr" }
         step("a click on it opens its pane")
 
+        // v: its changes in the Review pane, against where the branch left main, pinned; w: a walkthrough of them.
+        let pane = try require(app.tools.pullRequest, "the pane")
+        func press(_ key: String, _ code: UInt16) throws {
+            _ = try pane.handleKey(require(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                characters: key, charactersIgnoringModifiers: key, isARepeat: false, keyCode: code
+            ), key))
+        }
+        let reviewer = try require(app.reviewer, "the reviewer")
+        try press("v", 9)
+        try await wait("the review pane") { $0.currentPaneKind == "review" }
+        _ = try await waitFor("the pull request's changes", timeout: .seconds(10)) {
+            reviewer.baseline?.pinned == true && !reviewer.reading && !reviewer.files.isEmpty ? true : nil
+        }
+        try expect(
+            reviewer.baseline?.name == "the base of pull request #12 (main)" &&
+                reviewer.files.map { "\($0.path) +\($0.added) −\($0.removed)" } == ["a.txt +2 −0"],
+            "the review: \(reviewer.baseline?.name ?? "-") \(reviewer.files.map(\.path))"
+        )
+        try press("w", 13)
+        _ = try await waitFor("the walkthrough asked for", timeout: .seconds(10)) {
+            app.agents.lastPrompt?
+                .contains("Write a review walkthrough of the changes since the base of pull request #12 (main)") ==
+                true ? true : nil
+        }
+        try expect(
+            app.agents.lastPrompt?.contains("M a.txt +2 −0") == true,
+            "its files: \(app.agents.lastPrompt ?? "")"
+        )
+        step(
+            "v reviews its changes against where the branch left main (a.txt +2), pinned; w asks for a walkthrough of them"
+        )
+
         // The agent: the tool, and the next prompt told once.
         let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
         let agent = try McpClient(socket)

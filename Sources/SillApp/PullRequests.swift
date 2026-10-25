@@ -163,6 +163,45 @@ final class PullRequests {
         )
     }
 
+    /// The pull request's changes in the Review pane: the worktree against where its branch left its base (as of the
+    /// last fetch), pinned as a baseline. Comments go to the agent, as any review's do.
+    func review() {
+        pinBase { [weak self] in
+            guard let self else { return }
+            Nvim.lua(channel, "require'sill'.show_pane('review')")
+        }
+    }
+
+    /// A walkthrough of the pull request's changes, from the agent: the review walkthrough, from its base.
+    func walkthrough() {
+        pinBase { [weak self] in self?.app?.reviewer?.askForWalkthrough() }
+    }
+
+    /// Where the branch left the pull request's base: `git merge-base` with origin's base (the local one if origin's
+    /// is not fetched), as a tree.
+    private func pinBase(then: @escaping @MainActor () -> Void) {
+        guard let current, let reviewer = app?.reviewer else { return }
+        let directory = directory, base = current.base
+        Task {
+            let tree = await Task.detached { () -> String? in
+                func git(_ arguments: [String]) -> String? {
+                    Review.git(arguments, in: directory)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                guard let fork = git(["merge-base", "HEAD", "origin/\(base)"]) ?? git(["merge-base", "HEAD", base])
+                else { return nil }
+                return git(["rev-parse", fork + "^{tree}"])
+            }.value
+            guard let tree else {
+                return Nvim.lua(channel, "vim.notify(...)", [
+                    .string("No \(base) here to compare pull request #\(current.number) with: git fetch first"),
+                    .int(3),
+                ])
+            }
+            reviewer.pin("the base of pull request #\(current.number) (\(base))", tree: tree)
+            then()
+        }
+    }
+
     func openInBrowser() {
         guard let url = current.flatMap({ URL(string: $0.url) }) else { return }
         NSWorkspace.shared.open(url)

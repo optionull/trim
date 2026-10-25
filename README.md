@@ -222,7 +222,9 @@ Agents commit and open the pull requests; sill reads them back for whoever looks
 the worktree's branch with `gh` (read only: sill never writes to GitHub) and says what needs attention: checks
 failing, changes requested, a conflict with the base, commits here not pushed, and what is awaited (checks running, a
 review, commits behind the base). The status bar names it beside the branch (`#12 · 2 checks failing`); a click, or
-`:SillPR` (`␣ip`), opens its pane with the checks, the reviews and comments, and Send to agent. The agent reads the
+`:SillPR` (`␣ip`), opens its pane with the checks, the reviews and comments, and Send to agent. Review (`v`) shows
+its changes in the Review pane, against where the branch left its base (a baseline pinned there), with comments for
+the agent as any review; Walkthrough (`w`) asks the agent for a review walkthrough of the same changes. The agent reads the
 same with sill's `pull_request` tool, and its next prompt is told when something about the pull request changed.
 sill reads it when it starts, when its window comes to the front, every two minutes while it is, and after an agent's
 turn.
