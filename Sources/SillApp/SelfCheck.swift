@@ -62,6 +62,12 @@ final class SelfCheck {
                 fflush(stdout)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "basket" {
+                try await basketSteps()
+                print("sill check (baskets): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "trace" {
                 try await traceSteps()
                 print("sill check (trace): passed")
@@ -1008,6 +1014,128 @@ final class SelfCheck {
             FileManager.default.fileExists(atPath: skill) ? true : nil
         }
         step("step 2 shows Clock.Tick's first three lines; :SillWalk skill installed the skill at \(skill)")
+    }
+
+    /// Context baskets (`SILL_CHECK=basket`, in a restored git copy of the TraceShop fixture, `SILL_AGENT=echo`): one
+    /// made, lines added (touching lines joining), a whole file, a caller from the trace pane; the notebook with its
+    /// files; a piece changed on disk marked; one removed; the basket sent with a question (closed, the next piece in
+    /// a new basket), the agent's answer written in by basket_conclude; git sees nothing of it.
+    private func basketSteps() async throws {
+        let app = try require(app, "the app")
+        let root = app.workingDirectory
+        let baskets = try require(app.baskets, "the baskets")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await session.channel.lua("vim.cmd('SillBasket new Is tax applied twice?')")
+        try await wait("the basket pane") { $0.currentPaneKind == "basket" }
+        let path = try await waitFor("the basket made") { baskets.current }
+        try expect(path == root + "/.sill/baskets/is-tax-applied-twice.basket.md", "made at \(path)")
+        step("SillBasket new: .sill/baskets/is-tax-applied-twice.basket.md, current, open")
+
+        func source() -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }
+        func until(_ what: String, _ test: @escaping () -> Bool) async throws {
+            _ = try await waitFor(what, timeout: .seconds(10)) { test() ? true : nil }
+        }
+        _ = try await session.channel.lua("""
+        vim.cmd('tabprevious'); require'sill'.open(...); vim.cmd('3,5SillBasket add the total')
+        """, args: [.string(root + "/Pricing.cs")])
+        try await until("Pricing.cs:3-5 in it") { source().contains("@code Pricing.cs:3-5 #") }
+        // Adding keeps you in the editor.
+        try await wait("still in the editor") { $0.currentPaneKind == nil }
+        _ = try await session.channel.lua("vim.cmd('6,7SillBasket add')")
+        try await until("joined into 3-7") { source().contains("@code Pricing.cs:3-7 #") }
+        _ = try await session.channel.lua(
+            "require'sill'.open(...); vim.cmd('%SillBasket add')",
+            args: [.string(root + "/Tax.cs")]
+        )
+        try await until("Tax.cs whole") { source().contains("@code Tax.cs\n") || source().hasSuffix("@code Tax.cs") }
+        step(":3,5SillBasket add, then :6,7 joining it into Pricing.cs:3-7; :%SillBasket add takes Tax.cs whole")
+
+        // A caller, from the trace pane.
+        let tax = root + "/Tax.cs"
+        let line = "    public static decimal Of(decimal amount) => Math.Round(amount * Rate, 2);"
+        let column = line.distance(from: line.startIndex, to: line.range(of: "Of(")!.lowerBound) + 1
+        var traced = false
+        for _ in 0 ..< 90 where !traced {
+            traced = await app.tracer.trace(path: tax, line: 5, column: column, direction: .incoming, show: false) &&
+                app.tracer.tree?.nodes[0].children?.isEmpty == false
+            if !traced { try await Task.sleep(for: .seconds(1)) }
+        }
+        try expect(traced, "a trace of Tax.Of: \(app.tracer.problem ?? "")")
+        app.tracer.addToBasket(1)
+        try await until("Pricing.Total from the trace") { source().contains("Pricing.Total(int) calls Tax.Of(decimal)")
+        }
+        try expect(source().components(separatedBy: "@code Pricing.cs:").count == 2, "Pricing.Total's lines joined 3-7")
+        step("b in the trace pane adds Pricing.Total with how it calls Tax.Of, joining the lines already there")
+
+        baskets.open(path)
+        try await wait("the basket pane") { $0.currentPaneKind == "basket" }
+        let view = try await waitFor("the basket view") { app.tools.basket }
+        _ = try await waitFor("its code found", timeout: .seconds(30)) {
+            baskets.walker.resolving || baskets.walker.found.isEmpty ? nil : true
+        }
+        view.display()
+        let files = Set(view.fileTops.map { ($0.path as NSString).lastPathComponent })
+        try expect(files == ["Pricing.cs", "Tax.cs"], "its files: \(files)")
+        try expect(baskets.walker.moved.isEmpty, "nothing changed yet: \(baskets.walker.moved)")
+        try view.handleKey(require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48
+        ), "Tab"))
+        try expect(view.side == .files, "Tab shows the files")
+        view.display()
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] { try self.shot(to: shot) }
+        step("the notebook: Pricing.cs and Tax.cs in its files menu (Tab)")
+
+        // The code moves on: the piece that shows it is marked.
+        let pricing = try String(contentsOfFile: root + "/Pricing.cs", encoding: .utf8)
+        try pricing.replacingOccurrences(of: "3.5m", with: "3.75m").write(
+            toFile: root + "/Pricing.cs", atomically: true, encoding: .utf8
+        )
+        await baskets.walker.read()
+        try expect(baskets.walker.moved.count == 1, "Pricing.cs:3-7 marked: \(baskets.walker.moved)")
+        step("Pricing.cs changed on disk: its piece is marked changed since it was added")
+
+        let removed = try require(baskets.walker.walk?.steps.first?.blocks.compactMap { block -> Int? in
+            if case let .code(.file("Tax.cs", nil), at) = block { return at }
+            return nil
+        }.first, "Tax.cs's anchor")
+        view.onRemove?(removed)
+        try await until("Tax.cs gone") { !source().contains("@code Tax.cs") }
+        step("Remove takes Tax.cs out")
+
+        baskets.send(question: "Is the tax applied twice?")
+        let prompt = try await waitFor("the agent asked", timeout: .seconds(20)) { app.agents.lastPrompt }
+        try expect(
+            prompt.hasPrefix("Is the tax applied twice?") && prompt.contains("is-tax-applied-twice.basket.md") &&
+                prompt.contains("Pricing.cs:3-7 (changed since it was added)") && prompt.contains("3.75m") &&
+                prompt.contains("the total") && prompt.contains("basket_conclude"),
+            "the prompt: \(prompt.prefix(900))"
+        )
+        try await until("sent") { source().contains("status: sent") }
+        try expect(baskets.current == nil, "a sent basket is not current")
+        step("send: the question, the notes and the code as it is now (marked changed); the basket sent, closed")
+
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        let concluded = try await agent.call("basket_conclude", [
+            "basket": "is-tax-applied-twice.basket.md", "answer": "Once: `Pricing.Total` adds `Tax.Of` once.",
+        ])
+        try expect(concluded.hasPrefix("Written into"), "basket_conclude: \(concluded)")
+        try await until("concluded") { source().contains("status: concluded") && source().contains("## Findings") }
+        _ = try await session.channel.lua(
+            "vim.cmd('tabfirst'); require'sill'.open(...); vim.cmd('1SillBasket add')",
+            args: [.string(root + "/Program.cs")]
+        )
+        let next = try await waitFor("a new basket for the next piece") { baskets.current }
+        try expect(next != path && next.contains("/.sill/baskets/collected-"), "the next: \(next)")
+        let status = (Review.git(["status", "--porcelain"], in: root) ?? "?").trimmingCharacters(in: .newlines)
+        try expect(status == " M Pricing.cs", "git sees only Pricing.cs: \(status)")
+        step("basket_conclude writes the findings; the next piece starts a new basket; git sees nothing of .sill")
     }
 
     /// Tracing a symbol (`SILL_CHECK=trace`, in a restored copy of the TraceShop fixture, `SILL_AGENT=echo`): Roslyn's

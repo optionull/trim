@@ -86,6 +86,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             tracer.onChange = { [weak view] in view?.changed() }
             return view
         }
+        baskets = Baskets(app: self, channel: session.channel, directory: workingDirectory)
+        tools.makeBasket = { [weak self] in
+            guard let self else { fatalError("the app is gone") }
+            let view = WalkView(walker: baskets.walker, basket: true)
+            baskets.walker.onChange = { [weak view] in view?.changed() }
+            view.onRemove = { [weak self] line in self?.baskets.remove(anchorAt: line) }
+            view.onSend = { [weak self] in
+                // The question, typed on nvim's command line.
+                self?.editor.window?.makeFirstResponder(self?.editor)
+                Nvim.lua(self!.session.channel, "vim.api.nvim_feedkeys(':SillBasket send ', 'n', false)")
+            }
+            return view
+        }
         mapper = CodeMapper(app: self, channel: session.channel, directory: workingDirectory)
         tools.makeMap = { [weak self] in
             guard let self else { fatalError("the app is gone") }
@@ -299,6 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var telemetry: TelemetryWatch!
     private(set) var mapper: CodeMapper!
     private(set) var tracer: Tracer!
+    private(set) var baskets: Baskets!
     private var asksHandled = 0
     /// Roslyn's provisioning: what the status bar says while it downloads.
     private(set) var roslynStatus: String?
@@ -330,6 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         telemetry.update(screen)
         mapper.update(screen)
         tracer.update(screen)
+        baskets.update(screen)
         for asked in screen.askQuestions.dropFirst(asksHandled) {
             agents.ask(path: asked.path, from: asked.from, to: asked.to, lines: asked.lines, question: asked.question)
         }

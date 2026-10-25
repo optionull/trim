@@ -159,6 +159,42 @@ final class Tracer {
         }
     }
 
+    /// Where a symbol (`Tax.Of`) is declared, found as walkthroughs find their anchors (the language servers, else
+    /// its declaration's text), with the column of its name.
+    func place(of symbol: String) async -> (path: String, line: Int, column: Int)? {
+        let found = try? await channel.lua(
+            "return require'sill.walk'.resolve({ { kind = 'symbol', name = ... } }, select(2, ...))[1]",
+            args: [.string(symbol), .string(directory)]
+        )
+        guard let map = found?.dictionaryValue, let path = map[.string("path")]?.stringValue,
+              let line = map[.string("from")]?.integerValue.map(Int.init)
+        else { return nil }
+        let name = symbol.split(separator: ".").last.map(String.init) ?? symbol
+        let text = (try? String(contentsOfFile: path, encoding: .utf8))?.components(separatedBy: "\n")
+        let row = text?[safe: line - 1] ?? ""
+        let column = row.range(of: name).map { row.distance(from: row.startIndex, to: $0.lowerBound) + 1 } ?? 1
+        return (path, line, column)
+    }
+
+    /// A symbol's call tree as text, `depth` levels deep, built apart from the pane's: a notebook's `@trace`.
+    func text(of symbol: String, direction: TraceTree.Direction, depth: Int) async -> String {
+        guard let place = await place(of: symbol) else { return "No symbol \(symbol) found" }
+        var answer = Answer(items: [], problem: nil)
+        for _ in 0 ..< 60 {
+            answer = await ask("prepare", [.string(place.path), .int(Int64(place.line)), .int(Int64(place.column))])
+            guard answer.problem?.hasPrefix("No language server") == true else { break }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        guard let root = answer.items.first else { return answer.problem ?? "Nothing to trace at \(symbol)" }
+        var tree = TraceTree(root: root, direction: direction)
+        while tree.nodes.count < 100, let next = tree.unasked(within: depth).first {
+            let calls = await ask("calls", [.int(Int64(tree.nodes[next].item.id)), .string(direction.rawValue)])
+            if let problem = calls.problem { return problem }
+            tree.setChildren(of: next, calls.items)
+        }
+        return tree.text(relativeTo: directory)
+    }
+
     func showPane() {
         Nvim.lua(channel, "require'sill'.show_pane('trace')")
     }
@@ -194,6 +230,17 @@ final class Tracer {
 
         \(steps.joined(separator: "\n"))
         """)
+    }
+
+    /// Node `index`'s code, into the current basket.
+    func addToBasket(_ index: Int) {
+        guard let tree, let node = tree.nodes[safe: index], let baskets = app?.baskets else { return }
+        let lines = Self.excerpt(node.item.path, from: node.item.line).count
+        let note = index == 0 ? nil : tree.direction == .incoming ?
+            "\(node.item.name) calls \(tree.nodes[node.parent ?? 0].item.name)" +
+            (node.item.at.map { " at line \($0)" } ?? "") :
+            "\(tree.nodes[node.parent ?? 0].item.name) calls \(node.item.name)"
+        baskets.add(path: node.item.path, lines: node.item.line ... node.item.line + max(lines - 1, 0), note: note)
     }
 
     private func relative(_ path: String) -> String {

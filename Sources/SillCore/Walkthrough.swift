@@ -36,6 +36,8 @@ public struct Walkthrough: Equatable, Sendable {
         /// An example: an isolated script (a .NET 10 file-based app, a TypeScript, Python, Swift or Rust script)
         /// beside the walkthrough, shown and run in place.
         case example(String, line: Int)
+        /// A symbol's call tree (`@trace Tax.Of callers 3`): who calls it, or what it calls, so many levels deep.
+        case trace(String, callers: Bool, depth: Int, line: Int)
     }
 
     public struct Step: Equatable, Sendable {
@@ -52,10 +54,18 @@ public struct Walkthrough: Equatable, Sendable {
     public var base: String?
     public var intro: String
     public var steps: [Step]
+    /// A basket's question, who made it (you, or an agent) and where it stands (open, sent, concluded).
+    public var question: String?
+    public var by: String?
+    public var status: String?
+    /// The fingerprint written after an anchor (`@code Pricing.Total #a1b2c3d`), by the anchor's line: what its code
+    /// was when it was added, to say when it moved on.
+    public var fingerprints: [Int: String] = [:]
 
     public init(_ source: String) {
         var lines = source.components(separatedBy: "\n")
         var title = "", target: String?, base: String?, offset = 0
+        var question: String?, by: String?, status: String?
         // Front matter.
         if lines.first?.trimmingCharacters(in: .whitespaces) == "---",
            let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" })
@@ -67,13 +77,16 @@ public struct Walkthrough: Equatable, Sendable {
                 case "title": title = parts[1]
                 case "for": target = parts[1]
                 case "base": base = parts[1]
+                case "question": question = parts[1]
+                case "by": by = parts[1]
+                case "status": status = parts[1]
                 default: break
                 }
             }
             offset = end + 1
             lines = Array(lines[(end + 1)...])
         }
-        var intro: [String] = [], steps: [Step] = []
+        var intro: [String] = [], steps: [Step] = [], fingerprints: [Int: String] = [:]
         var prose: [String] = []
         func flush() {
             let text = prose.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -94,8 +107,24 @@ public struct Walkthrough: Equatable, Sendable {
                 intro.append(line)
             } else if trimmed.hasPrefix("@code ") {
                 flush()
-                if let anchor = Self.anchor(String(trimmed.dropFirst(6))) {
+                var words = String(trimmed.dropFirst(6)).split(separator: " ").map(String.init)
+                if let last = words.last, Self.isFingerprint(last) {
+                    fingerprints[number] = String(last.dropFirst())
+                    words.removeLast()
+                }
+                if let anchor = Self.anchor(words.joined(separator: " ")) {
                     steps[steps.count - 1].blocks.append(.code(anchor, line: number))
+                }
+            } else if trimmed.hasPrefix("@trace ") {
+                flush()
+                let words = trimmed.dropFirst(7).split(separator: " ").map(String.init)
+                if let symbol = words.first {
+                    steps[steps.count - 1].blocks.append(.trace(
+                        symbol,
+                        callers: !words.contains("callees"),
+                        depth: words.compactMap { Int($0) }.first.map { min(max($0, 1), 6) } ?? 2,
+                        line: number
+                    ))
                 }
             } else if trimmed.hasPrefix("@diff ") {
                 flush()
@@ -136,6 +165,15 @@ public struct Walkthrough: Equatable, Sendable {
         self.base = base
         self.intro = intro.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         self.steps = steps
+        self.question = question
+        self.by = by
+        self.status = status
+        self.fingerprints = fingerprints
+    }
+
+    /// `#a1b2c3d`: seven or more hex digits after a `#`.
+    static func isFingerprint(_ word: String) -> Bool {
+        word.hasPrefix("#") && word.count >= 8 && word.dropFirst().allSatisfy(\.isHexDigit)
     }
 
     /// `Pricing.Total`, `Pricing.Total lines 3-9`, `src/Pricing.cs:12`, `src/Pricing.cs:12-30`.

@@ -457,6 +457,13 @@ function M.zen()
   end
 end
 
+--- sill's baskets to pick from: { file, label } each; the one picked opens.
+function M.pick_basket(items)
+  vim.ui.select(items, { prompt = 'Basket', format_item = function(item) return item[2] end }, function(item)
+    if item then notify('sill_basket', { action = 'open', arg = item[1] }) end
+  end)
+end
+
 --- Goes to the window of the pane of `kind`, opening it if it is hidden.
 function M.focus(kind)
   if not M.pane_window(kind) then
@@ -550,6 +557,27 @@ function M.setup()
   end, {
     nargs = '?', complete = function() return { 'callers', 'callees' } end,
     desc = 'Trace the symbol under the cursor: who calls it (callers, the default) or what it calls (callees)',
+  })
+  -- Baskets: :SillBasket (pick one), new <title>, add [note] (a range, the line, or % for the file), send
+  -- <question>, open <name>.
+  vim.api.nvim_create_user_command('SillBasket', function(opts)
+    local action, rest = opts.args:match('^(%S*)%s*(.-)%s*$')
+    local ask = { action = action ~= '' and action or 'pick', arg = rest }
+    if ask.action == 'add' then
+      local buf = vim.api.nvim_get_current_buf()
+      ask.path = vim.api.nvim_buf_get_name(buf)
+      local last = vim.api.nvim_buf_line_count(buf)
+      if not (opts.range == 2 and opts.line1 == 1 and opts.line2 == last) then
+        ask.from = opts.range > 0 and opts.line1 or vim.fn.line('.')
+        ask.to = opts.range > 0 and opts.line2 or ask.from
+        ask.lines = vim.api.nvim_buf_get_lines(buf, ask.from - 1, ask.to, false)
+      end
+    end
+    notify('sill_basket', ask)
+  end, {
+    nargs = '*', range = true,
+    complete = function() return { 'new', 'add', 'send', 'open' } end,
+    desc = 'Context baskets: pick one; new <title>; add [note] (a range, the line, % the file); send <question>',
   })
   vim.api.nvim_create_user_command('SillMap', function() notify('sill_map') end,
     { desc = "The code map: the repository's projects, what each builds on, where it starts, what changes most" })

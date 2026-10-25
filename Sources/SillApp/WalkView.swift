@@ -5,8 +5,21 @@ import SillEditor
 /// A walkthrough as a notebook: one document that scrolls, its sections in an outline beside it (the one in view
 /// marked; a click goes there). Each section's prose, the code its anchors point at now, a review's diffs, and its
 /// examples, each with Run and what it wrote under it; questions with their answers, or Ask the agent.
+///
+/// A basket shows the same way, with its question and where it stands on top, a Remove on each piece, and a second
+/// left menu (Tab): the files its pieces are in, as a tree; a click goes to the file's first piece.
 final class WalkView: NSView, ToolContent {
     let walker: Walker
+    /// A basket's notebook rather than a walkthrough's.
+    let basket: Bool
+    enum Menu { case outline, files }
+    private(set) var side: Menu = .outline
+    /// For baskets: a piece's anchor removed (its line), the basket sent with a question.
+    var onRemove: ((Int) -> Void)?
+    var onSend: (() -> Void)?
+    /// Where each piece of code starts in the document, by its file, in order.
+    private(set) var fileTops: [(path: String, top: CGFloat, moved: Bool)] = []
+    private var fileFrames: [(String, NSRect)] = []
     private var outlineFrames: [(Int, NSRect)] = []
     private var actionFrames: [(String, String, NSRect)] = []
     /// Where each section starts in the document, as last laid out.
@@ -14,8 +27,9 @@ final class WalkView: NSView, ToolContent {
     private(set) var documentHeight: CGFloat = 0
     private(set) var scroll: CGFloat = 0
 
-    init(walker: Walker) {
+    init(walker: Walker, basket: Bool = false) {
         self.walker = walker
+        self.basket = basket
         super.init(frame: .zero)
     }
 
@@ -75,15 +89,95 @@ final class WalkView: NSView, ToolContent {
         outlineFrames = []
         actionFrames = []
         guard let walk = walker.walk else {
+            let none = basket ? "No basket open: :SillBasket new <title>, or :SillBasket to pick one." :
+                "No walkthrough open: :SillWalk picks one."
             text(
-                walker.path == nil ? "No walkthrough open: :SillWalk picks one." : "Reading the walkthrough…",
+                walker.path == nil ? none : "Reading…",
                 14,
                 Design.textFaint
             ).draw(at: NSPoint(x: 24, y: 24))
             return
         }
         drawDocument(walk)
-        drawOutline(walk)
+        if side == .files { drawFiles() } else { drawOutline(walk) }
+    }
+
+    /// The menu's heading: OUTLINE alone for a walkthrough, OUTLINE · FILES (Tab) for a basket.
+    private func drawMenuHeading() {
+        let outlineLabel = text("OUTLINE", 11, side == .outline ? Design.text : Design.textMuted, weight: .semibold)
+        outlineLabel.draw(at: NSPoint(x: 20, y: 20))
+        guard basket else { return }
+        let files = text("FILES", 11, side == .files ? Design.text : Design.textMuted, weight: .semibold)
+        files.draw(at: NSPoint(x: 36 + outlineLabel.size().width, y: 20))
+        fileFrames.append(("menu:outline", NSRect(x: 12, y: 12, width: outlineLabel.size().width + 16, height: 28)))
+        fileFrames.append(("menu:files", NSRect(
+            x: 28 + outlineLabel.size().width, y: 12, width: files.size().width + 16, height: 28
+        )))
+    }
+
+    // MARK: The files
+
+    /// The files the pieces are in, as a tree of their folders: how many pieces each, a mark when one changed.
+    private func drawFiles() {
+        let column = NSRect(x: 0, y: 0, width: outline, height: bounds.height)
+        Design.chrome.setFill()
+        column.fill()
+        drawMenuHeading()
+        var pieces: [String: (count: Int, moved: Bool)] = [:]
+        for entry in fileTops {
+            pieces[entry.path, default: (0, false)].count += 1
+            pieces[entry.path]!.moved = pieces[entry.path]!.moved || entry.moved
+        }
+        var y: CGFloat = 46
+        var shownFolders: [String] = []
+        for path in pieces.keys.sorted() {
+            let relative = relativePath(path)
+            let parts = relative.split(separator: "/").map(String.init)
+            // Each folder on the way, once, indented by its depth.
+            for depth in 0 ..< max(parts.count - 1, 0) {
+                let folder = parts[0 ... depth].joined(separator: "/")
+                guard !shownFolders.contains(folder) else { continue }
+                shownFolders.append(folder)
+                text(parts[depth] + "/", 12, Design.textMuted).draw(at: NSPoint(x: 20 + CGFloat(depth) * 14, y: y + 6))
+                y += 26
+            }
+            let depth = CGFloat(max(parts.count - 1, 0))
+            let rect = NSRect(x: 0, y: y, width: outline, height: 26)
+            let info = pieces[path]!
+            let name = text(parts.last ?? relative, 13, Design.text)
+            name.draw(
+                with: NSRect(x: 20 + depth * 14, y: y + 5, width: outline - 70 - depth * 14, height: 18),
+                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
+            )
+            let count = text(
+                "\(info.count)" + (info.moved ? " ●" : ""),
+                11,
+                info.moved ? Design.modified : Design.textFaint
+            )
+            count.draw(at: NSPoint(x: outline - count.size().width - 14, y: y + 6))
+            fileFrames.append((path, rect))
+            y += 26
+        }
+        if pieces.isEmpty {
+            text("No code in it yet.", 12, Design.textFaint).draw(at: NSPoint(x: 20, y: y + 4))
+        }
+        text("Tab outline · ↵ open · x remove · s send", 11, Design.textFaint).draw(
+            with: NSRect(x: 20, y: bounds.height - 44, width: outline - 32, height: 36),
+            options: [.usesLineFragmentOrigin]
+        )
+    }
+
+    private func relativePath(_ path: String) -> String {
+        let root = SillFolder.repository(containing: walker.path ?? "") ?? ""
+        return !root.isEmpty && path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : path
+    }
+
+    /// Scrolls the document to a file's first piece, as the files menu does.
+    func show(file path: String) {
+        guard let top = fileTops.first(where: { $0.path == path })?.top else { return }
+        scroll = max(0, min(top - 20, max(documentHeight - bounds.height, 0)))
+        walker.go(to: currentSection)
+        needsDisplay = true
     }
 
     // MARK: The outline
@@ -92,7 +186,8 @@ final class WalkView: NSView, ToolContent {
         let column = NSRect(x: 0, y: 0, width: outline, height: bounds.height)
         Design.chrome.setFill()
         column.fill()
-        text("OUTLINE", 11, Design.textMuted, weight: .semibold).draw(at: NSPoint(x: 20, y: 20))
+        fileFrames = []
+        drawMenuHeading()
         var y: CGFloat = 46
         let current = currentSection
         for (index, step) in walk.steps.enumerated() {
@@ -112,7 +207,12 @@ final class WalkView: NSView, ToolContent {
             outlineFrames.append((index, rect))
             y += 30
         }
-        text("j/k scroll · n/p sections · o open · a ask · e run · r read again", 11, Design.textFaint).draw(
+        text(
+            basket ? "Tab files · j/k scroll · n/p sections · o open · x remove · s send" :
+                "j/k scroll · n/p sections · o open · a ask · e run · r read again",
+            11,
+            Design.textFaint
+        ).draw(
             with: NSRect(x: 20, y: bounds.height - 44, width: outline - 32, height: 36),
             options: [.usesLineFragmentOrigin]
         )
@@ -124,6 +224,7 @@ final class WalkView: NSView, ToolContent {
         let left = outline + 40, width = min(bounds.width - outline - 80, 920)
         var y = 32 - scroll
         var tops: [CGFloat] = []
+        var files: [(path: String, top: CGFloat, moved: Bool)] = []
         func write(_ string: NSAttributedString, gap: CGFloat = 14) {
             let height = ceil(string.boundingRect(
                 with: NSSize(width: width, height: 100_000),
@@ -177,6 +278,20 @@ final class WalkView: NSView, ToolContent {
         }
 
         write(text(walk.title, 26, weight: .semibold), gap: 8)
+        if basket {
+            let status = walk.status ?? "open"
+            let line = NSMutableAttributedString(attributedString: text(
+                status.uppercased(),
+                11,
+                status == "concluded" ? Design
+                    .accent : status == "sent" ? Design
+                    .modified : Design.textMuted,
+                weight: .semibold
+            ))
+            line.append(text("  by \(walk.by ?? "you")", 12, Design.textFaint))
+            write(line, gap: 10)
+            if let question = walk.question { write(prose(question, Design.insert), gap: 20) }
+        }
         if let base = walk.base { write(text("Changes since \(base.prefix(10))", 12, Design.textFaint), gap: 18) }
         if !walk.intro.isEmpty { write(prose(walk.intro), gap: 24) }
         for (index, step) in walk.steps.enumerated() {
@@ -186,13 +301,15 @@ final class WalkView: NSView, ToolContent {
                 switch block {
                 case let .prose(string):
                     write(prose(string))
-                case let .code(anchor, _):
+                case let .code(anchor, line):
                     let name = switch anchor {
                     case let .symbol(name, _): name
                     case let .file(name, _): name
                     }
                     let place = walker.found[safe: index]?[blockIndex]
                     if let place, let file = place.path {
+                        let moved = walker.moved.contains(line)
+                        files.append((file, y + scroll, moved))
                         let rows = place.lines.prefix(40).enumerated().map { offset, line in
                             let row = NSMutableAttributedString(
                                 attributedString: mono(String(format: "%4d  ", place.from + offset), Design.textFaint)
@@ -200,12 +317,30 @@ final class WalkView: NSView, ToolContent {
                             row.append(mono(line))
                             return row as NSAttributedString
                         }
+                        if basket {
+                            // Remove, left of Open.
+                            let remove = text("Remove", 12, Design.textMuted, weight: .semibold)
+                            let rect = NSRect(
+                                x: left + width - remove.size().width - 90,
+                                y: y + 6,
+                                width: remove.size().width + 14,
+                                height: 22
+                            )
+                            actionFrames.append(("remove", "\(line)", rect))
+                        }
+                        let removeAt = y
                         box(
                             "\((file as NSString).lastPathComponent):\(place.from)–\(place.to)" +
-                                (place.by == "text" ? " · found by its text" : ""),
+                                (place.by == "text" ? " · found by its text" : "") +
+                                (moved ? " · changed since it was added" : ""),
                             rows,
-                            action: ("Open", "open", "\(index):\(blockIndex)")
+                            action: ("Open", "open", "\(index):\(blockIndex)"),
+                            tint: moved ? Design.modified.withAlphaComponent(0.1) : Design.chrome
                         )
+                        if basket, removeAt + 28 > 0, removeAt < bounds.height {
+                            let remove = text("Remove", 12, Design.textMuted, weight: .semibold)
+                            remove.draw(at: NSPoint(x: left + width - remove.size().width - 83, y: removeAt + 9))
+                        }
                     } else {
                         write(text(
                             "⚠︎ \(name): \(place?.problem ?? (walker.resolving ? "finding it…" : "not found"))",
@@ -252,6 +387,14 @@ final class WalkView: NSView, ToolContent {
                                 .withAlphaComponent(0.1)
                         )
                     }
+                case let .trace(symbol, callers, _, _):
+                    let tree = walker.traces[symbol + (
+                        callers ? " callers" : " callees"
+                    )] ?? "Asking the language server…"
+                    box(
+                        (callers ? "who calls " : "what calls ") + symbol,
+                        tree.components(separatedBy: "\n").dropFirst().prefix(60).map { mono($0) }
+                    )
                 case let .ask(question, answer, line):
                     write(text(question, 15, Design.insert, weight: .semibold), gap: 6)
                     if let answer {
@@ -275,6 +418,7 @@ final class WalkView: NSView, ToolContent {
             y += 20
         }
         sectionTops = tops
+        fileTops = files
         // Room past the end, so the last section can come to the top as the outline asks.
         documentHeight = y + scroll + max(bounds.height - 160, 40)
     }
@@ -288,6 +432,15 @@ final class WalkView: NSView, ToolContent {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if let (key, _) = fileFrames.first(where: { $0.1.contains(point) }) {
+            switch key {
+            case "menu:outline": side = .outline
+            case "menu:files": side = .files
+            default: show(file: key)
+            }
+            needsDisplay = true
+            return
+        }
         if let (index, _) = outlineFrames.first(where: { $0.1.contains(point) }) { return show(section: index) }
         guard let (kind, key, _) = actionFrames.first(where: { $0.2.contains(point) }) else { return }
         perform(kind, key)
@@ -297,6 +450,7 @@ final class WalkView: NSView, ToolContent {
         let parts = key.split(separator: ":").compactMap { Int($0) }
         switch kind {
         case "run": Task { await walker.run(example: key) }
+        case "remove": if let line = Int(key) { onRemove?(line) }
         case "open":
             if parts.count == 2 {
                 walker.go(to: parts[0])
@@ -336,9 +490,31 @@ final class WalkView: NSView, ToolContent {
         }
     }
 
+    /// The anchor line of the first piece of code showing.
+    private func pieceInView() -> Int? {
+        actionFrames.filter { $0.0 == "remove" && $0.2.minY >= 0 }.min { $0.2.minY < $1.2.minY }.flatMap { Int($0.1) }
+    }
+
     func handleKey(_ event: NSEvent) -> Bool {
         guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
         let step = EditorFont.metrics.height * 3
+        if basket {
+            switch event.characters ?? "" {
+            case "\t":
+                side = side == .outline ? .files : .outline
+                needsDisplay = true
+                return true
+            case "s":
+                onSend?()
+                return true
+            case "x":
+                // The first piece in view.
+                if let line = pieceInView() { onRemove?(line) }
+                return true
+            case "a", "e": return false
+            default: break
+            }
+        }
         switch event.characters ?? "" {
         case "j", String(UnicodeScalar(NSDownArrowFunctionKey)!):
             scroll = min(scroll + step, max(documentHeight - bounds.height, 0))

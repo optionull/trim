@@ -199,6 +199,23 @@ asks.
 
 ![Tracing Tax.Of: Pricing.Total calls it, and Checkout.Run and Report.Print call that, each with the line of its call](docs/showcase-trace-2026-10-25.png)
 
+## Context baskets
+
+Collect the code you want to ask about while you read, then ask about all of it at once. `:SillBasket add [note]` adds
+the selected lines (or the current one; `:%SillBasket add` the whole file) to the current basket, and `b` in the trace
+pane adds a caller with how it calls; you stay where you are. Lines that touch or overlap a piece already in the
+basket join it. `:SillBasket new <title>` starts a basket, `:SillBasket` picks one, `:SillBasket send <question>` (or
+`s` in its pane) gives the agent the question with every piece and note, the code as it is now, and the agent's answer
+is written back into the basket as its findings (`basket_conclude`). A sent basket is closed: the next piece starts a
+new one.
+
+Baskets are files, `.sill/baskets/*.basket.md`, in the walkthrough format (`@code` anchors with a fingerprint of the
+code when it was added, notes as prose, `@trace Symbol callers 2` for a call tree), private to the repository. They
+show as a notebook: a piece whose code has changed since it was added is marked, and the left menu switches (Tab)
+between the outline and the files the basket touches.
+
+![A basket: its question and status, the pieces with their notes and code, and the files menu](docs/showcase-basket-2026-10-25.png)
+
 ## Walkthroughs
 
 A walkthrough is a Markdown file ending in `.walk.md`, anywhere, that walks someone through code: `## steps` of prose,

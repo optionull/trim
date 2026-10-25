@@ -107,7 +107,7 @@ final class TraceView: NSView, ToolContent {
             text(state, 13, Design.textMuted).draw(at: NSPoint(x: 36 + title.size().width, y: 19))
         }
         let hint = text(
-            "j/k · l open · h close · ↵ go to · d callers/callees · e explain the path",
+            "j/k · l open · h close · ↵ go to · d callers/callees · e explain · b to the basket",
             11,
             Design.textFaint
         )
@@ -156,6 +156,7 @@ final class TraceView: NSView, ToolContent {
             selected = 0
             Task { await tracer.turn() }
         case "e": tracer.explain(selected)
+        case "b": tracer.addToBasket(selected)
         default: return false
         }
         needsDisplay = true

@@ -713,6 +713,26 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   folder around it, and `:SillWalk` lists them by glob (git does not). An example's `#:project` is four folders up
   now. Checked: `SillFolderTests` (git status sees nothing of it, the exclude line once, the move), the map check
   (git status clean after the summary is kept), reviewwalk (the walkthrough in .sill, its example builds), walk.
+- Context baskets (2026-10-25, owner: a private .sill folder, several baskets, notebooks with an outline or a
+  filtered file tree; sending one closes it). A basket is a `.sill/baskets/<slug>.basket.md` in the walkthrough
+  format: front matter `title`, `question`, `by`, `status` (open, sent, concluded); `@code` anchors carry a
+  fingerprint (`#` and seven hex digits of the SHA-256 of their lines when added), `@trace Symbol callers|callees N`
+  embeds a call tree (`Tracer.text`, built apart from the trace pane). `SillCore.BasketFile` edits the text: a piece
+  under its section (made before Findings), its note as the prose above it; a file range touching or overlapping one
+  already in the basket joins it, the fingerprint renewed; removing takes the note; `concluding` replaces Findings and
+  sets the status. `Baskets` (the app) keeps the current basket in `.sill/baskets/.current`; `:SillBasket add` takes
+  the buffer's lines for the fingerprint (unsaved edits count), stays in the editor and says what it added; send
+  reads the code now, marks pieces changed since added (`Walker.moved`), sets `sent`, clears current, and asks for
+  `basket_conclude`. The notebook is `WalkView(basket: true)` on a second `Walker` (pane `basket`): status and
+  question on top, Remove on each piece, Tab for the files menu (folders, pieces per file, a mark on changed ones; a
+  click scrolls to the file's first piece). `b` in the trace pane adds the node's code with how it calls.
+  - Checked: `BasketFileTests` (mutations of joining, the renewed fingerprint, the note's removal, section order,
+    concluding, fingerprint parsing, callees all fail them), `SILL_CHECK=basket` on a git copy of TraceShop (new,
+    add and join, whole file, from the trace, the files menu, a change on disk marked, remove, send, conclude, the
+    next piece in a new basket, git clean); inverting the change detection fails it.
+  - Found on the way: adding switched to the basket's tab each time, away from the code being read; it no longer
+    does.
+  - Next: the sill-investigate skill and the basket MCP tools (create, add, note, list, read), `:SillInvestigate`.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

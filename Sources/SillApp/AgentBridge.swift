@@ -153,6 +153,21 @@ final class AgentBridge {
 
     private struct MapArguments: Decodable { var summary: String? }
 
+    private struct BasketArguments: Decodable {
+        var basket: String?
+        var answer: String?
+    }
+
+    /// A basket by its file name (or title): the current one when none is named.
+    func basketPath(_ name: String?) -> String? {
+        guard let baskets = app?.baskets else { return nil }
+        guard let name, !name.isEmpty else { return baskets.current ?? baskets.walker.path }
+        return baskets.list().first {
+            ($0.path as NSString).lastPathComponent == name || ($0.path as NSString).lastPathComponent == name +
+                BasketFile.suffix || $0.basket.title == name
+        }?.path
+    }
+
     private struct TraceArguments: Decodable {
         var symbol: String?
         var path: String?
@@ -169,20 +184,10 @@ final class AgentBridge {
         let direction: TraceTree.Direction = asked.direction == "callees" ? .outgoing : .incoming
         var place: (path: String, line: Int, column: Int)?
         if let symbol = asked.symbol, !symbol.isEmpty {
-            // Found as walkthroughs find their anchors: the language servers, else its declaration.
-            let found = try? await channel.lua(
-                "return require'sill.walk'.resolve({ { kind = 'symbol', name = ... } }, \(Self.luaString(directory)))[1]",
-                args: [.string(symbol)]
-            )
-            guard let map = found?.dictionaryValue, let path = map[.string("path")]?.stringValue,
-                  let line = map[.string("from")]?.integerValue
-            else { return ToolResult("No symbol \(symbol) found", isError: true) }
-            let name = symbol.split(separator: ".").last.map(String.init) ?? symbol
-            let text = (try? String(contentsOfFile: path, encoding: .utf8))?.components(separatedBy: "\n")
-            let column = text?[safe: Int(line) - 1]?.range(of: name).map {
-                text![Int(line) - 1].distance(from: text![Int(line) - 1].startIndex, to: $0.lowerBound) + 1
-            } ?? 1
-            place = (path, Int(line), column)
+            guard let found = await tracer.place(of: symbol) else {
+                return ToolResult("No symbol \(symbol) found", isError: true)
+            }
+            place = found
         } else if let path = asked.path.map(absolute), let line = asked.line {
             place = (path, line, 1)
         }
@@ -191,10 +196,6 @@ final class AgentBridge {
         else { return ToolResult(tracer.problem ?? "Nothing to trace there", isError: true) }
         await tracer.load(depth: min(max(asked.depth ?? 3, 1), 6))
         return ToolResult(tracer.tree?.text(relativeTo: directory) ?? "")
-    }
-
-    private nonisolated static func luaString(_ text: String) -> String {
-        "'" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'") + "'"
     }
 
     private func mapTools(_ gone: ToolResult) -> [Tool] {
@@ -208,6 +209,26 @@ final class AgentBridge {
                 await self?.call("code_map") { bridge in
                     guard let mapper = bridge.app?.mapper else { return gone }
                     return await ToolResult(mapper.current().text)
+                } ?? gone
+            },
+            Tool(
+                name: "basket_conclude",
+                description: "Writes your answer into a sill basket as its findings (replacing " +
+                    "earlier ones) and marks it concluded: the basket by its file name, as sill named it.",
+                properties: ["basket": ["type": "string"], "answer": ["type": "string"]],
+                required: ["basket", "answer"]
+            ) { [weak self] data in
+                await self?.call("basket_conclude") { bridge in
+                    let asked = (try? JSONDecoder().decode(BasketArguments.self, from: data)) ?? BasketArguments()
+                    guard let answer = asked.answer, !answer.isEmpty else {
+                        return ToolResult("basket_conclude needs an answer", isError: true)
+                    }
+                    guard let path = bridge.basketPath(asked.basket), let baskets = bridge.app?.baskets else {
+                        return ToolResult("No basket \(asked.basket ?? "")", isError: true)
+                    }
+                    baskets.conclude(answer, basket: path)
+                    baskets.open(path, current: false)
+                    return ToolResult("Written into \((path as NSString).lastPathComponent) as its findings.")
                 } ?? gone
             },
             Tool(

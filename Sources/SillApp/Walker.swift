@@ -41,18 +41,25 @@ final class Walker {
     }
 
     private(set) var runs: [String: Run] = [:]
+    /// Each `@trace`'s tree as text, by `<symbol> callers|callees`.
+    private(set) var traces: [String: String] = [:]
+    /// The anchors (by line) whose code is no longer what their fingerprint says: changed since they were added.
+    private(set) var moved: Set<Int> = []
     var onChange: (() -> Void)?
     private var handled = 0
+    /// The pane it shows in: walkthroughs', or baskets'.
+    let pane: String
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: AppDelegate, channel: NvimChannel, directory: String, pane: String = "walk") {
         self.app = app
         self.channel = channel
         self.directory = directory
+        self.pane = pane
     }
 
-    /// nvim's asks: `open <path>`, `skill`.
+    /// nvim's asks: `open <path>`, `skill`. The baskets' walker has its own.
     func update(_ screen: Screen) {
-        guard screen.walkAsks.count > handled else { return }
+        guard pane == "walk", screen.walkAsks.count > handled else { return }
         for ask in screen.walkAsks[handled...] {
             switch ask.action {
             case "open": open(ask.argument)
@@ -66,10 +73,10 @@ final class Walker {
     // MARK: Reading
 
     /// Opens a walkthrough in its pane at `step`, its anchors found.
-    func open(_ path: String, step: Int = 0) {
+    func open(_ path: String, step: Int = 0, show: Bool = true) {
         self.path = path
         self.step = step
-        Nvim.lua(channel, "require'sill'.show_pane('walk')")
+        if show { Nvim.lua(channel, "require'sill'.show_pane(...)", [.string(pane)]) }
         Task { await read() }
     }
 
@@ -143,9 +150,29 @@ final class Walker {
             )
         }
         self.found = found
+        moved = []
+        for (s, step) in walk.steps.enumerated() {
+            for (b, block) in step.blocks.enumerated() {
+                guard case let .code(_, line) = block, let print = walk.fingerprints[line],
+                      let place = found[s][b], place.path != nil
+                else { continue }
+                if BasketFile.fingerprint(place.lines) != print { moved.insert(line) }
+            }
+        }
         resolving = false
         changed()
+        await readTraces(walk)
         return problems
+    }
+
+    /// Each `@trace`'s tree, from the language server.
+    private func readTraces(_ walk: Walkthrough) async {
+        guard let tracer = app?.tracer else { return }
+        for case let .trace(symbol, callers, depth, _) in walk.steps.flatMap(\.blocks) {
+            let key = symbol + (callers ? " callers" : " callees")
+            traces[key] = await tracer.text(of: symbol, direction: callers ? .incoming : .outgoing, depth: depth)
+            changed()
+        }
     }
 
     // MARK: A review's diffs and examples
@@ -287,6 +314,8 @@ final class Walker {
                 }
             case let .diff(path, _): context.append("(the change to \(path))")
             case let .example(path, _): context.append("(example \(path))")
+            case let .trace(symbol, callers, _, _):
+                context.append(traces[symbol + (callers ? " callers" : " callees")] ?? "(the call tree of \(symbol))")
             case .ask: break
             }
         }
