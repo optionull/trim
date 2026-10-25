@@ -227,6 +227,8 @@ public struct Screen: Sendable {
     public private(set) var telemetryAsks: [String] = []
     /// How many times `:SillFollow` was asked.
     public private(set) var followAsks = 0
+    /// `:SillMap`s asked for.
+    public private(set) var mapAsks = 0
     /// `:SillWalk` asks: open a walkthrough, install the skill.
     public private(set) var walkAsks: [(action: String, argument: String)] = []
     /// `:SillReview` asks: "show" or "mark".
@@ -417,6 +419,8 @@ public struct Screen: Sendable {
             telemetryAsks.append(args.first?.stringValue ?? "")
         case let .notification(method, _) where method == "sill_follow":
             followAsks += 1
+        case let .notification(method, _) where method == "sill_map":
+            mapAsks += 1
         case let .notification(method, args) where method == "sill_walk":
             walkAsks.append((args.first?.stringValue ?? "", args.count > 1 ? args[1].stringValue ?? "" : ""))
         case let .notification(method, args) where method == "sill_review":

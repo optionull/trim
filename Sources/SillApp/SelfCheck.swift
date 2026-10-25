@@ -62,6 +62,12 @@ final class SelfCheck {
                 fflush(stdout)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "map" {
+                try await mapSteps()
+                print("sill check (code map): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "refs" {
                 try await referenceSteps()
                 print("sill check (file references): passed")
@@ -996,6 +1002,82 @@ final class SelfCheck {
             FileManager.default.fileExists(atPath: skill) ? true : nil
         }
         step("step 2 shows Clock.Tick's first three lines; :SillWalk skill installed the skill at \(skill)")
+    }
+
+    /// The code map (`SILL_CHECK=map`, in a git copy of the MapShop fixture whose Pricing.cs changed in three commits,
+    /// with `SILL_AGENT=echo`): the projects in rows (the tests, the web app, the library it references), a hot file
+    /// opening on a click, the agent asked for a summary with the map, and the summary it gives back shown on top.
+    private func mapSteps() async throws {
+        let app = try require(app, "the app")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        _ = try await session.channel.lua("vim.cmd('SillMap')")
+        try await wait("the map pane") { $0.currentPaneKind == "map" }
+        let map = try await waitFor("the map", timeout: .seconds(10)) { app.mapper.map }
+        let rows = map.layers.map { $0.map { map.projects[$0].name } }
+        try expect(rows == [["Shop.Web"], ["Shop.Core"], ["Shop.Tests"]], "rows \(rows)")
+        let web = try require(map.projects.first { $0.name == "Shop.Web" }, "Shop.Web")
+        try expect(web.kind == .web && web.references == ["Shop.Core"], "Shop.Web is \(web.kind), \(web.references)")
+        try expect(
+            web.entryPoints.first == .init(path: "src/Shop.Web/Program.cs", line: 1, label: "web host"),
+            "Shop.Web starts at \(web.entryPoints)"
+        )
+        let core = try require(map.projects.first { $0.name == "Shop.Core" }, "Shop.Core")
+        try expect(
+            core.hot.first?.path == "src/Shop.Core/Pricing.cs" && core.hot.first?.changes == 3,
+            "hot \(core.hot)"
+        )
+        step("the map: Shop.Web (a web host at Program.cs:1) above Shop.Core, then Shop.Tests; Pricing.cs changed most")
+
+        let view = try await waitFor("the map view") { app.tools.map }
+        view.display()
+        let webCard = try require(view.cards[map.projects.firstIndex { $0.name == "Shop.Web" }!], "Shop.Web's card")
+        let coreCard = try require(view.cards[map.projects.firstIndex { $0.name == "Shop.Core" }!], "Shop.Core's card")
+        try expect(webCard.maxY < coreCard.minY, "Shop.Web's card \(webCard) above Shop.Core's \(coreCard)")
+        let link = try require(view.links.first { $0.1 == "src/Shop.Core/Pricing.cs" }, "Pricing.cs on the map")
+        let point = NSPoint(x: link.0.midX, y: link.0.midY)
+        let click = try require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: view.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+        ), "a click")
+        view.mouseDown(with: click)
+        var name = ""
+        for _ in 0 ..< 50 where name != "Pricing.cs" {
+            try await Task.sleep(for: .milliseconds(100))
+            name = try await session.channel.lua("return vim.fn.expand('%:t')").stringValue ?? ""
+        }
+        try expect(name == "Pricing.cs", "a click on Pricing.cs left the editor at \(name)")
+        step("Shop.Web's card is drawn above Shop.Core's; a click on Pricing.cs opened it")
+
+        app.mapper.askForSummary()
+        let prompt = try await waitFor("the agent asked") { app.agents.lastPrompt }
+        try expect(
+            prompt.hasPrefix("Summarise this codebase") && prompt.contains("- Shop.Web [web, C#]") &&
+                prompt.contains("code_map_summary"),
+            "the prompt: \(prompt.prefix(300))"
+        )
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        let text = try await agent.call("code_map")
+        try expect(text.hasPrefix("Code map of ") && text.contains("references Shop.Core"), "code_map: \(text)")
+        let summary = "A tiny shop: `Shop.Web` serves totals that `Shop.Core` prices."
+        _ = try await agent.call("code_map_summary", ["summary": summary])
+        try expect(app.mapper.summary == summary, "the summary is \(app.mapper.summary ?? "none")")
+        try await wait("the map pane again") { $0.currentPaneKind == "map" }
+        let kept = Review.git(["rev-parse", "--absolute-git-dir"], in: app.workingDirectory)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) + "/sill/map/summary.md" }
+        try expect(kept.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } == summary, "kept in .git")
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            view.display()
+            try shot(to: path)
+        }
+        step(
+            "s asked the agent with the map; code_map answers it; code_map_summary put the summary on top, kept in .git"
+        )
     }
 
     /// File references in a terminal (`SILL_CHECK=refs`, in a folder with src/a.txt of twenty lines): what a shell

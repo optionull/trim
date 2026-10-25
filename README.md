@@ -176,6 +176,18 @@ sill watches the worktree while an agent works: every file it changes is marked 
 are). The status bar names the last change, or the file an agent is reading through sill's MCP server. Your own writes
 from sill, build output and what git ignores are not followed.
 
+## The code map
+
+`:SillMap` draws the repository for someone who does not know it: its projects (.NET project files, Swift package
+targets, Rust, Node and Python packages) in rows, each above what it references, with what kind each is, how big,
+where it starts (`Main`, a web host, HTTP endpoints, `@main`, `fn main`) and the files git history changes most. A
+click opens a project, an entry point or a hot file. `s` asks the agent for a summary, which it puts on top with
+`code_map_summary` (kept in `.git`, never committed); `w` asks it for a walkthrough of the codebase. The map is
+built from the files git tracks and their last 2,000 commits, so it is there in about a second even for 60 projects;
+an agent gets the same through the `code_map` tool.
+
+![The code map of a small shop: the agent's summary on top, Shop.Web (a web host) above Shop.Core, whose Pricing.cs changed most, and the tests below](docs/showcase-codemap-2026-10-25.png)
+
 ## Walkthroughs
 
 A walkthrough is a Markdown file ending in `.walk.md`, anywhere, that walks someone through code: `## steps` of prose,

@@ -656,6 +656,23 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
     cold launch.
   - Next, in heed (its own repo, the owner's call): ⌘-click on a reference in a heed session could hand it to sill
     through the link.
+- The code map (2026-10-25): `SillCore.CodeMap.build(root:)` from `git ls-files` and the last 2,000 commits' names
+  (no language server, so a second for docs-builder's 60 projects and 3,597 files). Projects: `*.csproj`/`.fsproj`
+  (`ProjectReference`s; web is `Sdk.Web` only, a Razor class library is a library; tests by `IsTestProject`, test
+  packages, a test-ish name or a `tests/` folder, since packages often come from Directory.Build.props), a Swift
+  package's targets (bracket depth tells a target from a `.target(name:)` dependency), Cargo, package.json,
+  pyproject. A file belongs to the deepest project folder, a project file over a manifest in the same folder; a
+  project left with no files is dropped. Entry points by regex per language; hot files are the three source files
+  changed most. `layers`: each project above what it references, tests last (on top they filled docs-builder's
+  first screen). `:SillMap` pane (`CodeMapView`): cards in rows, lines down to what each references (tests' lines
+  only when selected), tests as chips; clicks open; `s` asks the agent for a summary (`code_map_summary` puts it on
+  top and keeps it in `.git/sill/map/summary.md`), `w` for a codebase walkthrough in `.git/sill/map/tour.walk.md`.
+  MCP: `code_map` (the text form), `code_map_summary`.
+  - Checked: `CodeMapTests` (mutations of every rule above fail them), `SILL_CHECK=map` on the MapShop fixture with
+    git history (rows, a click on the hot file opens it, the ask's prompt, both tools, the summary kept); a mutation
+    of the hot-file link fails it. Looked at on docs-builder.
+  - Not checked: `w`'s walkthrough end to end with a real agent; maps whose layers are wider than the pane read
+    left to right without horizontal scrolling.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

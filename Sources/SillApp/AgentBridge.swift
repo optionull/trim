@@ -112,7 +112,7 @@ final class AgentBridge {
             ) { [weak self] arguments in
                 await self?.callOpen(arguments) ?? gone
             },
-        ] + debugTools(gone) + profileTools(gone) + walkTools(gone) + telemetryTools(gone) + [
+        ] + debugTools(gone) + profileTools(gone) + walkTools(gone) + telemetryTools(gone) + mapTools(gone) + [
             Tool(
                 name: "annotate",
                 description: "Shows your answer to the person beside the code it is about, under " +
@@ -147,6 +147,42 @@ final class AgentBridge {
 
     private nonisolated static func telemetryArguments(_ data: Data) -> TelemetryArguments {
         (try? JSONDecoder().decode(TelemetryArguments.self, from: data)) ?? TelemetryArguments()
+    }
+
+    // MARK: The code map
+
+    private struct MapArguments: Decodable { var summary: String? }
+
+    private func mapTools(_ gone: ToolResult) -> [Tool] {
+        [
+            Tool(
+                name: "code_map",
+                description: "An overview of the repository: its projects and what each " +
+                    "references, their kind and size, where each starts and the files that change most. A place to " +
+                    "start in code you do not know."
+            ) { [weak self] _ in
+                await self?.call("code_map") { bridge in
+                    guard let mapper = bridge.app?.mapper else { return gone }
+                    return await ToolResult(mapper.current().text)
+                } ?? gone
+            },
+            Tool(
+                name: "code_map_summary",
+                description: "Puts a summary of the codebase on top of sill's code map, " +
+                    "for the person: what it is for, how it is put together, where to start.",
+                properties: ["summary": ["type": "string"]],
+                required: ["summary"]
+            ) { [weak self] data in
+                await self?.call("code_map_summary") { bridge in
+                    guard let summary = (try? JSONDecoder().decode(MapArguments.self, from: data))?.summary,
+                          !summary.isEmpty, let mapper = bridge.app?.mapper
+                    else { return ToolResult("code_map_summary needs a summary", isError: true) }
+                    mapper.setSummary(summary)
+                    mapper.show()
+                    return ToolResult("The summary is on the code map.")
+                } ?? gone
+            },
+        ]
     }
 
     private func telemetryTools(_ gone: ToolResult) -> [Tool] {
