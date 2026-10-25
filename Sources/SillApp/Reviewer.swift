@@ -231,6 +231,7 @@ final class Reviewer {
             walkthroughAsked = path
             let list = files.map { "  \($0.status.rawValue) \($0.path) +\($0.added) −\($0.removed)" }
                 .joined(separator: "\n")
+            let worktree = SillFolder.worktreeRoot(for: directory) ?? directory
             agents.send(headline: "Write a review walkthrough of the changes since \(base.name)", """
             Write a walkthrough of the changes made since \(base
                 .name), for the person to review them: what changed and \
@@ -243,9 +244,11 @@ final class Reviewer {
             matter; show the part of a change a section is about with `@diff <path from the repository's root>`, code \
             it relates to with `@code Symbol`, and usage examples of what changed as isolated scripts in \
             \(folder)/examples, each printing what it shows, referenced with `@example examples/<file>`: for C# a .NET \
-            10 file-based app (`#:project <path to the .csproj, relative to the script>` at its top, run with `dotnet \
-            run file.cs`); TypeScript a .ts file node runs; Python a script with PEP 723 metadata; Rust cargo's script \
-            format (a `---cargo` manifest at its top); Swift a script. It is a throwaway for this review: keep it short.
+            10 file-based app (`#:project <the .csproj's absolute path>` at its top, run with `dotnet run file.cs`); \
+            TypeScript a .ts file node runs; Python a script with PEP 723 metadata; Rust cargo's script format (a \
+            `---cargo` manifest at its top); Swift a script. Reach the code under review by absolute paths in \
+            \(worktree): the folder the walkthrough is in is shared by every worktree of the repository. It is a \
+            throwaway for this review: keep it short.
 
             Then call sill's walkthrough_check with its path (it runs the examples), fix what it reports, and call \
             walkthrough_open.

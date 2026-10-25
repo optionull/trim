@@ -125,11 +125,13 @@ final class Baskets {
             )
             number += 1
         }
-        try? BasketFile.new(title: title, question: question, by: by).write(
-            toFile: path,
-            atomically: true,
-            encoding: .utf8
+        let commit = Review.git(["rev-parse", "--short", "HEAD"], in: directory)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = BasketFile.new(
+            title: title, question: question, by: by, worktree: walker.root,
+            commit: commit?.isEmpty == false ? commit : nil
         )
+        try? source.write(toFile: path, atomically: true, encoding: .utf8)
         current = path
         if show { open(path) }
         return path
@@ -152,8 +154,8 @@ final class Baskets {
 
     /// The anchor for a file's lines: from the repository's root, the whole file when no lines.
     private func anchor(_ path: String, _ lines: ClosedRange<Int>?) -> String {
-        let root = (SillFolder.path(for: directory) as NSString).deletingLastPathComponent
-        let relative = path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : path
+        // From the worktree's root, whichever worktree of the repository the path is in.
+        let relative = SillFolder.relative(path, in: directory)
         guard let lines else { return relative }
         return "\(relative):\(lines.lowerBound)-\(lines.upperBound)"
     }
@@ -180,7 +182,7 @@ final class Baskets {
             show: false
         )
         let print = lines.map { BasketFile.fingerprint(now ?? Self.lines(of: path, $0)) }
-        let root = (SillFolder.path(for: directory) as NSString).deletingLastPathComponent
+        let root = walker.root
         // A joined range's fingerprint: its lines on disk.
         let joined: (String, ClosedRange<Int>) -> String? = { relative, range in
             BasketFile.fingerprint(Self.lines(of: relative.hasPrefix("/") ? relative : root + "/" + relative, range))
@@ -251,7 +253,7 @@ final class Baskets {
         }
         await walker.read()
         guard let basket = walker.walk else { return nil }
-        let root = (SillFolder.path(for: directory) as NSString).deletingLastPathComponent
+        let root = walker.root
         var out: [String] = []
         for (s, step) in basket.steps.enumerated() {
             out += ["", "## \(step.title)"]

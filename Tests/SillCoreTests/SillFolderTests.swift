@@ -38,6 +38,38 @@ struct SillFolderTests {
         #expect(SillFolder.repository(containing: real + "/src/b.txt") == nil)
     }
 
+    @Test("one for the repository, at the main worktree, whichever worktree asks; a worktree's own merged in")
+    func worktrees() throws {
+        let base = (NSTemporaryDirectory() as NSString).appendingPathComponent("sill-wt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(atPath: base + "/main/src", withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        let main = base + "/main"
+        _ = git(["init", "-q"], in: main)
+        try "x".write(toFile: main + "/src/a.cs", atomically: true, encoding: .utf8)
+        _ = git(["add", "-A"], in: main)
+        _ = git(["-c", "user.email=a@b", "-c", "user.name=s", "commit", "-qm", "base"], in: main)
+        _ = git(["worktree", "add", "-q", base + "/feature"], in: main)
+        let realMain = git(["rev-parse", "--show-toplevel"], in: main)
+        let feature = git(["rev-parse", "--show-toplevel"], in: base + "/feature")
+        // What the feature worktree had of its own, and a basket of the same name in both.
+        try FileManager.default.createDirectory(atPath: feature + "/.sill/baskets", withIntermediateDirectories: true)
+        try "f".write(toFile: feature + "/.sill/baskets/only-here.basket.md", atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(atPath: realMain + "/.sill/baskets", withIntermediateDirectories: true)
+        try "main".write(toFile: realMain + "/.sill/baskets/both.basket.md", atomically: true, encoding: .utf8)
+        try "feature".write(toFile: feature + "/.sill/baskets/both.basket.md", atomically: true, encoding: .utf8)
+
+        #expect(SillFolder.path(for: feature + "/src") == realMain + "/.sill")
+        #expect(SillFolder.path(for: main) == realMain + "/.sill")
+        #expect(FileManager.default.fileExists(atPath: realMain + "/.sill/baskets/only-here.basket.md"), "merged in")
+        #expect(try String(contentsOfFile: realMain + "/.sill/baskets/both.basket.md", encoding: .utf8) == "main")
+        #expect(FileManager.default.fileExists(atPath: feature + "/.sill/baskets/both.basket.md"), "not lost")
+        #expect(SillFolder.worktreeRoot(for: feature + "/src") == feature)
+        #expect(SillFolder.relative(feature + "/src/a.cs", in: main) == "src/a.cs", "another worktree's path")
+        #expect(SillFolder.relative(realMain + "/src/a.cs", in: feature) == "src/a.cs")
+        #expect(SillFolder.relative("/elsewhere/a.cs", in: feature) == "/elsewhere/a.cs")
+        #expect(git(["status", "--porcelain"], in: feature).isEmpty, "the feature worktree's git sees nothing")
+    }
+
     @Test("outside a repository: in the folder itself")
     func outside() throws {
         let root = (NSTemporaryDirectory() as NSString).appendingPathComponent("sill-plain-\(UUID().uuidString)")

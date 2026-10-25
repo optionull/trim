@@ -168,8 +168,8 @@ final class WalkView: NSView, ToolContent {
     }
 
     private func relativePath(_ path: String) -> String {
-        let root = SillFolder.repository(containing: walker.path ?? "") ?? ""
-        return !root.isEmpty && path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : path
+        let root = walker.root
+        return path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : path
     }
 
     /// Scrolls the document to a file's first piece, as the files menu does.

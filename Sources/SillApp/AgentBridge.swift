@@ -227,7 +227,7 @@ final class AgentBridge {
                     }
                     let lines = asked.from.map { from in from ... max(asked.to ?? from, from) }
                     baskets.add(path: file, lines: lines, note: asked.note, section: asked.section, basket: path)
-                    return ToolResult("Added \(asked.path ?? file)" +
+                    return ToolResult("Added \(SillFolder.relative(file, in: bridge.directory))" +
                         (lines.map { ":\($0.lowerBound)-\($0.upperBound)" } ?? "") + ".")
                 } ?? gone
             },

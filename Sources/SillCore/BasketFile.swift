@@ -24,10 +24,16 @@ public enum BasketFile {
     public static let findings = "Findings"
 
     /// A new basket's source.
-    public static func new(title: String, question: String? = nil, by: String = "you") -> String {
+    /// `worktree` and `commit`: where it was made, as the code is read where sill is open.
+    public static func new(
+        title: String, question: String? = nil, by: String = "you", worktree: String? = nil, commit: String? = nil
+    ) -> String {
         var front = ["---", "title: \(oneLine(title))"]
         if let question, !question.isEmpty { front.append("question: \(oneLine(question))") }
-        front += ["by: \(oneLine(by))", "status: open", "---", ""]
+        front.append("by: \(oneLine(by))")
+        if let worktree { front.append("worktree: \(oneLine(worktree))") }
+        if let commit { front.append("commit: \(oneLine(commit))") }
+        front += ["status: open", "---", ""]
         return front.joined(separator: "\n")
     }
 

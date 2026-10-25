@@ -1081,6 +1081,11 @@ final class SelfCheck {
                 "section": "The tax",
             ], "Added Pricing.cs:3-7."),
             (["basket": name, "path": "Report.cs", "section": "Who reaches it"], "Added Report.cs."),
+            // From another worktree of the repository: stored from the root, read where sill is open.
+            (
+                ["basket": name, "path": root + "-feature/Program.cs", "from": 2, "to": 3, "section": "Who reaches it"],
+                "Added Program.cs:2-3."
+            ),
         ] as [([String: Any], String)] {
             let added = try await agent.call("basket_add", arguments)
             try expect(added == answer, "basket_add: \(added)")
@@ -1124,9 +1129,13 @@ final class SelfCheck {
         }
         view.display()
         let files = Set(view.fileTops.map { ($0.path as NSString).lastPathComponent })
-        try expect(files == ["Tax.cs", "Pricing.cs", "Report.cs"], "its files: \(files)")
+        try expect(files == ["Tax.cs", "Pricing.cs", "Report.cs", "Program.cs"], "its files: \(files)")
+        try expect(view.fileTops.allSatisfy { $0.path.hasPrefix(root + "/") }, "read where sill is open")
+        let feature = SillFolder.path(for: root + "-feature")
+        try expect(feature == root + "/.sill", "the feature worktree's .sill is this one: \(feature)")
         if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] { try self.shot(to: shot) }
-        step("basket_conclude: the notebook shows the sections, the tree, three files and the findings")
+        step("basket_conclude: the notebook shows the sections, the tree, the files (one from another worktree, read " +
+            "here) and the findings; the feature worktree's .sill is this one")
 
         _ = try await session.channel.lua("vim.cmd('SillInvestigate skill')")
         let skill = FileManager.default.homeDirectoryForCurrentUser
@@ -1413,7 +1422,10 @@ final class SelfCheck {
 
         let view = try await waitFor("the map view") { app.tools.map }
         view.display()
-        let webCard = try require(view.cards[map.projects.firstIndex { $0.name == "Shop.Web" }!], "Shop.Web's card")
+        let webCard = try require(
+            view.cards[map.projects.firstIndex { $0.name == "Shop.Web" }!],
+            "Shop.Web's card (bounds \(view.bounds), cards \(view.cards), summary \(app.mapper.summary ?? "none"))"
+        )
         let coreCard = try require(view.cards[map.projects.firstIndex { $0.name == "Shop.Core" }!], "Shop.Core's card")
         try expect(webCard.maxY < coreCard.minY, "Shop.Web's card \(webCard) above Shop.Core's \(coreCard)")
         let link = try require(view.links.first { $0.1 == "src/Shop.Core/Pricing.cs" }, "Pricing.cs on the map")
@@ -1760,7 +1772,8 @@ final class SelfCheck {
         let base = try require(reviewer.baselines.first?.tree, "the base")
         try expect(
             path.contains("/.sill/reviews/") && prompt.contains("git diff \(base) ") &&
-                prompt.contains(path) && prompt.contains("M Pricing.cs") && prompt.contains("#:project"),
+                prompt.contains(path) && prompt.contains("M Pricing.cs") && prompt.contains("#:project") &&
+                prompt.contains("absolute paths in \(root)"),
             "asked with the diff, the place and the examples: \(prompt.prefix(400))"
         )
         step("Walkthrough asks the agent for one: the diff since \(reviewer.baselines.first?.name ?? ""), to " +
@@ -1769,7 +1782,7 @@ final class SelfCheck {
         // The agent writes it, as the skill says.
         let folder = (path as NSString).deletingLastPathComponent
         try """
-        #:project ../../../../Orders.csproj
+        #:project \(root)/Orders.csproj
         using Orders;
         Console.WriteLine($"Total(4) = {Pricing.Total(4)}");
         Console.WriteLine($"Discounted(4, 10%) = {Pricing.Discounted(4, 0.1)}");

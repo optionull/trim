@@ -54,11 +54,12 @@ repository's `.sill` folder: a throwaway, never committed) and its `examples` fo
   what changed and prints what it shows. The person runs it in place; `walkthrough_check` runs them all.
   - C#: a .NET 10 file-based app, `examples/total.cs`:
     ```csharp
-    #:project ../../../../src/Orders/Orders.csproj
+    #:project /Users/me/code/shop/src/Orders/Orders.csproj
     using Orders;
     Console.WriteLine($"Total(4) = {Pricing.Total(4)}");
     ```
-    (`#:project` is relative to the script; `#:package Name@Version` brings a package.)
+    (`#:package Name@Version` brings a package.) Reach the code by absolute paths in the worktree sill names: the
+    review's folder, in `.sill`, is shared by every worktree of the repository.
   - TypeScript: `examples/total.ts`, run by node (types are stripped); import the code with a relative path
     ending in `.ts`.
   - Python: a script with PEP 723 metadata (`# /// script` … `# ///`) for what it needs.

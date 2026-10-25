@@ -752,6 +752,17 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   item's tooltip; the right-click menu adds Add to basket, Ask about this, Who calls this, What this calls.
   `basket_add_here` and `ask_here` take a Visual selection's lines. Checked in the basket check (all twelve keys set,
   every key the menu names exists, ⇧⌘B's item adds a Visual selection's lines); ignoring the selection fails it.
+- One `.sill` for the repository (2026-10-25, owner: "Everything resolves the same to root dir"): like `.git`, at
+  the main worktree's root (the folder around the common git dir; a bare repository's worktrees keep their own),
+  whichever worktree sill is open on. A worktree's own `.sill` from before merges in entry by entry, nothing
+  overwritten (what would be is left where it was). What is in it resolves against the worktree sill is open on:
+  `walk.resolve` takes that root for files in .sill, `Walker.root`, the notebook's files, baskets' anchors; a path in
+  another worktree of the repository is stored from its root (`SillFolder.relative`, from `git worktree list`). New
+  baskets record `worktree` and `commit`. Review examples and investigation scripts reach the code by absolute paths
+  in the worktree, since their folder is shared (a relative `#:project` would build the main worktree's code).
+  Checked: `SillFolderTests` (both worktrees resolve to one, the merge, the relative paths, git clean in the
+  feature worktree), the investigate check (a file added from a second worktree is stored relative and read here),
+  reviewwalk (absolute `#:project`).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

@@ -11,6 +11,7 @@ final class CodeMapper {
     let directory: String
     private(set) var map: CodeMap?
     private(set) var building = false
+    /// The agent's summary, read from .sill when the map is built (not as sill starts, and never while drawing).
     private(set) var summary: String?
     private var handled = 0
     var onChange: (() -> Void)?
@@ -19,11 +20,18 @@ final class CodeMapper {
         self.app = app
         self.channel = channel
         self.directory = directory
-        summary = summaryFile.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
     }
 
     /// Where the agent's summary is kept: in the repository's .sill, beside the review walkthroughs.
-    private var summaryFile: String? { SillFolder.path(for: directory) + "/map/summary.md" }
+    private var summaryFile: String? { Self.summaryFile(directory) }
+
+    private nonisolated static func summaryFile(_ directory: String) -> String {
+        SillFolder.path(for: directory) + "/map/summary.md"
+    }
+
+    private nonisolated static func readSummary(_ directory: String) -> String? {
+        try? String(contentsOfFile: summaryFile(directory), encoding: .utf8)
+    }
 
     /// nvim's asks: `:SillMap`.
     func update(_ screen: Screen) {
@@ -44,8 +52,11 @@ final class CodeMapper {
         onChange?()
         let directory = directory
         Task {
-            let map = await Task.detached { CodeMap.build(root: directory) }.value
+            let (map, summary) = await Task.detached {
+                (CodeMap.build(root: directory), Self.readSummary(directory))
+            }.value
             self.map = map
+            if self.summary == nil { self.summary = summary }
             building = false
             onChange?()
         }
@@ -55,8 +66,9 @@ final class CodeMapper {
     func current() async -> CodeMap {
         if let map { return map }
         let directory = directory
-        let map = await Task.detached { CodeMap.build(root: directory) }.value
+        let (map, summary) = await Task.detached { (CodeMap.build(root: directory), Self.readSummary(directory)) }.value
         self.map = map
+        if self.summary == nil { self.summary = summary }
         onChange?()
         return map
     }

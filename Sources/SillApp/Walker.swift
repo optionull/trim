@@ -49,6 +49,8 @@ final class Walker {
     private var handled = 0
     /// The pane it shows in: walkthroughs', or baskets'.
     let pane: String
+    /// The root of the worktree sill is open on: what anchors in .sill resolve against.
+    private(set) lazy var root: String = SillFolder.worktreeRoot(for: directory) ?? directory
 
     init(app: AppDelegate, channel: NvimChannel, directory: String, pane: String = "walk") {
         self.app = app
@@ -119,9 +121,11 @@ final class Walker {
         }
         let folder = (path as NSString).deletingLastPathComponent
         await readReview(walk, folder: folder)
+        // What is in .sill reads the worktree sill is open on.
+        let inSill = SillFolder.repository(containing: folder + "/") != nil
         let answers = await (try? channel.lua(
             "return require'sill.walk'.resolve(...)",
-            args: [.array(anchors), .string(folder)]
+            args: [.array(anchors), .string(folder)] + (inSill ? [.string(root)] : [])
         ))?.arrayValue ?? []
         var found = Array(repeating: [Int: Found](), count: walk.steps.count)
         var problems: [String] = []
@@ -179,8 +183,8 @@ final class Walker {
 
     /// The repository's top folder (where a diff's paths start), else the walkthrough's folder.
     private func repository(from folder: String) async -> String {
-        // A review's walkthrough lives in .sill: its repository is the folder around that.
-        if let repository = SillFolder.repository(containing: folder + "/") { return repository }
+        // What is in .sill reads the worktree sill is open on.
+        if SillFolder.repository(containing: folder + "/") != nil { return root }
         return await Task.detached {
             Review.git(["rev-parse", "--show-toplevel"], in: folder)?.trimmingCharacters(in: .whitespacesAndNewlines)
         }.value ?? folder

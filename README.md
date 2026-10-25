@@ -228,7 +228,8 @@ basket join it. `:SillBasket new <title>` starts a basket, `:SillBasket` picks o
 is written back into the basket as its findings (`basket_conclude`). A sent basket is closed: the next piece starts a
 new one.
 
-Baskets are files, `.sill/baskets/*.basket.md`, in the walkthrough format (`@code` anchors with a fingerprint of the
+Baskets are files, `.sill/baskets/*.basket.md` (one `.sill` for the repository, like `.git`: at the main worktree,
+whichever worktree you open, its paths read in the worktree you are in), in the walkthrough format (`@code` anchors with a fingerprint of the
 code when it was added, notes as prose, `@trace Symbol callers 2` for a call tree), private to the repository. They
 show as a notebook: a piece whose code has changed since it was added is marked, and the left menu switches (Tab)
 between the outline and the files the basket touches.

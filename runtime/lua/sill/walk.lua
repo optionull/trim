@@ -73,13 +73,13 @@ local function extent(lines, line)
 end
 
 --- Finds each anchor: { kind = 'symbol'|'file', name, from, to } (from/to lines of the symbol or the file), relative
---- paths to `folder`. Answers { path, from, to, by } for each, or { problem } when it is not found.
-function M.resolve(anchors, folder)
-  -- A review's walkthrough lives in .sill: its repository is the folder around that.
-  local inside = (folder .. '/'):find('/.sill/', 1, true)
-  local root = inside and folder:sub(1, inside - 1)
-    or vim.fn.systemlist({ 'git', '-C', folder, 'rev-parse', '--show-toplevel' })[1] or folder
-  if not inside and vim.v.shell_error ~= 0 then root = folder end
+--- paths to `folder`, else to `root` (the worktree sill is open on, for what is in .sill), else the folder's
+--- repository. Answers { path, from, to, by } for each, or { problem } when it is not found.
+function M.resolve(anchors, folder, root)
+  if not root then
+    root = vim.fn.systemlist({ 'git', '-C', folder, 'rev-parse', '--show-toplevel' })[1] or folder
+    if vim.v.shell_error ~= 0 then root = folder end
+  end
   local out = {}
   for i, anchor in ipairs(anchors) do
     local path, line, by
@@ -126,10 +126,12 @@ function M.find(folder)
   else
     found = vim.tbl_map(function(p) return folder .. '/' .. p end, found)
   end
-  -- sill's own: reviews' walkthroughs and tours in the repository's .sill, which git does not see.
-  local top = vim.fn.systemlist({ 'git', '-C', folder, 'rev-parse', '--show-toplevel' })[1]
-  if vim.v.shell_error == 0 and top then
-    vim.list_extend(found, vim.fn.glob(top .. '/.sill/**/*.walk.md', false, true))
+  -- sill's own: reviews' walkthroughs and tours in the repository's .sill (at the main worktree, which git does not
+  -- see).
+  local common = vim.fn.systemlist({ 'git', '-C', folder, 'rev-parse', '--path-format=absolute', '--git-common-dir' })[1]
+  if vim.v.shell_error == 0 and common then
+    local main = common:match('^(.*)/%.git$') or vim.fn.systemlist({ 'git', '-C', folder, 'rev-parse', '--show-toplevel' })[1]
+    vim.list_extend(found, vim.fn.glob(main .. '/.sill/**/*.walk.md', false, true))
   end
   table.sort(found)
   return vim.fn.uniq(found)
