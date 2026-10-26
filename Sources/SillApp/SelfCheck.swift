@@ -433,6 +433,30 @@ final class SelfCheck {
                     let took = ContinuousClock.now - from
                     say((done ? "ready" : "not ready") + " after " +
                         took.formatted(.units(allowed: [.seconds, .milliseconds], width: .narrow)))
+                case "draw":
+                    // `draw <pane>`: ten forced draws of a pane's view, timed (the explorer, the panel, a tool pane).
+                    let tools = try require(app?.tools, "the panes")
+                    let views: [String: NSView?] = [
+                        "map": tools.map, "review": tools.review, "trace": tools.trace, "pr": tools.pullRequest,
+                        "replay": tools.replay, "explorer": tools.sidebar.explorer, "panel": tools.panel,
+                        "editor": editor,
+                    ]
+                    guard let found = views[argument], let view = found, !view.isHidden else {
+                        say("no \(argument) showing")
+                        break
+                    }
+                    var times: [Double] = []
+                    for _ in 0 ..< 10 {
+                        let from = ContinuousClock.now
+                        view.display()
+                        let took = ContinuousClock.now - from
+                        times
+                            .append(Double(took.components.attoseconds) / 1e15 + Double(took.components.seconds) * 1000)
+                    }
+                    say(String(
+                        format: "%@ draws in %.1f ms on average, %.1f ms at worst (%.0fx%.0f)",
+                        argument, times.reduce(0, +) / 10, times.max() ?? 0, view.bounds.width, view.bounds.height
+                    ))
                 case "stalls":
                     for phase in phases {
                         let summary = watch.summary(phase)
@@ -447,14 +471,18 @@ final class SelfCheck {
                 case "rss":
                     // sill and what it started: nvim, the language servers, the sidecar, by resident memory.
                     let pid = ProcessInfo.processInfo.processIdentifier
-                    let process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/bin/ps")
-                    process.arguments = ["-axo", "pid=,ppid=,rss=,comm="]
-                    let pipe = Pipe()
-                    process.standardOutput = pipe
-                    try process.run()
-                    let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                    process.waitUntilExit()
+                    // ps off the main thread: the probe must not be what it measures.
+                    let text = try await Task.detached { () throws -> String in
+                        let process = Process()
+                        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+                        process.arguments = ["-axo", "pid=,ppid=,rss=,comm="]
+                        let pipe = Pipe()
+                        process.standardOutput = pipe
+                        try process.run()
+                        let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                        process.waitUntilExit()
+                        return text
+                    }.value
                     let rows = text.split(separator: "\n").compactMap { line -> (Int32, Int32, Int, String)? in
                         let f = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
                         guard f.count == 4, let p = Int32(f[0]), let pp = Int32(f[1]), let r = Int(f[2]) else {
