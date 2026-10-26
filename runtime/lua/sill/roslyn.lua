@@ -95,14 +95,9 @@ local function others(buf)
   return false
 end
 
-function M.attach(buf, dll, logs)
-  local path = vim.api.nvim_buf_get_name(buf)
-  local root, target = M.target(path)
-  if not root or others(buf) then
-    return
-  end
-  state('starting')
-  vim.lsp.start({
+--- Roslyn's client for the solution (or projects) `target` in `root`.
+local function config(root, target, dll, logs)
+  return {
     name = 'roslyn',
     cmd = { 'dotnet', dll, '--logLevel=Information', '--extensionLogDirectory=' .. logs, '--stdio' },
     root_dir = root,
@@ -144,7 +139,29 @@ function M.attach(buf, dll, logs)
       end,
     }),
     on_exit = function() state('stopped') end,
-  }, { bufnr = buf })
+  }
+end
+
+function M.attach(buf, dll, logs)
+  local path = vim.api.nvim_buf_get_name(buf)
+  local root, target = M.target(path)
+  if not root or others(buf) then
+    return
+  end
+  -- The one started ahead for this root is reused: same name, same root.
+  if #vim.lsp.get_clients({ name = 'roslyn' }) == 0 then state('starting') end
+  vim.lsp.start(config(root, target, dll, logs), { bufnr = buf })
+end
+
+--- Roslyn started before any C# file opens, for the solution at the root of the folder sill opened: its projects
+--- load (about 15 s on a large solution) while the person looks around, so the first file has it ready.
+function M.prestart(dll, logs)
+  local root = vim.fn.getcwd()
+  local solutions = vim.fn.glob(root .. '/*.slnx', false, true)
+  if #solutions == 0 then solutions = vim.fn.glob(root .. '/*.sln', false, true) end
+  if #solutions ~= 1 or #vim.lsp.get_clients({ name = 'roslyn' }) > 0 then return end
+  state('starting')
+  vim.lsp.start(config(root, { solution = solutions[1] }, dll, logs), { attach = false })
 end
 
 --- Starts Roslyn for every C# and Razor buffer, now and as they open. `dll` is the server sill provisioned.
@@ -155,11 +172,14 @@ function M.setup(dll, logs)
     group = group, pattern = M.filetypes,
     callback = function(args) M.attach(args.buf, dll, logs) end,
   })
+  local open = false
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(buf) and vim.tbl_contains(M.filetypes, vim.bo[buf].filetype) then
       M.attach(buf, dll, logs)
+      open = true
     end
   end
+  if not open then M.prestart(dll, logs) end
 end
 
 return M

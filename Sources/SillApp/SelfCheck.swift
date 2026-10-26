@@ -3598,8 +3598,27 @@ final class SelfCheck {
             "Program.cs in the solution"
         )
         let path = (app.workingDirectory as NSString).appendingPathComponent(program)
+        // Started ahead for the solution at the root, before any C# file opens; the file reuses it.
+        func clients() async throws -> Int {
+            try await Int(session.channel.lua("return #vim.lsp.get_clients({ name = 'roslyn' })").integerValue ?? -1)
+        }
+        var ahead = 0
+        for _ in 0 ..< 2400 where ahead == 0 {
+            try await Task.sleep(for: .milliseconds(100))
+            ahead = try await clients()
+        }
+        let csharp = try await session.channel.lua("""
+        for _, b in ipairs(vim.api.nvim_list_bufs()) do
+          if vim.api.nvim_buf_is_loaded(b) and vim.bo[b].filetype == 'cs' then return true end
+        end
+        return false
+        """).boolValue
+        try expect(ahead == 1 && csharp == false, "Roslyn started ahead, no C# file open: \(ahead) clients")
         _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(path)])
         try await wait("Program.cs open") { $0.buffer.name == "Program.cs" }
+        let attached = try await session.channel.lua("return #vim.lsp.get_clients({ bufnr = 0, name = 'roslyn' })")
+        try await expect(try clients() == 1 && attached.integerValue == 1, "the file on the client started ahead")
+        step("Roslyn started for Orders.slnx before any C# file opened; Program.cs reuses it")
 
         // Roslyn: provisioned (downloaded the first time), started for the C# file, and reporting the error.
         let started = CACurrentMediaTime()

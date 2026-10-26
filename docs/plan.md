@@ -931,6 +931,18 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   twelve kept are the newest of the rest); a new pin replaces it. `askForWalkthrough` now reads the files between the
   baseline and the worktree itself rather than the pane's last list. Checked in the PR check (a.txt +2 against main,
   pinned; the walkthrough's prompt); comparing with HEAD instead of the merge base fails it.
+- Perceived performance on docs-builder (2026-10-26, owner: "perceived performance is key … it needs to be fast
+  and non blocking"). Measured with probes on an M2 (60 projects, 3,597 files): the main thread watched by phase
+  (`phase`, `stalls`), how long until something is ready (`until`), memory (`rss`, its `ps` now off the main thread:
+  run on it, the probe's own wait was the "open" and "scroll" stalls it reported), and a pane's draw (`draw`, ten forced
+  draws). Found and fixed: the code map drew every card and line, scrolled out of view or not (11.3 ms a draw, 5.2 ms
+  now it draws what is visible); Roslyn started only when a C# file opened, 15 s before its features answered: with a
+  solution at the root of the folder sill opened it starts with sill now (`roslyn.prestart`, `vim.lsp.start` without
+  a buffer), and the first C# file reuses it (ready on open after 20 s of looking around). Two runs after: no stall
+  over 50 ms in one, one of 76 ms (the map's first draw) in the other; scrolling, typing, review and idle 2 ms p99 or
+  under. Left: Roslyn's first call hierarchy (a trace) takes 6 s, its own; and it uses 0.6 to 1.3 GB, now also when
+  no C# file is opened. Checked: the m3 check (Roslyn started for Orders.slnx before any C# file opens, the file
+  reusing it); not starting it ahead fails it.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
