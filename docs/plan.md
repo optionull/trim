@@ -943,6 +943,27 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   under. Left: Roslyn's first call hierarchy (a trace) takes 6 s, its own; and it uses 0.6 to 1.3 GB, now also when
   no C# file is opened. Checked: the m3 check (Roslyn started for Orders.slnx before any C# file opens, the file
   reusing it); not starting it ahead fails it.
+- Build, packages, and the owner's large pull requests on docs-builder (2026-10-26). Build: a cold `dotnet build`
+  (145 to 195 s on the M2) stalled the main thread for seconds; a sample showed AppKit saving window state for
+  restoration, waiting on the disk the build kept busy (windows are not restorable now). The stalls left are the
+  machine's (the main thread idle in the samples, waiting to be scheduled, with 12 GB swapped and the compiler server
+  at 2.7 GB); running the build at utility QoS did not change them and was not kept. Packages: 72 s before anything
+  showed; now the SDK's list shows first (9.5 s), newer versions next, advisories and deprecations last (asked after
+  the listing: at the same time they slowed it threefold), the last answers are kept in `.sill/packages` and shown
+  at once (0.7 s), and JSON is read off the main thread. Drawing: fonts were looked up by name for every string
+  drawn, and one-line strings laid out to truncate whether they fit or not (packages 50 to 20 ms a draw, the map 5.2
+  to 4.0). The owner's pull requests (#4530: 648 files, +59.7k; #4174; the stacked #4179 onto chore/dotnet-11), read
+  through a stand-in gh on GitHub's public API, since the owner's gh token is not authorized for the elastic
+  organization's single sign-on (sill now says so, and how to authorize it): the review's file list drew all 648
+  files (102 ms a draw, 4.2 now that it draws what fits), did not scroll (it follows the selection now, the wheel
+  scrolls it, and it says how many are above and below), and cut paths before their file name (the name first now);
+  the walkthrough's prompt listed every file (54k characters; folders with their counts and the largest files past
+  60 files, 5.6k); the PR pane did not say where a pull request changes things (it outlines its changes against
+  where the branch left its base now, and the agent's `pull_request` text does too), listed 47 passed checks one by
+  one (counted in a line now), and showed bots' HTML comments (stripped). A stacked pull request's base must be
+  fetched; without it the review says to fetch rather than compare with the wrong base. Not done: rename detection
+  (the review counts a rename as a delete and an add: 669 files for GitHub's 648), and a pane's first opening costs
+  about 250 ms once.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

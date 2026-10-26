@@ -54,4 +54,13 @@ import Testing
         let merged = try #require(PullRequest.parse(Data(json.utf8)).last)
         #expect(merged.insights(PullRequest.Branch(name: "x", unpushed: 4)).map(\.text) == ["Merged into main"])
     }
+
+    @Test func bodiesWithoutTheirHTMLComments() throws {
+        let json = """
+        [{"number": 1, "latestReviews": [{"author": {"login": "bot"}, "state": "COMMENTED",
+          "body": "Looks fine.\\n<!-- bot-id: 42\\nrun: 7 -->\\n"}]}]
+        """
+        let pr = try #require(PullRequest.parse(Data(json.utf8)).first)
+        #expect(pr.remarks.first?.body == "Looks fine.")
+    }
 }

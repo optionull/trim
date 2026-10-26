@@ -66,13 +66,14 @@ public struct PullRequest: Equatable, Sendable {
             }
             let reviews = (pr["latestReviews"] as? [[String: Any]] ?? []).map {
                 Remark(
-                    review: $0["state"] as? String, author: login($0["author"]), body: $0["body"] as? String ?? "",
+                    review: $0["state"] as? String, author: login($0["author"]),
+                    body: Self.visible($0["body"] as? String),
                     at: ($0["submittedAt"] as? String).flatMap(dates.date(from:))
                 )
             }
             let comments = (pr["comments"] as? [[String: Any]] ?? []).map {
                 Remark(
-                    review: nil, author: login($0["author"]), body: $0["body"] as? String ?? "",
+                    review: nil, author: login($0["author"]), body: Self.visible($0["body"] as? String),
                     at: ($0["createdAt"] as? String).flatMap(dates.date(from:))
                 )
             }
@@ -188,6 +189,12 @@ public struct PullRequest: Equatable, Sendable {
             }
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// A body as it shows on GitHub: without its HTML comments (bots leave their bookkeeping in them).
+    static func visible(_ body: String?) -> String {
+        (body ?? "").replacingOccurrences(of: "<!--[\\s\\S]*?-->", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }

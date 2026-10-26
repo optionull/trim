@@ -93,12 +93,27 @@ final class PullRequestView: NSView, ToolContent {
         }
         if insights.isEmpty { row(text("Nothing to see to.", 14, Design.textMuted)) }
 
+        // Where it changes things: the files, or for a large one its folders, most changed first.
+        if !pulls.changes.isEmpty {
+            let added = pulls.changes.reduce(0) { $0 + $1.added }, removed = pulls.changes.reduce(0) { $0 + $1.removed }
+            heading("Changes · \(pulls.changes.count) files · +\(added) −\(removed)")
+            let lines = Review.outline(pulls.changes, limit: 12).split(separator: "\n").map(String.init)
+            let shown = pulls.changes
+                .count > 12 ? Array(lines.dropFirst().prefix { $0 != "The largest:" }.prefix(8)) : lines
+            for line in shown {
+                row(text(line.trimmingCharacters(in: .whitespaces), 13, Design.textMuted, mono: true))
+            }
+            if pulls.changes.count > 12 {
+                row(text("v reviews them all, w asks the agent for a walkthrough", 12, Design.textFaint))
+            }
+        }
+
         if !pr.checks.isEmpty {
             heading("Checks")
-            let order: [PullRequest.Check.State] = [.failed, .pending, .passed, .skipped]
-            for check in pr.checks.sorted(by: {
-                (order.firstIndex(of: $0.state) ?? 0) < (order.firstIndex(of: $1.state) ?? 0)
-            }) {
+            // Those that need looking at in full; the passed and skipped counted in a line.
+            let open = pr.checks.filter { $0.state == .failed || $0.state == .pending }
+                .sorted { $0.state == .failed && $1.state != .failed }
+            for check in open {
                 let color: NSColor = switch check.state {
                 case .failed: Design.error
                 case .pending: Design.modified
@@ -109,6 +124,19 @@ final class PullRequestView: NSView, ToolContent {
                 line.append(text("  " + check.state.rawValue, 12, color))
                 if let link = check.link { checkFrames.append((link, NSRect(x: left, y: y, width: width, height: 22))) }
                 row(line, dot: color)
+            }
+            let passed = pr.checks.count(where: { $0.state == .passed })
+            let skipped = pr.checks.count(where: { $0.state == .skipped })
+            if passed + skipped > 0 {
+                row(
+                    text(
+                        [passed > 0 ? "\(passed) passed" : nil, skipped > 0 ? "\(skipped) skipped" : nil]
+                            .compactMap { $0 }.joined(separator: " · "),
+                        13,
+                        Design.textMuted
+                    ),
+                    dot: passed > 0 ? Design.accent : Design.textFaint
+                )
             }
         }
 

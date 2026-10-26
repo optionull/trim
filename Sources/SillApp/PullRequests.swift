@@ -16,6 +16,8 @@ final class PullRequests {
     /// The branch's pull requests, newest first, and the worktree beside them.
     private(set) var all: [PullRequest] = []
     private(set) var branch: PullRequest.Branch?
+    /// What the branch changes against where it left the pull request's base (as of the last fetch), file by file.
+    private(set) var changes: [Review.File] = []
     /// Why there are none to show: no gh, not signed in, no branch.
     private(set) var problem: String?
     private(set) var reading = false
@@ -60,8 +62,8 @@ final class PullRequests {
         onChange?()
         let directory = directory
         Task {
-            let (prs, branch, problem) = await Task.detached { Self.read(in: directory) }.value
-            (all, self.branch, self.problem) = (prs, branch, problem)
+            let (prs, branch, problem, changes) = await Task.detached { Self.read(in: directory) }.value
+            (all, self.branch, self.problem, self.changes) = (prs, branch, problem, changes)
             reading = false
             readAt = Date()
             onChange?()
@@ -71,8 +73,8 @@ final class PullRequests {
     /// Read now, for an agent that asks: the text, once read.
     func readNow() async -> String {
         let directory = directory
-        let (prs, branch, problem) = await Task.detached { Self.read(in: directory) }.value
-        (all, self.branch, self.problem) = (prs, branch, problem)
+        let (prs, branch, problem, changes) = await Task.detached { Self.read(in: directory) }.value
+        (all, self.branch, self.problem, self.changes) = (prs, branch, problem, changes)
         readAt = Date()
         onChange?()
         return text
@@ -88,12 +90,12 @@ final class PullRequests {
     }
 
     /// The branch, its pull requests by gh, and how the worktree stands beside them.
-    nonisolated static func read(in directory: String) -> ([PullRequest], PullRequest.Branch?, String?) {
+    nonisolated static func read(in directory: String) -> ([PullRequest], PullRequest.Branch?, String?, [Review.File]) {
         func git(_ arguments: [String]) -> String? {
             Review.git(arguments, in: directory)?.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         guard let name = git(["rev-parse", "--abbrev-ref", "HEAD"]), name != "HEAD" else {
-            return ([], nil, "Not on a branch.")
+            return ([], nil, "Not on a branch.", [])
         }
         var branch = PullRequest.Branch(name: name)
         branch.uncommitted = (git(["status", "--porcelain"]) ?? "").split(separator: "\n").count
@@ -104,18 +106,23 @@ final class PullRequests {
                 "comments,updatedAt",
         ], in: directory)
         guard status == 0 else {
-            return (
-                [],
-                branch,
-                status == 127 ? "gh is not installed: brew install gh" :
-                    "gh could not read the pull requests: \(String(decoding: output, as: UTF8.self).prefix(200))"
-            )
+            let said = String(decoding: output, as: UTF8.self)
+            // An organization with single sign-on refuses a token not authorized for it: say how to authorize it.
+            let why = status == 127 ? "gh is not installed: brew install gh" :
+                said.contains("SAML") ? "gh's token is not authorized for this organization's single sign-on: " +
+                "authorize it on github.com (Settings, Applications) or run gh auth refresh" :
+                "gh could not read the pull requests: \(said.prefix(200))"
+            return ([], branch, why, [])
         }
         let prs = PullRequest.parse(output)
+        var changes: [Review.File] = []
         if let base = (prs.first { $0.state == "OPEN" } ?? prs.first)?.base, !base.isEmpty {
             branch.behind = Int(git(["rev-list", "--count", "HEAD..origin/\(base)"]) ?? "") ?? 0
+            if let fork = git(["merge-base", "HEAD", "origin/\(base)"]) ?? git(["merge-base", "HEAD", base]) {
+                changes = Review.files(from: fork, to: "HEAD", in: directory)
+            }
         }
-        return (prs, branch, nil)
+        return (prs, branch, nil, changes)
     }
 
     /// gh as the person's shell finds it (`SILL_GH` for the checks): its status and output.
@@ -149,7 +156,11 @@ final class PullRequests {
 
     /// For an agent: the pull request, or why there is none.
     var text: String {
-        if let current { return current.text(branch) }
+        if let current {
+            guard !changes.isEmpty else { return current.text(branch) }
+            return current.text(branch) + "\nIts changes, against where the branch left \(current.base):\n" +
+                Review.outline(changes, limit: 30)
+        }
         return problem ?? "No pull request for the branch \(branch?.name ?? "") yet."
     }
 
