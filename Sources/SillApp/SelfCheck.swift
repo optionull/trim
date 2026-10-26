@@ -346,6 +346,12 @@ final class SelfCheck {
     private func probe(_ script: String) async throws {
         let lines = try String(contentsOfFile: script, encoding: .utf8).components(separatedBy: "\n")
         let started = ContinuousClock.now
+        // The main thread watched throughout, by the phase the script names: what kept the UI waiting.
+        let watch = MainThreadWatch()
+        watch.enter("start")
+        watch.start()
+        defer { watch.stop() }
+        var phases = ["start"]
         func say(_ text: String) {
             let seconds = Double((ContinuousClock.now - started).components.attoseconds) / 1e18 +
                 Double((ContinuousClock.now - started).components.seconds)
@@ -399,6 +405,75 @@ final class SelfCheck {
                     return table.concat(out, ' | ')
                     """)
                     say("tabs: " + (tabs.stringValue ?? ""))
+                case "phase":
+                    watch.enter(argument)
+                    if !phases.contains(argument) { phases.append(argument) }
+                case "until":
+                    // `until <what> [seconds]`: server:<name> ready, the map read, a trace read, the review read, or a
+                    // Lua
+                    // expression true; how long it took.
+                    let words = argument.split(separator: " ", maxSplits: 1).map(String.init)
+                    let what = words[0], limit = Double(words.count > 1 ? words[1] : "") ?? 300
+                    let from = ContinuousClock.now
+                    var done = false
+                    while !done, ContinuousClock.now - from < .seconds(limit) {
+                        if what.hasPrefix("server:") {
+                            done = latest?.languageServers[String(what.dropFirst(7))] == "ready"
+                        } else if what == "map" {
+                            done = app?.mapper.map != nil && app?.mapper.building == false
+                        } else if what == "trace" {
+                            done = app?.tracer.tree != nil && app?.tracer.busy == false
+                        } else if what == "review" {
+                            done = app?.reviewer?.reading == false && app?.reviewer?.current != nil
+                        } else {
+                            done = try await session.channel.lua("return " + what).boolValue == true
+                        }
+                        if !done { try await Task.sleep(for: .milliseconds(50)) }
+                    }
+                    let took = ContinuousClock.now - from
+                    say((done ? "ready" : "not ready") + " after " +
+                        took.formatted(.units(allowed: [.seconds, .milliseconds], width: .narrow)))
+                case "stalls":
+                    for phase in phases {
+                        let summary = watch.summary(phase)
+                        let stalls = watch.allStalls.filter { $0.phase == phase }
+                        say(String(
+                            format: "%@: main thread late by %.0f ms at worst, %.0f ms p99, over %d samples; %d stalls over 50 ms",
+                            phase, summary.worst, summary.p99, summary.samples, stalls.count
+                        ) + (stalls.isEmpty ? "" : " (" + stalls.sorted { $0.milliseconds > $1.milliseconds }.prefix(5)
+                            .map { String(format: "%.0f ms at %.1f s", $0.milliseconds, $0.at) }
+                            .joined(separator: ", ") + ")"))
+                    }
+                case "rss":
+                    // sill and what it started: nvim, the language servers, the sidecar, by resident memory.
+                    let pid = ProcessInfo.processInfo.processIdentifier
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/bin/ps")
+                    process.arguments = ["-axo", "pid=,ppid=,rss=,comm="]
+                    let pipe = Pipe()
+                    process.standardOutput = pipe
+                    try process.run()
+                    let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                    process.waitUntilExit()
+                    let rows = text.split(separator: "\n").compactMap { line -> (Int32, Int32, Int, String)? in
+                        let f = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
+                        guard f.count == 4, let p = Int32(f[0]), let pp = Int32(f[1]), let r = Int(f[2]) else {
+                            return nil
+                        }
+                        return (p, pp, r, (String(f[3]) as NSString).lastPathComponent)
+                    }
+                    var family: Set<Int32> = [pid], grew = true
+                    while grew {
+                        let before = family.count
+                        for row in rows where family.contains(row.1) {
+                            family.insert(row.0)
+                        }
+                        grew = family.count > before
+                    }
+                    let mine = rows.filter { family.contains($0.0) }.sorted { $0.2 > $1.2 }
+                    let total = mine.reduce(0) { $0 + $1.2 }
+                    say("memory: \(total / 1024) MB in all; " + mine.prefix(8).map { "\($0.3) \($0.2 / 1024) MB" }
+                        .joined(separator: ", "))
                 default: say("unknown step")
                 }
             } catch {
