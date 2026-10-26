@@ -428,6 +428,8 @@ final class SelfCheck {
                         } else if what == "packages" {
                             let scanner = app?.packages.scanner
                             done = scanner?.scanning == false && (scanner?.report != nil || scanner?.problem != nil)
+                        } else if what == "pr" {
+                            done = app?.pulls.reading == false && app?.pulls.readAt != nil
                         } else if what == "trace" {
                             done = app?.tracer.tree != nil && app?.tracer.busy == false
                         } else if what == "review" {
@@ -465,6 +467,25 @@ final class SelfCheck {
                         format: "%@ draws in %.1f ms on average, %.1f ms at worst (%.0fx%.0f)",
                         argument, times.reduce(0, +) / 10, times.max() ?? 0, view.bounds.width, view.bounds.height
                     ))
+                case "press":
+                    // A key as the keyboard gives it: to the pane showing first (sill's views), else to nvim.
+                    let event = try require(NSEvent.keyEvent(
+                        with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                        characters: argument, charactersIgnoringModifiers: argument, isARepeat: false, keyCode: 0
+                    ), argument)
+                    if app?.tools.handleKey(event) != true {
+                        _ = await session.channel.request("nvim_input", params: [.string(argument)])
+                    }
+                case "pr":
+                    // What sill says of the branch's pull request: the status bar's label, and what the agent reads.
+                    let pulls = try require(app?.pulls, "the pull requests")
+                    say("status bar: \(pulls.label?.text ?? "nothing")")
+                    say(pulls.text)
+                case "prompt":
+                    // The last prompt sill gave an agent: its size, and its start.
+                    let prompt = app?.agents.lastPrompt ?? ""
+                    say("\(prompt.count) characters, \(prompt.split(separator: "\n").count) lines:\n" +
+                        prompt.split(separator: "\n").prefix(Int(argument) ?? 12).joined(separator: "\n"))
                 case "stalls":
                     for phase in phases {
                         let summary = watch.summary(phase)
