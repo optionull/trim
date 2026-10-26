@@ -62,9 +62,28 @@ final class PackageScanner {
         }
         self.target = target
         scanning = true
+        stage = "listing the packages…"
         problem = nil
         changed()
         let directory = directory
+        // What was found last time, at once, while it is read again: the slow answers come from nuget.org.
+        if report == nil {
+            Task {
+                guard let (cached, read, problems) = await Task.detached(operation: { () -> (
+                    Cached,
+                    PackageReport,
+                    [String]
+                )? in
+                    guard let cached = Self.cached(target: target, in: directory) else { return nil }
+                    return (cached, Self.report(cached), PackageReport.problems(in: cached.all))
+                }).value, scanning, report == nil else { return }
+                report = read
+                advisoriesKnown = cached.vulnerable != nil || cached.deprecated != nil
+                self.problems = problems
+                checkedAt = cached.at
+                changed()
+            }
+        }
         Task {
             do {
                 let restored = try await NativeRecorder.capture(
@@ -75,7 +94,7 @@ final class PackageScanner {
                 }
                 // The SDK's answers, kept even when it exits with an error over a project it could not read: what it
                 // could read is still there.
-                func list(_ flags: [String]) async -> Data? {
+                @Sendable func list(_ flags: [String]) async -> Data? {
                     let result = try? await NativeRecorder.capture(
                         "/usr/bin/env", [
                             "dotnet",
@@ -93,31 +112,84 @@ final class PackageScanner {
                     else { return nil }
                     return data
                 }
-                async let all = list([])
+                // Shown as each answer comes: the packages (seconds), their newest versions from nuget.org's index
+                // (seconds more), then what the SDK asks nuget.org about advisories and deprecations (the slow part,
+                // started after the packages are listed: at the same time it slowed the listing threefold).
+                guard let all = await list([]) else {
+                    throw NativeRecorder.RecordFailure.failed("dotnet list package did not answer")
+                }
                 async let vulnerable = list(["--vulnerable"])
                 async let deprecated = list(["--deprecated"])
-                let (a, v, d) = await (all, vulnerable, deprecated)
-                guard a != nil else { throw NativeRecorder.RecordFailure.failed("dotnet list package did not answer") }
-                // Newer versions from nuget.org's index: the SDK's --outdated fails on many real solutions.
-                report = await Task.detached {
-                    let read = PackageReport.read(
-                        all: a,
-                        vulnerable: v,
-                        outdated: nil,
-                        highestPatch: nil,
-                        deprecated: d
-                    )
-                    return await read.with(versions: Self.versions(of: read.packages.map(\.id)))
-                }.value
-                problems = PackageReport.problems(in: a)
+                stage = "reading newer versions…"
+                var answers = Cached(all: all, vulnerable: nil, deprecated: nil, versions: [:], at: Date())
+                await publish(answers)
+                answers.versions = await Self.versions(of: report?.packages.map(\.id) ?? [])
+                stage = "asking nuget.org about advisories and deprecations…"
+                await publish(answers)
+                (answers.vulnerable, answers.deprecated) = await (vulnerable, deprecated)
+                stage = nil
+                await publish(answers)
                 origins = [:]
-                checkedAt = Date()
+                checkedAt = answers.at
+                let saved = answers
+                await Task.detached { Self.save(saved, target: target, in: directory) }.value
             } catch {
                 problem = "\(error)"
             }
+            stage = nil
             scanning = false
             changed()
         }
+    }
+
+    /// Where the scan is while it still runs: what is not known yet.
+    private(set) var stage: String? = "listing the packages…"
+
+    /// Whether the report shown has the SDK's answers about vulnerabilities and deprecations (a remembered one does).
+    private(set) var advisoriesKnown = false
+    var advisoriesPending: Bool { report != nil && !advisoriesKnown }
+
+    /// The SDK's answers and nuget.org's versions, as the scan had them: what the report is read from, and kept.
+    struct Cached: Codable, Sendable {
+        var all: Data
+        var vulnerable: Data?
+        var deprecated: Data?
+        var versions: [String: [String]]
+        var at: Date
+    }
+
+    private func publish(_ answers: Cached) async {
+        (report, problems) = await Task.detached { (Self.report(answers), PackageReport.problems(in: answers.all)) }
+            .value
+        advisoriesKnown = answers.vulnerable != nil || answers.deprecated != nil
+        changed()
+    }
+
+    nonisolated static func report(_ answers: Cached) -> PackageReport {
+        PackageReport.read(
+            all: answers.all, vulnerable: answers.vulnerable, outdated: nil, highestPatch: nil,
+            deprecated: answers.deprecated
+        ).with(versions: answers.versions)
+    }
+
+    /// The last scan's answers, in the repository's .sill (never committed): one file per solution.
+    nonisolated static func cacheFile(target: String, in directory: String) -> String {
+        SillFolder.path(for: directory) + "/packages/" + (target as NSString).lastPathComponent + ".json"
+    }
+
+    nonisolated static func cached(target: String, in directory: String) -> Cached? {
+        guard let data = FileManager.default.contents(atPath: cacheFile(target: target, in: directory)) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(Cached.self, from: data)
+    }
+
+    nonisolated static func save(_ answers: Cached, target: String, in directory: String) {
+        let file = cacheFile(target: target, in: directory)
+        try? FileManager.default.createDirectory(
+            atPath: (file as NSString).deletingLastPathComponent, withIntermediateDirectories: true
+        )
+        try? JSONEncoder().encode(answers).write(to: URL(fileURLWithPath: file))
     }
 
     /// What the SDK could not read.
@@ -276,6 +348,8 @@ final class PackagesView: NSView, ToolContent {
         var deprecated: [PackageReport.Package] = []
         var upToDate: [PackageReport.Package] = []
         var safe: [PackageReport.Package] = []
+        /// The outdated ones by how far behind (major, minor, patch): reading versions is not for every draw.
+        var changes: [PackageReport.Change: Int] = [:]
 
         init() {}
 
@@ -286,6 +360,7 @@ final class PackagesView: NSView, ToolContent {
             deprecated = attention.filter(\.isDeprecated)
             upToDate = report.upToDate
             safe = report.packages.filter { !$0.transitive && $0.safeUpdate != nil }
+            changes = Dictionary(grouping: outdated.compactMap(\.change), by: { $0 }).mapValues(\.count)
         }
     }
 
@@ -342,7 +417,7 @@ final class PackagesView: NSView, ToolContent {
         bounds.fill()
         needsLayout = true
         let target = scanner.target.map { ((($0 as NSString).lastPathComponent) as NSString).deletingPathExtension }
-        let status = scanner.scanning ? "checking…" : scanner.checkedAt.map {
+        let status = scanner.scanning ? (scanner.stage ?? "checking…") : scanner.checkedAt.map {
             "advisories checked " + (Date().timeIntervalSince($0) < 60 ? "just now" :
                 RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()))
         } ?? ""
@@ -376,7 +451,7 @@ final class PackagesView: NSView, ToolContent {
         let vulnerableDetail = ["critical", "high", "moderate", "low"].compactMap { severity in
             severities[severity].map { "\($0) \(severity)" }
         }.joined(separator: ", ")
-        let changes = Dictionary(grouping: lists.outdated.compactMap(\.change), by: { $0 }).mapValues(\.count)
+        let changes = lists.changes
         let outdatedDetail = [PackageReport.Change.major, .minor, .patch].compactMap { change in
             changes[change].map { "\($0) \(change.rawValue)" }
         }.joined(separator: ", ")
@@ -412,8 +487,15 @@ final class PackagesView: NSView, ToolContent {
             (index == 0 && card.0 > 0 ? Design.error : Design.border).setStroke()
             shape.lineWidth = 1
             shape.stroke()
-            text("\(card.0)", 26, card.0 == 0 && index < 3 ? Design.textFaint : card.3, weight: .semibold)
-                .draw(at: NSPoint(x: rect.minX + 18, y: rect.minY + 10))
+            // Not asked yet: a dash, not a zero that would say none.
+            let pending = scanner.advisoriesPending && (index == 0 || index == 2)
+            text(
+                pending ? "–" : "\(card.0)",
+                26,
+                card.0 == 0 && index < 3 ? Design.textFaint : card.3,
+                weight: .semibold
+            )
+            .draw(at: NSPoint(x: rect.minX + 18, y: rect.minY + 10))
             text(card.1, 13).draw(at: NSPoint(x: rect.minX + 18, y: rect.minY + 48))
             text(card.2, 12, Design.textMuted).draw(at: NSPoint(x: rect.minX + 18, y: rect.minY + 66))
         }
@@ -492,10 +574,7 @@ final class PackagesView: NSView, ToolContent {
             }
             let midY = rect.midY
             let name = text(package.id, 14)
-            name.draw(
-                with: NSRect(x: 28, y: midY - 9, width: columns[1].1 - 40, height: 18),
-                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
-            )
+            name.drawLine(in: NSRect(x: 28, y: midY - 9, width: columns[1].1 - 40, height: 18))
             if package.transitive {
                 _ = badge(
                     "transitive",
