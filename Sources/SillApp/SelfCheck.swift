@@ -421,6 +421,13 @@ final class SelfCheck {
                             done = latest?.languageServers[String(what.dropFirst(7))] == "ready"
                         } else if what == "map" {
                             done = app?.mapper.map != nil && app?.mapper.building == false
+                        } else if what == "build" {
+                            done = app?.builds.running == nil && app?.builds.last != nil
+                        } else if what == "packages-shown" {
+                            done = app?.packages.scanner.report != nil
+                        } else if what == "packages" {
+                            let scanner = app?.packages.scanner
+                            done = scanner?.scanning == false && (scanner?.report != nil || scanner?.problem != nil)
                         } else if what == "trace" {
                             done = app?.tracer.tree != nil && app?.tracer.busy == false
                         } else if what == "review" {
@@ -439,6 +446,7 @@ final class SelfCheck {
                     let views: [String: NSView?] = [
                         "map": tools.map, "review": tools.review, "trace": tools.trace, "pr": tools.pullRequest,
                         "replay": tools.replay, "explorer": tools.sidebar.explorer, "panel": tools.panel,
+                        "packages": tools.packages,
                         "editor": editor,
                     ]
                     guard let found = views[argument], let view = found, !view.isHidden else {
