@@ -254,8 +254,7 @@ final class Reviewer {
             try? FileManager.default.createDirectory(atPath: folder + "/examples", withIntermediateDirectories: true)
             let path = folder + "/review.walk.md"
             walkthroughAsked = path
-            let list = files.map { "  \($0.status.rawValue) \($0.path) +\($0.added) −\($0.removed)" }
-                .joined(separator: "\n")
+            let list = Review.outline(files) + (files.count > 60 ? "\n(`git diff --stat` for every file)" : "")
             let worktree = SillFolder.worktreeRoot(for: directory) ?? directory
             agents.send(headline: "Write a review walkthrough of the changes since \(base.name)", """
             Write a walkthrough of the changes made since \(base

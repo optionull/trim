@@ -12,6 +12,13 @@ public enum Review {
         public var status: Status
         public var added: Int
         public var removed: Int
+
+        public init(path: String, status: Status, added: Int, removed: Int) {
+            self.path = path
+            self.status = status
+            self.added = added
+            self.removed = removed
+        }
     }
 
     public struct Hunk: Equatable, Sendable {
@@ -44,6 +51,35 @@ public enum Review {
         let environment = ["GIT_INDEX_FILE": index]
         guard git(["add", "-A", "."], in: directory, environment: environment) != nil else { return nil }
         return git(["write-tree"], in: directory, environment: environment)?.trimmed
+    }
+
+    /// The files for a prompt: each one, or for a large change (more than `limit`) its folders, two levels deep, with
+    /// how many files and lines each has changed, most changed first, and the largest files: a pull request of
+    /// hundreds of files is not read from a list of them.
+    public static func outline(_ files: [File], limit: Int = 60) -> String {
+        let line = { (file: File) in "  \(file.status.rawValue) \(file.path) +\(file.added) −\(file.removed)" }
+        guard files.count > limit else { return files.map(line).joined(separator: "\n") }
+        var folders: [String: (files: Int, added: Int, removed: Int)] = [:]
+        for file in files {
+            let parts = file.path.split(separator: "/").dropLast()
+            let folder = parts.isEmpty ? "(the root)" : parts.prefix(2).joined(separator: "/") + "/"
+            folders[folder, default: (0, 0, 0)].files += 1
+            folders[folder, default: (0, 0, 0)].added += file.added
+            folders[folder, default: (0, 0, 0)].removed += file.removed
+        }
+        let added = files.reduce(0) { $0 + $1.added }, removed = files.reduce(0) { $0 + $1.removed }
+        var lines = ["\(files.count) files, +\(added) −\(removed), by folder:"]
+        lines += folders.sorted { ($0.value.added + $0.value.removed, $1.key) > (
+            $1.value.added + $1.value.removed,
+            $0.key
+        ) }
+        .map {
+            "  \($0.key) \($0.value.files) file\($0.value.files == 1 ? "" : "s") +\($0.value.added) −\($0.value.removed)"
+        }
+        lines.append("The largest:")
+        lines += files.sorted { ($0.added + $0.removed, $1.path) > ($1.added + $1.removed, $0.path) }.prefix(20)
+            .map(line)
+        return lines.joined(separator: "\n")
     }
 
     /// The files that differ between two trees, by path.

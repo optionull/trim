@@ -72,3 +72,24 @@ struct FileEventsTests {
         #expect(!FileEvents.temporary("/w/a.txt") && !FileEvents.temporary("/w/Program.cs"))
     }
 }
+
+@Suite struct ReviewOutlineTests {
+    @Test func aFewFilesAreListed() {
+        let files = [Review.File(path: "src/A.cs", status: .modified, added: 3, removed: 1)]
+        #expect(Review.outline(files) == "  M src/A.cs +3 −1")
+    }
+
+    @Test func manyFilesAreOutlinedByFolder() {
+        var files = (1 ... 70).map { Review.File(path: "src/Lib/F\($0).cs", status: .added, added: 10, removed: 0) }
+        files.append(Review.File(path: "tests/Lib.Tests/Big.cs", status: .modified, added: 900, removed: 100))
+        files.append(Review.File(path: "README.md", status: .modified, added: 1, removed: 1))
+        let outline = Review.outline(files)
+        let lines = outline.split(separator: "\n").map(String.init)
+        #expect(lines[0] == "72 files, +1601 −101, by folder:")
+        #expect(lines[1] == "  tests/Lib.Tests/ 1 file +900 −100")
+        #expect(lines[2] == "  src/Lib/ 70 files +700 −0")
+        #expect(lines[3] == "  (the root) 1 file +1 −1")
+        #expect(lines[4] == "The largest:" && lines[5] == "  M tests/Lib.Tests/Big.cs +900 −100")
+        #expect(lines.count == 4 + 1 + 20)
+    }
+}
