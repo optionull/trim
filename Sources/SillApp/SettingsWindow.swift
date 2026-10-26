@@ -82,6 +82,7 @@ final class SettingsWindow: NSWindow {
             defer: false
         )
         title = "Settings"
+        isRestorable = false
         isReleasedWhenClosed = false
         appearance = NSAppearance(named: .darkAqua)
         backgroundColor = Design.chrome

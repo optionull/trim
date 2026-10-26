@@ -106,6 +106,8 @@ final class ShellDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
+        // Nothing of it is restored, so AppKit has no state of it to save (on the main thread, waiting on the disk).
+        window.isRestorable = false
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = false

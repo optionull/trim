@@ -193,6 +193,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             defer: false
         )
         window.title = "sill"
+        // Nothing of it is restored: AppKit saving its state for that waited on the disk on the main thread, seconds
+        // at a time while a build wrote to it.
+        window.isRestorable = false
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.backgroundColor = Design.chrome
