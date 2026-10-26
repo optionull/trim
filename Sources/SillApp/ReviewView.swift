@@ -8,6 +8,9 @@ final class ReviewView: NSView, ToolContent {
     let reviewer: Reviewer
     private var baselineFrames: [(Int, NSRect)] = []
     private var fileFrames: [(Int, NSRect)] = []
+    /// The first file the list shows, and the selection it last followed.
+    private var firstFile = 0
+    private var followed = -1
     private var actionFrames: [(String, Int, NSRect)] = []
     /// The hunk the keys act on.
     private(set) var selectedHunk = 0
@@ -98,7 +101,19 @@ final class ReviewView: NSView, ToolContent {
         Design.chrome.setFill()
         column.fill()
         var y = column.minY + 8
-        for (index, file) in reviewer.files.enumerated() {
+        // Only the rows that fit, the selected one among them: a large pull request has hundreds of files.
+        let reserved = reviewer.comments.isEmpty ? 0 : CGFloat(36 + 36 * min(reviewer.comments.count, 4))
+        // Above the keys along the bottom, with room for the count of what is above and below.
+        let fit = max(Int((column.height - 16 - reserved - PaneBar.footer - 24) / 30), 1)
+        let count = reviewer.files.count
+        // The list follows the selection when it moves; the wheel scrolls it freely.
+        if reviewer.selectedFile != followed {
+            followed = reviewer.selectedFile
+            if followed < firstFile { firstFile = followed }
+            if followed >= firstFile + fit { firstFile = followed - fit + 1 }
+        }
+        firstFile = max(min(firstFile, count - fit), 0)
+        for (index, file) in reviewer.files.enumerated().dropFirst(firstFile).prefix(fit) {
             let rect = NSRect(x: 0, y: y, width: list, height: 30)
             if index == reviewer.selectedFile {
                 Design.selection.setFill()
@@ -110,15 +125,24 @@ final class ReviewView: NSView, ToolContent {
             case .modified: ("M", Design.modified)
             }
             text(status.0, 12, status.1, weight: .semibold).draw(at: NSPoint(x: 16, y: y + 7))
-            text(file.path, 13).draw(
-                with: NSRect(x: 36, y: y + 6, width: list - 130, height: 18),
-                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
-            )
+            // The file's name first, its folder after it: in a long list the name is what is looked for.
+            let name = NSMutableAttributedString(attributedString: text((file.path as NSString).lastPathComponent, 13))
+            let folder = (file.path as NSString).deletingLastPathComponent
+            if !folder.isEmpty { name.append(text("  " + folder, 12, Design.textFaint)) }
+            name.drawLine(in: NSRect(x: 36, y: y + 6, width: list - 130, height: 18))
             let counts = NSMutableAttributedString(attributedString: text("+\(file.added) ", 12, Design.accent))
             counts.append(text("−\(file.removed)", 12, Design.error))
             counts.draw(at: NSPoint(x: list - counts.size().width - 14, y: y + 7))
             fileFrames.append((index, rect))
             y += 30
+        }
+        if count > fit {
+            let above = firstFile, below = count - firstFile - fit
+            text(
+                "\(count) files" + (above > 0 ? " · \(above) above" : "") + (below > 0 ? " · \(below) below" : ""),
+                11, Design.textFaint
+            ).draw(at: NSPoint(x: 16, y: y + 4))
+            y += 20
         }
         if !reviewer.comments.isEmpty {
             y += 16
@@ -228,9 +252,21 @@ final class ReviewView: NSView, ToolContent {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        scroll = max(0, scroll - event.scrollingDeltaY * (event.hasPreciseScrollingDeltas ? 1 : 10))
+        if convert(event.locationInWindow, from: nil).x < list {
+            // Over the files: a row at a time.
+            wheel += event.scrollingDeltaY * (event.hasPreciseScrollingDeltas ? 1 : 30)
+            let rows = Int(wheel / 30)
+            if rows != 0 {
+                firstFile = max(firstFile - rows, 0)
+                wheel -= CGFloat(rows) * 30
+            }
+        } else {
+            scroll = max(0, scroll - event.scrollingDeltaY * (event.hasPreciseScrollingDeltas ? 1 : 10))
+        }
         needsDisplay = true
     }
+
+    private var wheel: CGFloat = 0
 
     func perform(_ action: String, _ index: Int) {
         if action == "send" { return reviewer.sendReview() }
