@@ -61,6 +61,8 @@ final class CodeMapView: NSView, ToolContent {
     override func draw(_: NSRect) {
         Design.editor.setFill()
         bounds.fill()
+        // The whole visible part each time (what a click opens is noted as it is drawn), and nothing below it.
+        let shown = visibleRect
         cards = [:]
         links = []
         guard let map = mapper.map else {
@@ -110,8 +112,9 @@ final class CodeMapView: NSView, ToolContent {
         for (index, rect) in placed {
             cards[index] = rect
         }
-        drawEdges(map)
-        for (index, rect) in placed {
+        // Only what shows: a large solution's cards and lines run far below the pane.
+        drawEdges(map, in: shown)
+        for (index, rect) in placed where rect.intersects(shown) {
             drawCard(map.projects[index], index, in: rect)
         }
         drawBar(map)
@@ -153,12 +156,14 @@ final class CodeMapView: NSView, ToolContent {
     }
 
     /// A line from each project down to each it references: the selected one's in the accent.
-    private func drawEdges(_ map: CodeMap) {
+    private func drawEdges(_ map: CodeMap, in dirty: NSRect) {
         let byName = Dictionary(map.projects.enumerated().map { ($1.name, $0) }) { first, _ in first }
         for (index, project) in map.projects.enumerated() {
             guard let from = cards[index] else { continue }
             for reference in project.references {
-                guard let target = byName[reference], let to = cards[target] else { continue }
+                guard let target = byName[reference], let to = cards[target], from.union(to).intersects(dirty) else {
+                    continue
+                }
                 let lit = selected == index || selected == target
                 // Tests reference nearly everything: their lines only for the selected.
                 if project.kind == .test, !lit { continue }
