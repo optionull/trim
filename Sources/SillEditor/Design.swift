@@ -45,13 +45,20 @@ package enum Design {
 
     package static let radius: CGFloat = 8
 
-    /// The chrome's typeface: Inter when installed, else the system's.
+    /// The chrome's typeface: Inter when installed, else the system's. Each size and weight is made once: looking a
+    /// font up by name, dozens of times a draw, was most of what drawing a pane cost.
     package static func ui(_ size: CGFloat = 13, weight: NSFont.Weight = .regular) -> NSFont {
-        if let inter = NSFont(name: "Inter", size: size) {
-            return NSFontManager.shared.convert(inter, toHaveTrait: weight >= .semibold ? .boldFontMask : [])
-        }
-        return .systemFont(ofSize: size, weight: weight)
+        let key = "\(size) \(weight.rawValue)"
+        if let font = fontLock.withLock({ fonts[key] }) { return font }
+        let font = NSFont(name: "Inter", size: size).map {
+            NSFontManager.shared.convert($0, toHaveTrait: weight >= .semibold ? .boldFontMask : [])
+        } ?? .systemFont(ofSize: size, weight: weight)
+        fontLock.withLock { fonts[key] = font }
+        return font
     }
+
+    private static let fontLock = NSLock()
+    private nonisolated(unsafe) static var fonts: [String: NSFont] = [:]
 }
 
 package extension NSColor {

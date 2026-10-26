@@ -62,15 +62,12 @@ enum PaneBar {
         let left = 16 + heading.size().width + 12
         if !detail.isEmpty, x - 8 > left {
             let line = text(detail, 12, Design.textMuted)
-            line.draw(
-                with: NSRect(
-                    x: left,
-                    y: (height - line.size().height) / 2,
-                    width: x - 8 - left,
-                    height: line.size().height
-                ),
-                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
-            )
+            line.drawLine(in: NSRect(
+                x: left,
+                y: (height - line.size().height) / 2,
+                width: x - 8 - left,
+                height: line.size().height
+            ))
         }
         return frames
     }
@@ -111,15 +108,12 @@ enum PaneBar {
         Design.border.setFill()
         NSRect(x: 0, y: strip.minY, width: bounds.width, height: 1).fill()
         let line = text(keys + "  ·  q back", 11, Design.textFaint)
-        line.draw(
-            with: NSRect(
-                x: 16,
-                y: strip.midY - line.size().height / 2,
-                width: bounds.width - 32,
-                height: line.size().height
-            ),
-            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
-        )
+        line.drawLine(in: NSRect(
+            x: 16,
+            y: strip.midY - line.size().height / 2,
+            width: bounds.width - 32,
+            height: line.size().height
+        ))
     }
 
     private static func text(
@@ -132,5 +126,18 @@ enum PaneBar {
             string: string,
             attributes: [.font: Design.ui(size, weight: weight), .foregroundColor: color]
         )
+    }
+}
+
+extension NSAttributedString {
+    /// One line in `rect`, cut with an ellipsis only when it does not fit: laying a line out to cut it costs
+    /// milliseconds a string, and most fit.
+    func drawLine(in rect: NSRect) {
+        let size = size()
+        if size.width <= rect.width {
+            draw(at: NSPoint(x: rect.minX, y: rect.minY))
+        } else {
+            draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+        }
     }
 }
