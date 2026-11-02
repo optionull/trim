@@ -19,7 +19,9 @@ end
 local function by_servers(wanted)
   local parts = vim.split(wanted, '.', { plain = true })
   for _, client in ipairs(vim.lsp.get_clients()) do
-    if client.server_capabilities.workspaceSymbolProvider then
+    -- Roslyn still loading its projects (started ahead, before any C# file) would make this wait: the text, then.
+    local loading = client.name == 'roslyn' and not require('sill.roslyn').loaded[client.id]
+    if client.server_capabilities.workspaceSymbolProvider and not loading then
       local answer = client:request_sync('workspace/symbol', { query = parts[#parts] }, 8000)
       for _, symbol in ipairs(answer and answer.result or {}) do
         if matches(symbol, wanted) and symbol.location and symbol.location.uri then

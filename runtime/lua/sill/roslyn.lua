@@ -6,6 +6,9 @@
 -- C# server keeps its own.
 local M = {}
 
+-- The Roslyn clients whose projects have loaded: asked before that, a question waits for the load.
+M.loaded = {}
+
 M.filetypes = { 'cs', 'razor' }
 
 vim.filetype.add({ extension = { razor = 'razor', cshtml = 'razor' } })
@@ -118,6 +121,7 @@ local function config(root, target, dll, logs)
     end,
     handlers = vim.tbl_extend('force', html_handlers(), {
       ['workspace/projectInitializationComplete'] = function(_, _, ctx)
+        M.loaded[ctx.client_id] = true
         state('ready')
         -- Pull diagnostics again for what is open, now the projects are loaded.
         for _, b in ipairs(vim.api.nvim_list_bufs()) do
