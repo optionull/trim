@@ -12,6 +12,8 @@ final class Stories {
     private(set) var story: Story?
     private(set) var walkthroughs: [CheckoutState.Prepared] = []
     private(set) var agent: AgentActivity?
+    /// What the newest handoff offers to run.
+    private(set) var handoffRuns: [HandoffFile.Run] = []
     private(set) var reading = false
     private var again = false
     var onChange: (() -> Void)?
@@ -30,24 +32,21 @@ final class Stories {
         reading = true
         let directory = directory
         Task {
-            let (story, walkthroughs, agent) = await Task.detached { () -> (
-                Story,
-                [CheckoutState.Prepared],
-                AgentActivity?
-            ) in
+            let (story, walkthroughs, agent, runs) = await Task.detached {
                 let repository = SillFolder.mainRoot(for: directory) ?? directory
                 let checkout = Checkout(
-                    path: directory,
-                    repository: realPath(repository),
-                    isWorktree: realPath(repository) != directory
+                    path: directory, repository: realPath(repository), isWorktree: realPath(repository) != directory
                 )
+                let walkthroughs = CheckoutState.prepared(for: checkout)
+                let runs = walkthroughs.first { $0.kind == "handoff" }
+                    .flatMap { try? String(contentsOfFile: $0.path, encoding: .utf8) }
+                    .map { HandoffFile.runs(in: Walkthrough($0)) } ?? []
                 return (
-                    Story.read(directory, transcripts: HomeModel.transcripts),
-                    CheckoutState.prepared(for: checkout),
-                    AgentActivity.read(cwd: directory, transcripts: HomeModel.transcripts)
+                    Story.read(directory, transcripts: HomeModel.transcripts), walkthroughs,
+                    AgentActivity.read(cwd: directory, transcripts: HomeModel.transcripts), runs
                 )
             }.value
-            (self.story, self.walkthroughs, self.agent) = (story, walkthroughs, agent)
+            (self.story, self.walkthroughs, self.agent, handoffRuns) = (story, walkthroughs, agent, runs)
             reading = false
             onChange?()
             if again {

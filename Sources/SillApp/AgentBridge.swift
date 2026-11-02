@@ -115,7 +115,7 @@ final class AgentBridge {
                 await self?.callOpen(arguments) ?? gone
             },
         ] + debugTools(gone) + profileTools(gone) + walkTools(gone) + telemetryTools(gone) + mapTools(gone) +
-            pullRequestTools(gone) +
+            pullRequestTools(gone) + handoffTools(gone) +
             basketTools(gone) + [
                 Tool(
                     name: "annotate",
@@ -341,6 +341,82 @@ final class AgentBridge {
         else { return ToolResult(tracer.problem ?? "Nothing to trace there", isError: true) }
         await tracer.load(depth: min(max(asked.depth ?? 3, 1), 6))
         return ToolResult(tracer.tree?.text(relativeTo: directory) ?? "")
+    }
+
+    private struct HandoffArguments: Decodable {
+        struct Read: Decodable {
+            var path: String
+            var from: Int?
+            var to: Int?
+            var why: String?
+        }
+
+        struct Run: Decodable {
+            var name: String?
+            var command: String
+        }
+
+        var title: String
+        var summary: String
+        var by: String?
+        var read: [Read]?
+        var run: [Run]?
+    }
+
+    /// The handoff: what the agent did, written for the person to read and run in sill.
+    private func handoff(_ data: Data) async -> ToolResult {
+        guard let asked = try? JSONDecoder().decode(HandoffArguments.self, from: data) else {
+            return ToolResult("sill_handoff needs a title and a summary", isError: true)
+        }
+        let root = SillFolder.worktreeRoot(for: directory) ?? directory
+        let read = asked.read?.map { file -> HandoffFile.Read in
+            let path = file.path.hasPrefix(root + "/") ? String(file.path.dropFirst(root.count + 1)) : file.path
+            return HandoffFile.Read(
+                path: path, lines: file.from.map { $0 ... max(file.to ?? $0, $0) }, why: file.why
+            )
+        } ?? []
+        let missing = read.filter { !FileManager.default.fileExists(atPath: root + "/" + $0.path) }.map(\.path)
+        guard missing.isEmpty else {
+            return ToolResult(
+                "Not in this checkout: \(missing.joined(separator: ", ")); paths are from its root",
+                isError: true
+            )
+        }
+        let text = HandoffFile.text(
+            title: asked.title, summary: asked.summary, worktree: root, by: asked.by ?? "the agent", read: read,
+            run: asked.run?.map { HandoffFile.Run(name: $0.name ?? $0.command, command: $0.command) } ?? []
+        )
+        let folder = SillFolder.path(for: directory) + "/handoffs"
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let path = folder + "/" + HandoffFile.fileName(title: asked.title)
+        do {
+            try text.write(toFile: path, atomically: true, encoding: .utf8)
+        } catch {
+            return ToolResult("The handoff could not be written: \(error)", isError: true)
+        }
+        app?.stories?.refresh()
+        app?.runner?.refresh()
+        return ToolResult("Handed off: \(path). The person sees it in sill (Home marks it new), with its runs.")
+    }
+
+    private func handoffTools(_ gone: ToolResult) -> [Tool] {
+        [
+            Tool(
+                name: "sill_handoff",
+                description: "Hand your finished task to the person, in sill: call it when you are done. A title, a " +
+                    "short summary (what changed and why), read: the files to read in order, each {path (from the " +
+                    "checkout's root), from, to, why}, and run: what shows it working, each {name, command} run from " +
+                    "the root (the tests you touched, the program). sill shows it as a walkthrough, marked new, and " +
+                    "offers the runs.",
+                properties: [
+                    "title": ["type": "string"], "summary": ["type": "string"], "by": ["type": "string"],
+                    "read": ["type": "array"], "run": ["type": "array"],
+                ],
+                required: ["title", "summary"]
+            ) { [weak self] data in
+                await self?.call("sill_handoff") { bridge in await bridge.handoff(data) } ?? gone
+            },
+        ]
     }
 
     private func pullRequestTools(_ gone: ToolResult) -> [Tool] {

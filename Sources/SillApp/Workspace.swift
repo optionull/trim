@@ -144,6 +144,7 @@ final class Workspace: NSObject, NSWindowDelegate {
         stories.onChange = { [weak self] in
             guard let self else { return }
             tools.summary?.changed()
+            tools.run?.changed()
             tools.sidebar.explorer.setTouched(stories.story?.touched ?? [])
         }
         tools.makeSummary = { [weak self] in
@@ -220,6 +221,11 @@ final class Workspace: NSObject, NSWindowDelegate {
             guard let self else { fatalError("the app is gone") }
             let view = WalkView(walker: walker)
             walker.onChange = { [weak view] in view?.changed() }
+            view.onRunCommand = { [weak self] name, command in self?.runner.run(
+                name: name,
+                command: command,
+                directory: ""
+            ) }
             return view
         }
         tools.makeReview = { [weak self] in

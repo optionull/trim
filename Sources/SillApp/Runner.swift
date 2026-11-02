@@ -42,6 +42,9 @@ final class Runner {
         }
     }
 
+    /// What the newest handoff offers to run.
+    var fromAgent: [HandoffFile.Run] { app?.stories?.handoffRuns ?? [] }
+
     /// The runnables the branch's touched files are in.
     var touched: [Runnable] {
         let files = app?.stories.story?.touched.map(\.path) ?? []
@@ -76,7 +79,9 @@ final class Runner {
         let configured = Set(configurations.configurations.map { "\($0.name)|\($0.directory)" })
         let others = (touched + runnables).filter { !configured.contains("\($0.name)|\($0.directory)") }
         var seen: Set<String> = []
-        let items: [(String, String, String, String)] = configurations.configurations.map {
+        let items: [(String, String, String, String)] = fromAgent.map {
+            ($0.name, "", $0.command, "★ " + $0.name + "  ·  from the agent")
+        } + configurations.configurations.map {
             ($0.name, $0.directory, $0.command, "↻ " + $0.name)
         } + others.filter { seen.insert("\($0.name)|\($0.directory)").inserted }.map {
             ($0.name, $0.directory, $0.command, $0.name + (touched.contains($0) ? "  ·  touched" : ""))

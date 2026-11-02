@@ -40,6 +40,8 @@ What happens here, in a few sentences. Name things in `code spans`.
     relative to the walkthrough's folder or the repository's root.
 - **Questions:** `@ask <question>` on its own line marks a question worth asking about the step. When one is asked,
   the answer is written right under it as a `>` quote. Don't write answers yourself unless asked.
+- **Runs:** `@run <Name>: <command>` on its own line offers a command to run from the repository's root (the tests
+  that show the step working, the program); the person runs it from the notebook into a terminal.
 
 ## A review walkthrough
 

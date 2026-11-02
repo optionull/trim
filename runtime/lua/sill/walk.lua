@@ -161,7 +161,7 @@ function M.setup()
     end
   end, {
     nargs = '?', complete = 'file',
-    desc = 'Open a walkthrough (*.walk.md): this one, a path, or pick; skill installs the skill that writes them',
+    desc = 'Open a walkthrough (*.walk.md): this one, a path, or pick; skill installs the skills that write them (and handoffs)',
   })
 end
 

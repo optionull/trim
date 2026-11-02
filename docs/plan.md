@@ -1033,6 +1033,20 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   (run-fixture.sh, a Swift package with hello: found, run in a terminal, kept; ⇧⌘R picks it and adds " again", run
   and kept so; ⌘R that again) and `RunnablesTests`; running the command as found instead of as changed fails it.
   Also: the probe's `menu` sends an action without a target to the workspace (off screen no window is in front).
+- Handoff (phase 4, 2026-11-02, owner: agents always hand off). `HandoffFile` writes one: front matter with
+  `status: handoff` and `worktree:`, the summary, "Read in this order" (a why, then `@code path:from-to` per file),
+  "Run it" (`@run Name: command`, a new walkthrough block: a name of up to 40 characters before the first colon, no
+  `/` or `&`, else the whole line is name and command). The notebook shows a run as a box with Run (into a terminal,
+  from the root); `Stories` reads the newest handoff's runs, which the Run pane lists first ("From the agent's
+  handoff") and ⇧⌘R first (★). The `sill_handoff` MCP tool takes title, summary, read `[{path, from, to, why}]`, run
+  `[{name, command}]` and by, refuses a file not in the checkout, and writes `.sill/handoffs/<stamp>-<slug>.walk.md`.
+  The prompt hook tells a session's first prompt how to hand off (the tool, else the file and its format), whether or
+  not editor context is on; the text is found once off the main thread, as finding `.sill` asks git six times and
+  pushed the hook's answer past its 1.5 s. `runtime/skills/sill-handoff` says the same for any agent; `:SillWalk
+  skill` installs it beside the walkthrough skill. Checked: `SILL_CHECK=run` (a missing file refused; the handoff
+  written, its run first in the Run pane; opened, its Run prints `sill-run-hello handed`), `SILL_CHECK=hooks` (the
+  first prompt told, the second not), `SILL_CHECK=walk` (both skills installed) and `HandoffFileTests`. Telling every
+  prompt, dropping the Run pane's handoff section, or a Run cell that does nothing each fail a check.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

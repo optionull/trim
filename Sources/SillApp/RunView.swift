@@ -51,6 +51,13 @@ final class RunView: NSView, ToolContent {
         func key(_ runnable: Runnable) -> String { runnable.name + "|" + runnable.directory }
         let byKey = Dictionary(runner.runnables.map { (key($0), $0) }) { first, _ in first }
         var list: [Item] = []
+        for run in runner.fromAgent {
+            let runnable = Runnable(name: run.name, kind: .script, tool: "", command: run.command)
+            if seen.insert(key(runnable)).inserted { list.append(Item(
+                section: "From the agent's handoff",
+                runnable: runnable
+            )) }
+        }
         for runnable in runner.touched where seen.insert(key(runnable)).inserted {
             list.append(Item(section: "Touched on this branch", runnable: runnable))
         }

@@ -440,6 +440,7 @@ final class Baskets {
                     out += place.lines.prefix(120).enumerated().map { "\(place.from + $0.offset)\t\($0.element)" }
                     out.append("```")
                     if case let .code(anchor, _) = block { out += context.text(anchor.text) }
+                case let .run(name, command, _): out.append("To run, \(name): `\(command)`")
                 case let .trace(symbol, callers, _, _):
                     out
                         .append(walker

@@ -15,6 +15,8 @@ final class WalkView: NSView, ToolContent {
     enum Menu { case outline, files, context }
     private(set) var side: Menu = .outline
     /// For baskets: a piece's anchor removed (its line), the basket sent with a question.
+    /// A `@run` cell's Run: its name and command line.
+    var onRunCommand: ((String, String) -> Void)?
     var onRemove: ((Int) -> Void)?
     var onSend: (() -> Void)?
     var onAskFindings: (() -> Void)?
@@ -523,6 +525,9 @@ final class WalkView: NSView, ToolContent {
                         footerTint: run?.status ?? 0 == 0 ? Design.accent.withAlphaComponent(0.06) :
                             Design.error.withAlphaComponent(0.08)
                     )
+                case let .run(name, command, _):
+                    // Something to run to see it work: its command, and Run (it is then the last run, ⌘R again).
+                    box(name, [mono(command)], facts: ["to run"], actions: [("Run", "command", name + "\t" + command)])
                 case let .trace(symbol, callers, _, _):
                     let tree = walker.traces[symbol + (
                         callers ? " callers" : " callees"
@@ -588,6 +593,9 @@ final class WalkView: NSView, ToolContent {
         let parts = key.split(separator: ":").compactMap { Int($0) }
         switch kind {
         case "run": Task { await walker.run(example: key) }
+        case "command":
+            let parts = key.split(separator: "\t", maxSplits: 1).map(String.init)
+            if parts.count == 2 { onRunCommand?(parts[0], parts[1]) }
         case "remove": if let line = Int(key) { onRemove?(line) }
         case "open":
             if parts.count == 2 {
@@ -627,6 +635,9 @@ final class WalkView: NSView, ToolContent {
             walker.ask(line: nil, question: field.stringValue)
         }
     }
+
+    /// The keys of the actions of `kind` drawn last (for the checks).
+    func drawnActions(_ kind: String) -> [String] { actionFrames.filter { $0.0 == kind }.map(\.1) }
 
     /// The anchor line of the first piece of code showing.
     private func pieceInView() -> Int? {

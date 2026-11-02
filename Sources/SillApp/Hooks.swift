@@ -53,6 +53,7 @@ final class Hooks {
         let server = HookServer(path: socketPath) { [weak self] data in
             await self?.handle(data) ?? Data()
         }
+        _ = handoffInstruction
         do {
             try server.start()
             self.server = server
@@ -89,9 +90,14 @@ final class Hooks {
     func handle(_ data: Data) async -> Data {
         guard let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return Data() }
         handle(event)
-        if event["hook_event_name"] as? String == "UserPromptSubmit", Settings.shared.current.editorContext,
-           let context = await editorContext(session: event["session_id"] as? String ?? "session")
-        {
+        if event["hook_event_name"] as? String == "UserPromptSubmit" {
+            let session = event["session_id"] as? String ?? "session"
+            let said = Settings.shared.current.editorContext ? await editorContext(session: session) : nil
+            // A session's first prompt: how to hand off when it finishes (where it can write, and in what form).
+            let instruction = instructed.insert(session).inserted ? await handoffInstruction.value : nil
+            let parts = [said, instruction].compactMap { $0 }
+            guard !parts.isEmpty else { return Data() }
+            let context = parts.joined(separator: "\n\n")
             return (try? JSONSerialization.data(withJSONObject: ["hookSpecificOutput": [
                 "hookEventName": "UserPromptSubmit", "additionalContext": context,
             ]])) ?? Data()
@@ -113,6 +119,17 @@ final class Hooks {
 
     /// The editor context each session was told last: only what changed is told again.
     private var told: [String: EditorContext] = [:]
+    /// The sessions told how to hand off.
+    private var instructed: Set<String> = []
+    /// How to hand off from here: found once, off the main thread (finding the `.sill` folder asks git several
+    /// times, too slow for a hook's answer).
+    private lazy var handoffInstruction = Task.detached { [directory] in
+        HandoffFile.instruction(
+            folder: SillFolder.path(for: directory) + "/handoffs",
+            worktree: SillFolder.worktreeRoot(for: directory) ?? directory
+        )
+    }
+
     /// A selection older than this is not what a prompt is about.
     static let selectionAge = 600
 

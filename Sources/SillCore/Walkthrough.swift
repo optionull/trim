@@ -46,6 +46,8 @@ public struct Walkthrough: Equatable, Sendable {
         case example(String, line: Int)
         /// A symbol's call tree (`@trace Tax.Of callers 3`): who calls it, or what it calls, so many levels deep.
         case trace(String, callers: Bool, depth: Int, line: Int)
+        /// Something to run to see it work (`@run Tests: dotnet test`), from the checkout's root: a handoff's.
+        case run(name: String, command: String, line: Int)
     }
 
     public struct Step: Equatable, Sendable {
@@ -142,6 +144,17 @@ public struct Walkthrough: Equatable, Sendable {
                 steps[steps.count - 1].blocks.append(.diff(
                     String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespaces),
                     line: number
+                ))
+            } else if trimmed.hasPrefix("@run ") {
+                flush()
+                // `@run Name: command`, or just the command (its name then).
+                let rest = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                let parts = rest.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                // A name: short, before the first colon, not a path or a chain of commands.
+                let named = parts.count == 2 && !parts[0].isEmpty && parts[0].count <= 40 &&
+                    !parts[0].contains("/") && !parts[0].contains("&")
+                steps[steps.count - 1].blocks.append(.run(
+                    name: named ? parts[0] : rest, command: named ? parts[1] : rest, line: number
                 ))
             } else if trimmed.hasPrefix("@example ") {
                 flush()

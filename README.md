@@ -42,6 +42,15 @@ the repository's `.sill/run.json`; it runs in a terminal at the bottom.
 
 ![The Run pane: the .NET program the branch touched, with Debug, Profile and Run](docs/showcase-run-2026-11-02.png)
 
+## Handoffs
+
+An agent that finishes a task hands it off: a walkthrough in the repository's `.sill/handoffs/` with what changed
+and why, the files to read in order (a sentence each on what to look for) and what to run to see it work (`@run
+Name: command`, a cell the notebook runs into a terminal). Home marks it new; the checkout opens on it; the Run pane
+and ⇧⌘R offer its runs first. Agents learn it from sill: a session's first prompt is told how (by sill's hooks), the
+agents sill starts call its `sill_handoff` tool, and any other agent can write the file itself (`:SillWalk skill`
+installs the skill that says how).
+
 ## Explorer
 
 A native macOS explorer of a codebase, for steering the coding agents that change it. nvim owns buffers, modes and

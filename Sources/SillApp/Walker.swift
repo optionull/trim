@@ -67,7 +67,9 @@ final class Walker {
         for ask in screen.walkAsks[handled...] {
             switch ask.action {
             case "open": open(ask.argument)
-            case "skill": installSkill()
+            case "skill":
+                installSkill()
+                installSkill("sill-handoff")
             default: break
             }
         }
@@ -327,6 +329,7 @@ final class Walker {
             case let .example(path, _): context.append("(example \(path))")
             case let .trace(symbol, callers, _, _):
                 context.append(traces[symbol + (callers ? " callers" : " callees")] ?? "(the call tree of \(symbol))")
+            case let .run(name, command, _): context.append("(to run, \(name): \(command))")
             case .ask: break
             }
         }

@@ -1251,10 +1251,15 @@ final class SelfCheck {
         let skill = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
             ".claude/skills/sill-walkthrough/SKILL.md"
         ).path
-        _ = try await waitFor("the skill installed", timeout: .seconds(10)) {
-            FileManager.default.fileExists(atPath: skill) ? true : nil
+        let handoff = skill.replacingOccurrences(of: "sill-walkthrough", with: "sill-handoff")
+        _ = try await waitFor("the skills installed", timeout: .seconds(10)) {
+            FileManager.default.fileExists(atPath: skill) && FileManager.default
+                .fileExists(atPath: handoff) ? true : nil
         }
-        step("step 2 shows Clock.Tick's first three lines; :SillWalk skill installed the skill at \(skill)")
+        step(
+            "step 2 shows Clock.Tick's first three lines; :SillWalk skill installed the skills at \(skill) and " +
+                "sill-handoff beside it"
+        )
     }
 
     /// sill's own nvim (`SILL_CHECK=config`, `SILL_CHECK_CONFIG=1`, in a restored git copy of TraceShop): its colours
@@ -1502,6 +1507,11 @@ final class SelfCheck {
             "the prompt's context: \(told)"
         )
         try expect(
+            context.contains("call sill's sill_handoff tool") && context.contains(root + "/.sill/handoffs/<") &&
+                context.contains("worktree: " + root),
+            "the first prompt is told how to hand off: \(context)"
+        )
+        try expect(
             context.contains("Open in the editor: Tax.cs:5") &&
                 context.contains("Selected, Tax.cs:3-5:\n```\n" + tax[2 ... 4].joined(separator: "\n") + "\n```"),
             "the file and the selection: \(context)"
@@ -1511,7 +1521,10 @@ final class SelfCheck {
         try await mode("n")
         let again = try await fire(prompt)
         try expect(!again.contains("additionalContext"), "nothing new, nothing told: \(again)")
-        step("a prompt is told the file open and the lines selected (Tax.cs:3-5), and not again unchanged")
+        step(
+            "a session's first prompt is told how to hand off, and the file open and the lines selected " +
+                "(Tax.cs:3-5); not again unchanged"
+        )
 
         // An investigation open: an edit is reminded of and noted, a turn without findings marks it stopped.
         let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
@@ -1806,6 +1819,63 @@ final class SelfCheck {
                 runner.configurations.last?.command == "swift run hello again" ? true : nil
         }
         step("⌘R: the last run again (swift run hello again)")
+
+        // The agent hands off: a walkthrough in .sill/handoffs, its run offered first, and run from its notebook.
+        let socket = try await waitFor("sill's MCP server") { app.agents.socketPath }
+        let agent = try McpClient(socket)
+        defer { agent.close() }
+        _ = try await agent.request("initialize", [
+            "protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "check", "version": "1"],
+        ])
+        agent.notify("notifications/initialized")
+        let refused = try await agent.call("sill_handoff", [
+            "title": "x", "summary": "x", "read": [["path": "Sources/nope.swift"]],
+        ])
+        try expect(refused.contains("Not in this checkout: Sources/nope.swift"), "a missing file refused: \(refused)")
+        let handed = try await agent.call("sill_handoff", [
+            "title": "Hello takes a greeting", "summary": "hello prints what it is given.", "by": "claude",
+            "read": [[
+                "path": app.workingDirectory + "/Sources/hello/main.swift",
+                "from": 1,
+                "to": 1,
+                "why": "The whole program.",
+            ]],
+            "run": [["name": "Hello greets", "command": "swift run hello handed"]],
+        ])
+        let handoff = try require(
+            handed.components(separatedBy: "Handed off: ").last?.components(separatedBy: ". ").first, "\(handed)"
+        )
+        let walk = Walkthrough((try? String(contentsOfFile: handoff, encoding: .utf8)) ?? "")
+        try expect(
+            handoff.hasPrefix(app.workingDirectory + "/.sill/handoffs/") && handoff
+                .hasSuffix("-hello-takes-a-greeting.walk.md") &&
+                walk.status == "handoff" && walk.worktree == app.workingDirectory &&
+                walk.steps.first?.blocks
+                .contains {
+                    if case let .code(anchor, _) = $0 { anchor.text == "Sources/hello/main.swift:1-1" } else { false }
+                } ==
+                true,
+            "the handoff: \(handoff)\n\(walk)"
+        )
+        _ = try await waitFor("its run offered first") {
+            (app.tools.run?.items.first)
+                .map { $0.section == "From the agent's handoff" && $0.runnable.name == "Hello greets" } == true ? true :
+                nil
+        }
+        step(
+            "sill_handoff: a missing file refused; the handoff written to .sill/handoffs, its run first in the Run pane"
+        )
+
+        let walker = try require(app.walker, "the walker")
+        walker.open(handoff, step: 1)
+        try await wait("the handoff shown") { $0.currentPaneKind == "walk" }
+        let view = try require(app.tools.walk, "the notebook")
+        view.display()
+        let key = try require(view.drawnActions("command").first, "its Run")
+        try expect(key == "Hello greets\tswift run hello handed", "the run: \(key)")
+        view.perform("command", key)
+        try await shown("sill-run-hello handed")
+        step("the handoff's notebook: Run it runs swift run hello handed in a terminal")
     }
 
     /// A hook command run as an agent runs it: `input` on stdin; its status and what it printed.
