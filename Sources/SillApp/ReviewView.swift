@@ -155,6 +155,7 @@ final class ReviewView: NSView, ToolContent {
             case (false, .added): ("A", Design.accent)
             case (false, .deleted): ("D", Design.error)
             case (false, .modified): ("M", Design.modified)
+            case (false, .renamed): ("R", Design.modified)
             }
             text(status.0, 12, status.1, weight: .semibold).draw(at: NSPoint(x: 16, y: y + 7))
             // The file's name first, its folder after it: in a long list the name is what is looked for.
@@ -163,6 +164,11 @@ final class ReviewView: NSView, ToolContent {
             ))
             let folder = (file.path as NSString).deletingLastPathComponent
             if !folder.isEmpty { name.append(text("  " + folder, 12, Design.textFaint)) }
+            if let old = file.oldPath { name.append(text(
+                "  ← " + (old as NSString).lastPathComponent,
+                12,
+                Design.textFaint
+            )) }
             name.drawLine(in: NSRect(x: 36, y: y + 6, width: list - 130, height: 18))
             let counts = NSMutableAttributedString(attributedString: text("+\(file.added) ", 12, Design.accent))
             counts.append(text("−\(file.removed)", 12, Design.error))
@@ -206,7 +212,8 @@ final class ReviewView: NSView, ToolContent {
             .draw(at: NSPoint(x: left, y: y + 8))
             return
         }
-        let heading = text(file.path, 14, weight: .semibold)
+        let heading = NSMutableAttributedString(attributedString: text(file.path, 14, weight: .semibold))
+        if let old = file.oldPath { heading.append(text("  renamed from " + old, 12, Design.textMuted)) }
         heading.draw(at: NSPoint(x: left, y: y))
         y += 30
         let lineHeight = EditorFont.metrics.height

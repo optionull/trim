@@ -108,7 +108,7 @@ final class Replays {
                 let files = Review.files(from: before, to: end, in: directory)
                 var diffs: [String: Review.Diff] = [:]
                 for file in files {
-                    diffs[file.path] = Review.diff(file.path, from: before, to: end, in: directory)
+                    diffs[file.path] = Review.diff(file, from: before, to: end, in: directory)
                 }
                 return (files, diffs, nil)
             }.value

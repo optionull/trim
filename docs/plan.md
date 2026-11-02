@@ -1061,6 +1061,12 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   (looked-fixture.sh: a leaving an hour ago, 23 files changed in three areas) and `LookedTests`; any leaving moving
   the point, seen ignoring content, never by area, or no baseline offered each fail it. Not done: seen marks in the
   explorer's Touched tab, and Home counting what is new since.
+- Renames in the review (2026-11-02, owner's pick). `Review.files` asks git with `-M` and `-z`, so a moved file is one
+  `renamed` entry with its old path (docs-builder #4530: 648 files, as GitHub says, where it was 669); its diff is
+  against the old path, side by side shows the old file, and taking a hunk back changes the file where it is now (the
+  patch's rename header becomes a plain one), not moving it back. The story's touched files carry renames too, and
+  replays read their diffs the same way. Checked by `ReviewTests` (a file moved into `docs/` with a space in its name
+  and changed: one rename, its hunk taken back in place); without `-M`, or with the rename header kept, it fails.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

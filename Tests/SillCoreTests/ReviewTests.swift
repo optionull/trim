@@ -63,6 +63,33 @@ struct ReviewTests {
     }
 }
 
+extension ReviewTests {
+    @Test("a file moved and changed a little is one rename; a change in it is taken back where it is now")
+    func renames() throws {
+        let folder = try repository()
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let base = try #require(Review.snapshot(in: folder))
+        try FileManager.default.createDirectory(atPath: folder + "/docs", withIntermediateDirectories: true)
+        var lines = (1 ... 20).map { "line \($0)" }
+        lines[9] = "line ten"
+        try (lines.joined(separator: "\n") + "\n").write(
+            toFile: folder + "/docs/moved a.txt",
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.removeItem(atPath: folder + "/a.txt")
+        let now = try #require(Review.snapshot(in: folder))
+        let files = Review.files(from: base, to: now, in: folder)
+        #expect(files == [.init(path: "docs/moved a.txt", status: .renamed, added: 1, removed: 1, oldPath: "a.txt")])
+        let diff = Review.diff(files[0], from: base, to: now, in: folder)
+        #expect(diff.hunks.count == 1 && diff.hunks[0].lines.contains("+line ten"))
+        #expect(Review.reject(diff.hunks[0], of: diff, in: folder))
+        let text = try String(contentsOfFile: folder + "/docs/moved a.txt", encoding: .utf8)
+        #expect(text.contains("line 10\n") && !text.contains("line ten"))
+        #expect(!FileManager.default.fileExists(atPath: folder + "/a.txt"), "not moved back")
+    }
+}
+
 @Suite("file events")
 struct FileEventsTests {
     @Test("a file only written on the way to another is no one's change")

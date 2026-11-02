@@ -179,8 +179,8 @@ final class Reviewer {
             diff = nil
             return changed()
         }
-        let path = files[selectedFile].path, directory = directory
-        diff = await Task.detached { Review.diff(path, from: base, to: current, in: directory) }.value
+        let file = files[selectedFile], directory = directory
+        diff = await Task.detached { Review.diff(file, from: base, to: current, in: directory) }.value
         changed()
     }
 
@@ -375,7 +375,8 @@ final class Reviewer {
         guard let file, let base = baseline?.tree else { return }
         let directory = directory
         Task {
-            let text = await Task.detached { Review.text(of: file.path, in: base, directory: directory) }.value
+            let text = await Task
+                .detached { Review.text(of: file.oldPath ?? file.path, in: base, directory: directory) }.value
             let copy = NSTemporaryDirectory() + "sill-review-\(UUID().uuidString)-" + (file.path as NSString)
                 .lastPathComponent
             try? text.write(toFile: copy, atomically: true, encoding: .utf8)

@@ -411,7 +411,8 @@ The total of an order: `seed` times each step.
 (the file as the baseline had it there) or comment on. Send review hands the comments to the agent working here, each
 with its file, line and change. Baselines are taken when sill opens, when work is sent to an agent, when an agent's
 turn ends (its heed session stops working) and with `:SillReview mark`; Return opens a file beside its baseline in
-nvim's diff. A baseline is a git tree of the worktree written through a temporary index: your index and history are
+nvim's diff. A file moved (and changed a little) is one rename, as GitHub counts it, shown with where it was. A
+baseline is a git tree of the worktree written through a temporary index: your index and history are
 left alone.
 
 ![Review: a.txt's two changes since sill opened, each to keep, take back or comment on](docs/showcase-review-2026-10-24.png)

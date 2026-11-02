@@ -6,18 +6,21 @@ import Foundation
 /// nor its history changes. Runs git: call it off the main thread.
 public enum Review {
     public struct File: Equatable, Sendable {
-        public enum Status: String, Sendable { case added = "A", modified = "M", deleted = "D" }
+        public enum Status: String, Sendable { case added = "A", modified = "M", deleted = "D", renamed = "R" }
 
         public var path: String
         public var status: Status
         public var added: Int
         public var removed: Int
+        /// A renamed file's path before.
+        public var oldPath: String?
 
-        public init(path: String, status: Status, added: Int, removed: Int) {
+        public init(path: String, status: Status, added: Int, removed: Int, oldPath: String? = nil) {
             self.path = path
             self.status = status
             self.added = added
             self.removed = removed
+            self.oldPath = oldPath
         }
     }
 
@@ -96,32 +99,52 @@ public enum Review {
             .sorted { (churn($0.files), $1.area) > (churn($1.files), $0.area) }
     }
 
-    /// The files that differ between two trees, by path.
+    /// The files that differ between two trees, by path; a file moved (and maybe changed a little) is one rename,
+    /// as GitHub counts it, not a delete and an add.
     public static func files(from base: String, to current: String, in directory: String) -> [File] {
-        guard let numbers = git(["diff", "--numstat", "--no-renames", base, current], in: directory),
-              let statuses = git(["diff", "--name-status", "--no-renames", base, current], in: directory)
+        // NUL-separated, so paths are as they are: `<status>\0<path>\0`, a rename `R<score>\0<old>\0<new>\0`;
+        // the counts `<added>\t<removed>\t<path>\0`, a rename's `<added>\t<removed>\t\0<old>\0<new>\0`.
+        guard let numbers = git(["diff", "-z", "--numstat", "-M", base, current], in: directory),
+              let statuses = git(["diff", "-z", "--name-status", "-M", base, current], in: directory)
         else { return [] }
-        var status: [String: File.Status] = [:]
-        for line in statuses.split(separator: "\n") {
-            let parts = line.split(separator: "\t", maxSplits: 1)
-            if parts.count == 2 { status[String(parts[1])] = File.Status(rawValue: String(parts[0].prefix(1))) }
+        var status: [String: (File.Status, String?)] = [:]
+        var fields = statuses.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)[...]
+        while let code = fields.popFirst(), !code.isEmpty {
+            if code.hasPrefix("R") || code.hasPrefix("C") {
+                guard let old = fields.popFirst(), let new = fields.popFirst() else { break }
+                status[new] = code.hasPrefix("R") ? (.renamed, old) : (.added, nil)
+            } else if let path = fields.popFirst() {
+                status[path] = (File.Status(rawValue: String(code.prefix(1))) ?? .modified, nil)
+            }
         }
-        return numbers.split(separator: "\n").compactMap { line in
-            let parts = line.split(separator: "\t", maxSplits: 2)
-            guard parts.count == 3 else { return nil }
-            let path = String(parts[2])
-            return File(
-                path: path,
-                status: status[path] ?? .modified,
-                added: Int(parts[0]) ?? 0,
-                removed: Int(parts[1]) ?? 0
-            )
-        }.sorted { $0.path < $1.path }
+        var files: [File] = []
+        var counts = numbers.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)[...]
+        while let entry = counts.popFirst(), !entry.isEmpty {
+            let parts = entry.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+            guard parts.count == 3 else { continue }
+            var path = parts[2]
+            // A rename: its paths follow.
+            if path.isEmpty {
+                guard counts.popFirst() != nil, let new = counts.popFirst() else { break }
+                path = new
+            }
+            let (kind, old) = status[path] ?? (.modified, nil)
+            files.append(File(
+                path: path, status: kind, added: Int(parts[0]) ?? 0, removed: Int(parts[1]) ?? 0, oldPath: old
+            ))
+        }
+        return files.sorted { $0.path < $1.path }
     }
 
     /// A file's diff between two trees.
     public static func diff(_ path: String, from base: String, to current: String, in directory: String) -> Diff {
         parse(git(["diff", "--no-renames", "-U3", base, current, "--", path], in: directory) ?? "")
+    }
+
+    /// A changed file's diff between two trees: a renamed one against its old path.
+    public static func diff(_ file: File, from base: String, to current: String, in directory: String) -> Diff {
+        guard let old = file.oldPath else { return diff(file.path, from: base, to: current, in: directory) }
+        return parse(git(["diff", "-M", "-U3", base, current, "--", old, file.path], in: directory) ?? "")
     }
 
     public static func parse(_ text: String) -> Diff {
@@ -158,7 +181,12 @@ public enum Review {
     /// (the hunk no longer applies).
     @discardableResult
     public static func reject(_ hunk: Hunk, of diff: Diff, in directory: String) -> Bool {
-        let patch = (diff.header + [hunk.header] + hunk.lines).joined(separator: "\n") + "\n"
+        // A renamed file's hunk is a change of the file where it is now: taking it back does not move it back.
+        var header = diff.header
+        if let to = header.first(where: { $0.hasPrefix("rename to ") })?.dropFirst("rename to ".count) {
+            header = ["diff --git a/\(to) b/\(to)", "--- a/\(to)", "+++ b/\(to)"]
+        }
+        let patch = (header + [hunk.header] + hunk.lines).joined(separator: "\n") + "\n"
         let file = NSTemporaryDirectory() + "sill-review-\(UUID().uuidString).patch"
         defer { try? FileManager.default.removeItem(atPath: file) }
         guard (try? patch.write(toFile: file, atomically: true, encoding: .utf8)) != nil else { return false }

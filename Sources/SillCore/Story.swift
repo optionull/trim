@@ -77,11 +77,12 @@ public struct Story: Equatable, Sendable {
         func git(_ arguments: [String]) -> String {
             Review.git(["--no-optional-locks"] + arguments, in: path) ?? ""
         }
-        var statuses: [String: Review.File.Status] = [:]
+        var statuses: [String: Review.File.Status] = [:], old: [String: String] = [:]
         for line in git(["diff", "--name-status", "-M", fork]).split(separator: "\n") {
             let parts = line.split(separator: "\t").map(String.init)
             guard let code = parts.first?.first, let file = parts.last else { continue }
-            statuses[file] = code == "A" ? .added : code == "D" ? .deleted : .modified
+            statuses[file] = code == "A" ? .added : code == "D" ? .deleted : code == "R" ? .renamed : .modified
+            if code == "R", parts.count == 3 { old[file] = parts[1] }
         }
         var files: [Review.File] = git(["diff", "--numstat", "-M", fork]).split(separator: "\n").compactMap { line in
             let parts = line.split(separator: "\t", maxSplits: 2).map(String.init)
@@ -96,7 +97,8 @@ public struct Story: Equatable, Sendable {
                 file = String(file[arrow.upperBound...])
             }
             return Review.File(
-                path: file, status: statuses[file] ?? .modified, added: Int(parts[0]) ?? 0, removed: Int(parts[1]) ?? 0
+                path: file, status: statuses[file] ?? .modified, added: Int(parts[0]) ?? 0, removed: Int(parts[1]) ?? 0,
+                oldPath: old[file]
             )
         }
         for file in git(["ls-files", "--others", "--exclude-standard"]).split(separator: "\n").map(String.init) {
