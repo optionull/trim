@@ -138,13 +138,31 @@ final class Workspace: NSObject, NSWindowDelegate {
         }
         runner.refresh()
         stories = Stories(channel: session.channel, directory: workingDirectory)
-        defer { stories.refresh() }
+        // Opened: back at it since it was last left (closed, or sill quit).
+        defer { stories.returned() }
+        let center = NotificationCenter.default, looked = workingDirectory
+        lookedObservers = [
+            center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
+                Task.detached { Stories.left(looked) }
+            },
+            center
+                .addObserver(
+                    forName: NSApplication.didBecomeActiveNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.stories?.returned() }
+                },
+        ]
         // The story read: the summary drawn again, the explorer's touched files; opened from Home, those come first.
         tools.sidebar.explorer.prefersTouched = home != nil
         stories.onChange = { [weak self] in
             guard let self else { return }
             tools.summary?.changed()
             tools.run?.changed()
+            if let since = stories.since {
+                reviewer.offer(Reviewer.sinceLooked, tree: since.point.tree, at: since.point.at)
+            }
             tools.sidebar.explorer.setTouched(stories.story?.touched ?? [])
         }
         tools.makeSummary = { [weak self] in
@@ -152,6 +170,7 @@ final class Workspace: NSObject, NSWindowDelegate {
             let view = SummaryView(stories: stories)
             view.onWalkthrough = { [weak self] path in self?.walker.open(path) }
             view.onReview = { [weak self] in self?.reviewBranch() }
+            view.onReviewSince = { [weak self] in self?.reviewSince() }
             view.onFile = { [weak self] path in
                 guard let self else { return }
                 Nvim.lua(session.channel, "require'sill'.open_beside(...)", [.string(workingDirectory + "/" + path)])
@@ -777,6 +796,16 @@ final class Workspace: NSObject, NSWindowDelegate {
         stories?.refresh()
     }
 
+    /// The changes since the person last looked, in the review.
+    func reviewSince() {
+        guard let index = reviewer.baselines.firstIndex(where: { $0.name == Reviewer.sinceLooked }) else { return }
+        reviewer.select(baseline: index)
+        Nvim.lua(session.channel, "require'sill'.show_pane('review')")
+    }
+
+    /// Notes for what is new since the person last looked: sill leaving the front, and coming back.
+    private var lookedObservers: [NSObjectProtocol] = []
+
     /// The branch's changes in the review: against where it left its base, pinned.
     func reviewBranch() {
         guard let fork = stories.story?.fork else { return Nvim.lua(session.channel, "vim.cmd('SillReview')") }
@@ -806,6 +835,9 @@ final class Workspace: NSObject, NSWindowDelegate {
     /// Ends it: its window, nvim and what it started; the app is told.
     func close() {
         closed = true
+        lookedObservers.forEach(NotificationCenter.default.removeObserver)
+        let directory = workingDirectory
+        Task.detached { Stories.left(directory) }
         agents?.stop()
         hooks?.stop()
         window?.orderOut(nil)
@@ -870,6 +902,8 @@ final class Workspace: NSObject, NSWindowDelegate {
     func willTerminate() {
         // Quit (⌘Q, the window closed) in merge or diff mode: what the result file says.
         if tool != nil { exit(toolStatus(nvim: 0)) }
+        // Quitting is leaving: noted before the process ends.
+        if NSApp.isActive, !closed { Stories.left(workingDirectory) }
         agents?.stop()
         hooks?.stop()
         let session = session, sidecar = sidecar

@@ -16,6 +16,8 @@ final class Reviewer {
         var at: Date
         /// Kept first and never dropped for newer ones: where a pull request's branch left its base.
         var pinned = false
+        /// Never dropped for newer ones, in its place by time: since the person last looked.
+        var lasting = false
     }
 
     struct Comment: Equatable {
@@ -40,6 +42,9 @@ final class Reviewer {
     private(set) var kept: Set<String> = []
     private(set) var comments: [Comment] = []
     private(set) var reading = false
+    /// Each changed file's content in the worktree now, and the content it had when marked seen.
+    private(set) var contents: [String: String] = [:]
+    private(set) var seenFiles: [String: String] = [:]
     var onChange: (() -> Void)?
     private var handled = 0
     private var working = false
@@ -75,7 +80,7 @@ final class Reviewer {
             }
             baselines.append(Baseline(name: name, tree: tree, at: Date()))
             // The oldest go, a pinned one stays.
-            while baselines.count > 12, let oldest = baselines.firstIndex(where: { !$0.pinned }) {
+            while baselines.count > 12, let oldest = baselines.firstIndex(where: { !$0.pinned && !$0.lasting }) {
                 baselines.remove(at: oldest)
                 if selectedBaseline > oldest { selectedBaseline -= 1 }
             }
@@ -110,6 +115,22 @@ final class Reviewer {
         refresh()
     }
 
+    /// A baseline that lasts (since the person last looked), in its place by time; it replaces the one named so
+    /// before, and is selected when that was.
+    func offer(_ name: String, tree: String, at: Date) {
+        let old = baselines.firstIndex { $0.name == name }
+        if let old, baselines[old].tree == tree { return }
+        let selected = baseline
+        if let old { baselines.remove(at: old) }
+        let baseline = Baseline(name: name, tree: tree, at: at, lasting: true)
+        baselines.insert(baseline, at: baselines.firstIndex { !$0.pinned && $0.at > at } ?? baselines.count)
+        selectedBaseline = baselines.firstIndex { $0 == selected } ?? baselines.firstIndex { $0 == baseline } ?? 0
+        changed()
+    }
+
+    /// The name of the baseline since the person last looked.
+    static let sinceLooked = "since you last looked"
+
     func select(baseline index: Int) {
         guard baselines.indices.contains(index) else { return }
         selectedBaseline = index
@@ -126,12 +147,21 @@ final class Reviewer {
         reading = true
         changed()
         Task {
-            let (tree, files) = await Task.detached { () -> (String?, [Review.File]) in
-                guard let tree = Review.snapshot(in: directory) else { return (nil, []) }
-                return (tree, base.map { Review.files(from: $0, to: tree, in: directory) } ?? [])
+            let (tree, files, contents, seen) = await Task.detached {
+                () -> (String?, [Review.File], [String: String], [String: String]) in
+                guard let tree = Review.snapshot(in: directory) else { return (nil, [], [:], [:]) }
+                var files = base.map { Review.files(from: $0, to: tree, in: directory) } ?? []
+                // A large change is read by area: its files in their areas' order.
+                if Self.byArea(files) { files = Review.byArea(files).flatMap(\.files) }
+                return (
+                    tree, files, SeenFiles.contents(of: files.map(\.path), in: tree, directory: directory),
+                    SeenFiles.read(SillFolder.path(for: directory), checkout: Self.checkout(directory))
+                )
             }.value
             current = tree
             self.files = files
+            self.contents = contents
+            seenFiles = seen
             selectedFile = min(selectedFile, max(files.count - 1, 0))
             reading = false
             await readDiff()
@@ -152,6 +182,62 @@ final class Reviewer {
         let path = files[selectedFile].path, directory = directory
         diff = await Task.detached { Review.diff(path, from: base, to: current, in: directory) }.value
         changed()
+    }
+
+    // MARK: Seen
+
+    /// A change this large (and in more than one place) is read by area.
+    nonisolated static func byArea(_ files: [Review.File]) -> Bool {
+        files.count >= 20 && Set(files.map { Review.area(of: $0.path) }).count > 1
+    }
+
+    var byArea: Bool { Self.byArea(files) }
+
+    nonisolated static func checkout(_ directory: String) -> String {
+        SillFolder.worktreeRoot(for: directory) ?? directory
+    }
+
+    /// Marked seen as it is now (changed again since, it is not).
+    func isSeen(_ file: Review.File) -> Bool {
+        contents[file.path].map { seenFiles[file.path] == $0 } ?? false
+    }
+
+    var seenCount: Int { files.count(where: isSeen) }
+
+    /// Marks these files seen, or not, and keeps that.
+    func mark(seen: Bool, _ paths: [String]) {
+        var marks: [String: String?] = [:]
+        for path in paths {
+            marks[path] = seen ? contents[path] : String?.none
+            seenFiles[path] = seen ? contents[path] : nil
+        }
+        let directory = directory
+        Task.detached {
+            SeenFiles.mark(marks, in: SillFolder.path(for: directory), checkout: Self.checkout(directory))
+        }
+        changed()
+    }
+
+    /// The selected file seen (or no longer), then the next not seen.
+    func toggleSeen() {
+        guard let file else { return }
+        let seen = !isSeen(file)
+        mark(seen: seen, [file.path])
+        if seen { nextUnseen() }
+    }
+
+    /// Every file in the selected file's area seen, then the next not seen.
+    func markAreaSeen() {
+        guard let file else { return }
+        let area = Review.area(of: file.path)
+        mark(seen: true, files.filter { Review.area(of: $0.path) == area }.map(\.path))
+        nextUnseen()
+    }
+
+    /// The next file not seen after the selected one, else the first.
+    func nextUnseen() {
+        let order = Array(files.indices.dropFirst(selectedFile + 1)) + Array(files.indices.prefix(selectedFile + 1))
+        if let next = order.first(where: { !isSeen(files[$0]) }) { select(file: next) }
     }
 
     var baseline: Baseline? { baselines.indices.contains(selectedBaseline) ? baselines[selectedBaseline] : nil }

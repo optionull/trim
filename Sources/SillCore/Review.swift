@@ -61,8 +61,7 @@ public enum Review {
         guard files.count > limit else { return files.map(line).joined(separator: "\n") }
         var folders: [String: (files: Int, added: Int, removed: Int)] = [:]
         for file in files {
-            let parts = file.path.split(separator: "/").dropLast()
-            let folder = parts.isEmpty ? "(the root)" : parts.prefix(2).joined(separator: "/") + "/"
+            let folder = area(of: file.path)
             folders[folder, default: (0, 0, 0)].files += 1
             folders[folder, default: (0, 0, 0)].added += file.added
             folders[folder, default: (0, 0, 0)].removed += file.removed
@@ -80,6 +79,21 @@ public enum Review {
         lines += files.sorted { ($0.added + $0.removed, $1.path) > ($1.added + $1.removed, $0.path) }.prefix(20)
             .map(line)
         return lines.joined(separator: "\n")
+    }
+
+    /// Where in the repository a file is, for a large change read by area: its folder two levels deep
+    /// (`src/Orders/`), or `(the root)`.
+    public static func area(of path: String) -> String {
+        let parts = path.split(separator: "/").dropLast()
+        return parts.isEmpty ? "(the root)" : parts.prefix(2).joined(separator: "/") + "/"
+    }
+
+    /// The files by area, the most changed area first, each area's files by path.
+    public static func byArea(_ files: [File]) -> [(area: String, files: [File])] {
+        let groups = Dictionary(grouping: files) { area(of: $0.path) }
+        func churn(_ files: [File]) -> Int { files.reduce(0) { $0 + $1.added + $1.removed } }
+        return groups.map { (area: $0.key, files: $0.value.sorted { $0.path < $1.path }) }
+            .sorted { (churn($0.files), $1.area) > (churn($1.files), $0.area) }
     }
 
     /// The files that differ between two trees, by path.

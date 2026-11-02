@@ -51,7 +51,8 @@ final class ReviewView: NSView, ToolContent {
         drawFiles()
         drawHunks()
         PaneBar.drawKeys(
-            "j/k files · J/K changes · a keep · x take back · c comment · s send · w walkthrough · ↵ side by side",
+            "j/k files · J/K changes · m seen · M area seen · a keep · x take back · c comment · s send · " +
+                "w walkthrough · ↵ side by side",
             in: bounds
         )
     }
@@ -59,7 +60,7 @@ final class ReviewView: NSView, ToolContent {
     private func drawBar() {
         let count = reviewer.files.count
         let summary = reviewer.reading ? "reading the worktree…" : count == 0 ? "nothing changed since" :
-            "\(count) file\(count == 1 ? "" : "s") changed since"
+            "\(count) file\(count == 1 ? "" : "s") changed since · \(reviewer.seenCount) seen"
         actionFrames = PaneBar.draw(
             title: "Review",
             detail: summary,
@@ -105,28 +106,61 @@ final class ReviewView: NSView, ToolContent {
         let reserved = reviewer.comments.isEmpty ? 0 : CGFloat(36 + 36 * min(reviewer.comments.count, 4))
         // Above the keys along the bottom, with room for the count of what is above and below.
         let fit = max(Int((column.height - 16 - reserved - PaneBar.footer - 24) / 30), 1)
-        let count = reviewer.files.count
+        // The rows: the files, under their areas' headings when the change is read by area.
+        var rows: [Int?] = []
+        var areas: [Int: (String, Int, Int)] = [:]
+        if reviewer.byArea {
+            var last: String?
+            for (index, file) in reviewer.files.enumerated() {
+                let area = Review.area(of: file.path)
+                if area != last {
+                    let inArea = reviewer.files.filter { Review.area(of: $0.path) == area }
+                    areas[rows.count] = (area, inArea.count, inArea.count(where: reviewer.isSeen))
+                    rows.append(nil)
+                    last = area
+                }
+                rows.append(index)
+            }
+        } else {
+            rows = reviewer.files.indices.map(Optional.some)
+        }
+        let count = rows.count
+        let selectedRow = rows.firstIndex { $0 == reviewer.selectedFile } ?? 0
         // The list follows the selection when it moves; the wheel scrolls it freely.
         if reviewer.selectedFile != followed {
             followed = reviewer.selectedFile
-            if followed < firstFile { firstFile = followed }
-            if followed >= firstFile + fit { firstFile = followed - fit + 1 }
+            if selectedRow < firstFile { firstFile = max(selectedRow - (areas[selectedRow - 1] != nil ? 1 : 0), 0) }
+            if selectedRow >= firstFile + fit { firstFile = selectedRow - fit + 1 }
         }
         firstFile = max(min(firstFile, count - fit), 0)
-        for (index, file) in reviewer.files.enumerated().dropFirst(firstFile).prefix(fit) {
+        for (row, entry) in rows.enumerated().dropFirst(firstFile).prefix(fit) {
             let rect = NSRect(x: 0, y: y, width: list, height: 30)
+            defer { y += 30 }
+            guard let index = entry, let file = reviewer.files[safe: index] else {
+                guard let (area, total, seen) = areas[row] else { continue }
+                let heading = NSMutableAttributedString(attributedString: text(
+                    area, 12, seen == total ? Design.textFaint : Design.textMuted, weight: .semibold
+                ))
+                heading.append(text("  \(seen)/\(total) seen", 11, seen == total ? Design.accent : Design.textFaint))
+                heading.drawLine(in: NSRect(x: 16, y: y + 9, width: list - 32, height: 18))
+                continue
+            }
             if index == reviewer.selectedFile {
                 Design.selection.setFill()
                 rect.fill()
             }
-            let status: (String, NSColor) = switch file.status {
-            case .added: ("A", Design.accent)
-            case .deleted: ("D", Design.error)
-            case .modified: ("M", Design.modified)
+            let seen = reviewer.isSeen(file)
+            let status: (String, NSColor) = switch (seen, file.status) {
+            case (true, _): ("✓", Design.textFaint)
+            case (false, .added): ("A", Design.accent)
+            case (false, .deleted): ("D", Design.error)
+            case (false, .modified): ("M", Design.modified)
             }
             text(status.0, 12, status.1, weight: .semibold).draw(at: NSPoint(x: 16, y: y + 7))
             // The file's name first, its folder after it: in a long list the name is what is looked for.
-            let name = NSMutableAttributedString(attributedString: text((file.path as NSString).lastPathComponent, 13))
+            let name = NSMutableAttributedString(attributedString: text(
+                (file.path as NSString).lastPathComponent, 13, seen ? Design.textMuted : Design.text
+            ))
             let folder = (file.path as NSString).deletingLastPathComponent
             if !folder.isEmpty { name.append(text("  " + folder, 12, Design.textFaint)) }
             name.drawLine(in: NSRect(x: 36, y: y + 6, width: list - 130, height: 18))
@@ -134,12 +168,12 @@ final class ReviewView: NSView, ToolContent {
             counts.append(text("−\(file.removed)", 12, Design.error))
             counts.draw(at: NSPoint(x: list - counts.size().width - 14, y: y + 7))
             fileFrames.append((index, rect))
-            y += 30
         }
         if count > fit {
             let above = firstFile, below = count - firstFile - fit
             text(
-                "\(count) files" + (above > 0 ? " · \(above) above" : "") + (below > 0 ? " · \(below) below" : ""),
+                "\(reviewer.files.count) files" + (above > 0 ? " · \(above) above" : "") +
+                    (below > 0 ? " · \(below) below" : ""),
                 11, Design.textFaint
             ).draw(at: NSPoint(x: 16, y: y + 4))
             y += 20
@@ -300,6 +334,8 @@ final class ReviewView: NSView, ToolContent {
         case "x": perform("reject", selectedHunk)
         case "c": perform("comment", selectedHunk)
         case "a": perform("keep", selectedHunk)
+        case "m": reviewer.toggleSeen()
+        case "M": reviewer.markAreaSeen()
         case "s": reviewer.sendReview()
         case "w": reviewer.askForWalkthrough()
         case "r": reviewer.refresh()

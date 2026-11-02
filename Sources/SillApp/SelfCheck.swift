@@ -116,6 +116,12 @@ final class SelfCheck {
                 fflush(stdout)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "looked" {
+                try await lookedSteps()
+                print("sill check (since you last looked): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "pr" {
                 try await pullRequestSteps()
                 print("sill check (pull request): passed")
@@ -1876,6 +1882,81 @@ final class SelfCheck {
         view.perform("command", key)
         try await shown("sill-run-hello handed")
         step("the handoff's notebook: Run it runs swift run hello handed in a terminal")
+    }
+
+    /// Since you last looked (`SILL_CHECK=looked`, in looked-fixture.sh's checkout: a leaving an hour ago, 23 files
+    /// changed since in three areas): opened, the summary says what is new and the review has it as a baseline, read
+    /// by area; files and an area marked seen, kept, and a file changed again no longer seen; leaving and coming back
+    /// at once leaves the point where it was.
+    private func lookedSteps() async throws {
+        let app = try require(app, "the app")
+        let stories = try require(app.stories, "the stories")
+        let reviewer = try require(app.reviewer, "the reviewer")
+        let root = app.workingDirectory
+        let sill = SillFolder.path(for: root)
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        let since = try await waitFor("what is new", timeout: .seconds(20)) { stories.since }
+        try expect(
+            since.files.count == 23 && abs(since.point.at.timeIntervalSinceNow + 3600) < 120 &&
+                Looked.point(sill, checkout: root)?.tree == since.point.tree,
+            "since: \(since.files.count) files, at \(since.point.at)"
+        )
+        stories.show()
+        try await wait("the summary") { $0.currentPaneKind == "summary" }
+        let baseline = try await waitFor("the baseline") {
+            reviewer.baselines.first { $0.name == Reviewer.sinceLooked }
+        }
+        try expect(baseline.tree == since.point.tree && baseline.lasting, "the baseline: \(baseline)")
+        step("opened an hour after it was left: the summary says 23 files changed since; the review has that baseline")
+
+        app.reviewSince()
+        try await wait("the review") { $0.currentPaneKind == "review" }
+        _ = try await waitFor("its files", timeout: .seconds(20)) {
+            !reviewer.reading && reviewer.files.count == 23 && reviewer.baseline?.name == Reviewer.sinceLooked ? true :
+                nil
+        }
+        let areas = reviewer.files.map { Review.area(of: $0.path) }
+        try expect(
+            reviewer.byArea && areas.first == "src/Shop/" && areas.last == "(the root)" &&
+                areas == areas.sorted { ["src/Shop/", "tests/Shop.Tests/", "(the root)"].firstIndex(of: $0)! <
+                    ["src/Shop/", "tests/Shop.Tests/", "(the root)"].firstIndex(of: $1)!
+                },
+            "by area: \(areas)"
+        )
+        step("n: the review of what is new, by area (src/Shop/, tests/Shop.Tests/, then the root)")
+
+        reviewer.select(file: 0)
+        reviewer.toggleSeen()
+        try expect(reviewer.isSeen(reviewer.files[0]) && reviewer.selectedFile == 1, "m: seen, the next selected")
+        reviewer.select(file: 13)
+        reviewer.markAreaSeen()
+        let tests = reviewer.files.filter { $0.path.hasPrefix("tests/") }
+        try expect(tests.count == 10 && tests.allSatisfy(reviewer.isSeen) && reviewer.seenCount == 11, "M: the area")
+        try expect(reviewer.file?.path == "README.md", "the next not seen, after the area: \(reviewer.selectedFile)")
+        _ = try await waitFor("kept") { SeenFiles.read(sill, checkout: root).count == 11 ? true : nil }
+        app.tools.review?.display()
+        if let shot = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] { try self.shot(to: shot) }
+        // Changed again: no longer seen.
+        let first = reviewer.files[0].path
+        try "class A1 { int x; int z; }\n".write(toFile: root + "/" + first, atomically: true, encoding: .utf8)
+        reviewer.refresh()
+        _ = try await waitFor("read again") {
+            !reviewer.reading && !reviewer.isSeen(reviewer.files[0]) && reviewer.seenCount == 10 ? true : nil
+        }
+        step("m marks \(first) seen, M the tests' area: kept in .sill; \(first) changed again is no longer seen")
+
+        // A glance away: the point stays.
+        NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
+        let file = Looked.file(sill)
+        _ = try await waitFor("the leaving noted") {
+            ((try? String(contentsOfFile: file, encoding: .utf8)) ?? "").contains("\"left\"") ? true : nil
+        }
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+        _ = try await waitFor("back") {
+            ((try? String(contentsOfFile: file, encoding: .utf8)) ?? "").contains("\"left\"") ? nil : true
+        }
+        try expect(Looked.point(sill, checkout: root)?.tree == since.point.tree, "the point moved on a glance")
+        step("away and back at once: the point stays an hour ago")
     }
 
     /// A hook command run as an agent runs it: `input` on stdin; its status and what it printed.

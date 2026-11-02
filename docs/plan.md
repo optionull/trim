@@ -1047,6 +1047,20 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   written, its run first in the Run pane; opened, its Run prints `sill-run-hello handed`), `SILL_CHECK=hooks` (the
   first prompt told, the second not), `SILL_CHECK=walk` (both skills installed) and `HandoffFileTests`. Telling every
   prompt, dropping the Run pane's handoff section, or a Run cell that does nothing each fail a check.
+- Since you last looked (phase 5, 2026-11-02). `Looked` keeps, per checkout in `.sill/looked.json`, the point and
+  the last leaving (a time and a worktree tree, as a review baseline). Leaving is sill resigning active (every open
+  workspace notes it, off the main thread) or a workspace closing or quitting; coming back (the workspace opening, sill
+  active again) makes the leaving the point when it was 300 s or more ago, else drops it, so a glance does not move
+  the point under a review. `Stories` reads what is new since (files: the worktree now against the point's tree,
+  80 ms on docs-builder off the main thread; prompts and commits after it) and the summary leads with it; the review
+  gets "since you last looked" as a lasting baseline (never trimmed, in its place by time), `n` in the summary.
+  Review by area: 20 files or more in more than one area (`Review.area`, two folders deep, which the prompt outline
+  now shares) are listed under area headings, the most changed first, each with its seen count. `SeenFiles` keeps
+  marks in `.sill/seen-files.json` with each file's blob (`git ls-tree` of the current tree), so a file changed again
+  is not seen; `m` toggles one and goes to the next not seen, `M` marks the area. Checked: `SILL_CHECK=looked`
+  (looked-fixture.sh: a leaving an hour ago, 23 files changed in three areas) and `LookedTests`; any leaving moving
+  the point, seen ignoring content, never by area, or no baseline offered each fail it. Not done: seen marks in the
+  explorer's Touched tab, and Home counting what is new since.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

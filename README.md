@@ -28,6 +28,11 @@ explorer opens on those touched files (Touched | Files | Solution, `s` for the n
 (summary, walkthroughs, review) and the browsing under a rule (explorer, changes, agents, map, baskets). Closing a
 checkout's window, or `:qa` in it, ends that checkout alone; Home stays.
 
+Since you last looked: leaving sill (another app in front, or the checkout's window closed) notes the worktree as it
+is; coming back after five minutes or more makes that the point the summary starts from ("Since you last looked, 2 h
+ago: 3 prompts · 1 commit · 7 files changed") and the review has it as a baseline (`n` in the summary). A glance at a
+terminal does not move it.
+
 ![A checkout's summary: the agent idle after its last prompt, a new walkthrough, what was asked, two commits since main and the files touched](docs/showcase-summary-2026-11-02.png)
 
 ## Run
@@ -410,6 +415,12 @@ nvim's diff. A baseline is a git tree of the worktree written through a temporar
 left alone.
 
 ![Review: a.txt's two changes since sill opened, each to keep, take back or comment on](docs/showcase-review-2026-10-24.png)
+
+A file is marked seen with `m` (then the next not seen), a whole area with `M`; the marks are kept in `.sill` with the
+file's content then, so a file the agent changes again is not seen any more. A change of 20 files or more in more
+than one place is read by area (its folder two levels deep, the most changed first), each with how much of it is seen.
+
+![Review by area: 23 files changed since you last looked, the tests' area all seen, README next](docs/showcase-review-by-area-2026-11-02.png)
 
 Walkthrough (`w`) asks the agent for a walkthrough of the changes to review: a throwaway notebook inside the
 repository's `.sill` folder (private, never committed) that goes through them by idea, with each part's diff and usage examples of what changed as

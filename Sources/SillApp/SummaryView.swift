@@ -13,6 +13,7 @@ final class SummaryView: NSView, ToolContent {
     private var actionFrames: [(String, NSRect)] = []
     var onWalkthrough: ((String) -> Void)?
     var onReview: (() -> Void)?
+    var onReviewSince: (() -> Void)?
     var onFile: ((String) -> Void)?
 
     init(stories: Stories) {
@@ -88,6 +89,37 @@ final class SummaryView: NSView, ToolContent {
             row(text("No agent session here that sill knows of.", 13, Design.textMuted))
         }
 
+        if let since = stories.since {
+            heading("Since you last looked, " + HomeView.ago(since.point.at))
+            let count = since.files.count
+            if count == 0, since.prompts == 0, since.commits == 0 {
+                row(text("Nothing new.", 13, Design.textMuted))
+            } else {
+                let parts = [
+                    since.prompts > 0 ? "\(since.prompts)\(since.prompts >= 5 ? "+" : "") prompt" +
+                        (since.prompts == 1 ? "" : "s") : nil,
+                    since.commits > 0 ? "\(since.commits) commit\(since.commits == 1 ? "" : "s")" : nil,
+                    count > 0 ? "\(count) file\(count == 1 ? "" : "s") changed" : nil,
+                ].compactMap { $0 }
+                let line = NSMutableAttributedString(attributedString: text(
+                    parts.joined(separator: " · "), 14, Design.text, weight: .semibold
+                ))
+                if count > 0 { line.append(text("    n reviews them", 12, Design.accent)) }
+                row(line, height: 28) { [weak self] in self?.onReviewSince?() }
+                for file in since.files.sorted(by: { $0.added + $0.removed > $1.added + $1.removed }).prefix(6) {
+                    let line = NSMutableAttributedString(attributedString: text(
+                        (file.path as NSString).lastPathComponent, 13
+                    ))
+                    let folder = (file.path as NSString).deletingLastPathComponent
+                    if !folder.isEmpty { line.append(text("  " + folder, 12, Design.textFaint)) }
+                    line.append(text("   +\(file.added)", 12, Design.accent, mono: true))
+                    line.append(text(" −\(file.removed)", 12, Design.error, mono: true))
+                    row(line) { [weak self] in self?.onFile?(file.path) }
+                }
+                if count > 6 { row(text("and \(count - 6) more", 12, Design.textFaint)) }
+            }
+        }
+
         if !stories.walkthroughs.isEmpty {
             heading("Walkthroughs from agents")
             for prepared in stories.walkthroughs.prefix(8) {
@@ -152,7 +184,8 @@ final class SummaryView: NSView, ToolContent {
             if files.count > 12 { row(text("v reviews all \(files.count)", 12, Design.textFaint)) }
         }
         PaneBar.drawKeys(
-            "w the newest walkthrough · v review the branch · a click opens what it names · r read again",
+            "w the newest walkthrough · n review what is new · v review the branch · a click opens what it names · " +
+                "r read again",
             in: bounds
         )
     }
@@ -181,6 +214,7 @@ final class SummaryView: NSView, ToolContent {
         switch event.charactersIgnoringModifiers ?? "" {
         case "w": openWalkthrough()
         case "v": onReview?()
+        case "n": onReviewSince?()
         case "r": stories.refresh()
         default: return false
         }
