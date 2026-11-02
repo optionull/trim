@@ -19,7 +19,7 @@ final class Walker {
         var problem: String?
     }
 
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     private let directory: String
     private(set) var path: String?
@@ -54,7 +54,7 @@ final class Walker {
     /// The root of the worktree sill is open on: what anchors in .sill resolve against.
     private(set) lazy var root: String = SillFolder.worktreeRoot(for: directory) ?? directory
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String, pane: String = "walk") {
+    init(app: Workspace, channel: NvimChannel, directory: String, pane: String = "walk") {
         self.app = app
         self.channel = channel
         self.directory = directory

@@ -8,7 +8,7 @@ import SillNvim
 /// be explained.
 @MainActor
 final class Tracer {
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     let directory: String
     private(set) var tree: TraceTree?
@@ -18,7 +18,7 @@ final class Tracer {
     private var handled = 0
     var onChange: (() -> Void)?
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         self.directory = directory

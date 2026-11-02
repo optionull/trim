@@ -9,13 +9,13 @@ import SillNvim
 /// their directory's, root files in /root/), as a diff; `:SillSlnx apply` writes that.
 @MainActor
 final class Solutions {
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     private let directory: String
     /// Where the rewritten solution is put for the diff.
     private let proposals = (NSTemporaryDirectory() as NSString).appendingPathComponent("sill-slnx")
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         self.directory = directory

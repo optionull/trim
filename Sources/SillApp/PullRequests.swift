@@ -7,7 +7,7 @@ import SillNvim
 /// minutes while it is, and after an agent's turn (it may have pushed).
 @MainActor
 final class PullRequests {
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     private let directory: String
     private var handled = 0
@@ -27,7 +27,7 @@ final class PullRequests {
     /// The one that matters: the newest open one, else the newest.
     var current: PullRequest? { all.first { $0.state == "OPEN" } ?? all.first }
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         self.directory = directory

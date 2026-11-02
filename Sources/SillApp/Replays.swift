@@ -7,7 +7,7 @@ import SillNvim
 /// the code is not put back as it was.
 @MainActor
 final class Replays {
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     private let directory: String
     private var handled = 0
@@ -24,7 +24,7 @@ final class Replays {
     private(set) var missing: String?
     var onChange: (() -> Void)?
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         self.directory = directory

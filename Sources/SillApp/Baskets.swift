@@ -9,14 +9,14 @@ import SillNvim
 /// the next piece starts a new one.
 @MainActor
 final class Baskets {
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     let directory: String
     /// The baskets' notebook.
     let walker: Walker
     private var handled = 0
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         self.directory = directory

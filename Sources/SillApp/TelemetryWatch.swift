@@ -10,7 +10,7 @@ import SillSidecar
 /// through `telemetry_logs`, `telemetry_traces` and `telemetry_metrics`.
 @MainActor
 final class TelemetryWatch {
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     private(set) var store = TelemetryStore()
     private(set) var run: Int?
@@ -24,7 +24,7 @@ final class TelemetryWatch {
     /// Between asking the sidecar and its run's id.
     private(set) var starting = false
 
-    init(app: AppDelegate, channel: NvimChannel) {
+    init(app: Workspace, channel: NvimChannel) {
         self.app = app
         self.channel = channel
     }

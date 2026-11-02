@@ -6,7 +6,7 @@ import SillNvim
 /// written one (`code_map_summary`, kept in the repository's .sill so it is there next time and never committed).
 @MainActor
 final class CodeMapper {
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     let directory: String
     private(set) var map: CodeMap?
@@ -16,7 +16,7 @@ final class CodeMapper {
     private var handled = 0
     var onChange: (() -> Void)?
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         self.directory = directory

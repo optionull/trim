@@ -26,7 +26,7 @@ final class Reviewer {
         var excerpt: [String]
     }
 
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     let directory: String
     private(set) var baselines: [Baseline] = []
@@ -44,7 +44,7 @@ final class Reviewer {
     private var handled = 0
     private var working = false
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         self.directory = directory

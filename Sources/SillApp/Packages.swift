@@ -8,14 +8,14 @@ import SillNvim
 /// read again), the solution read again after; an agent asked to update one and run the tests.
 @MainActor
 final class Packages {
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     let scanner: PackageScanner
     private var asked = 0
     /// What the last update wrote, for the self-check.
     private(set) var written: [String] = []
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         scanner = PackageScanner(directory: directory)

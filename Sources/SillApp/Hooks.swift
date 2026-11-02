@@ -12,7 +12,7 @@ import SillNvim
 /// and, by `:SillHooks install`, to every agent in the project (`.claude/settings.local.json`, backed up first).
 @MainActor
 final class Hooks {
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     private let directory: String
     private(set) var server: HookServer?
@@ -27,7 +27,7 @@ final class Hooks {
     private var plans: [String: String] = [:]
     private var handled = 0
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         self.directory = directory

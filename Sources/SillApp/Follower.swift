@@ -9,7 +9,7 @@ import SillNvim
 /// what an agent reads through sill's MCP server is shown too.
 @MainActor
 final class Follower {
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     private let directory: String
     private let events: FileEvents
@@ -28,7 +28,7 @@ final class Follower {
     var onChange: (() -> Void)?
     private var handled = 0
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         self.directory = directory

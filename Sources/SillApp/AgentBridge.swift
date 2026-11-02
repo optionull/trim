@@ -13,7 +13,7 @@ final class AgentBridge {
     let server: McpServer
     /// The MCP config file agents are started with.
     let configPath: String
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     private let directory: String
     /// Tools the person allowed for the rest of the session ("Always").
@@ -28,7 +28,7 @@ final class AgentBridge {
     /// The last prompt sent, for the self-check.
     private(set) var lastPrompt: String?
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         self.directory = directory

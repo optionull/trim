@@ -8,7 +8,7 @@ import SillSidecar
 /// snapshots taken as it goes, and its CPU profile once stopped, all shown in the profile pane. One run at a time.
 @MainActor
 final class Profiler {
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     private let directory: String
     /// The run in progress: its request id with the sidecar.
@@ -18,7 +18,7 @@ final class Profiler {
     /// The project being profiled, for Profile again.
     private(set) var project: String?
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         self.directory = directory

@@ -20,13 +20,13 @@ final class SelfCheck {
     private let editor: EditorView
     private let panes: TerminalPanes
     private let session: EditorSession
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private var latest: Screen?
     /// The tag of the frame the editor submitted for the latest screen.
     private var latestTag: UInt64 = 0
     private let presented = OSAllocatedUnfairLock(initialState: [FrameTiming]())
 
-    init(window: NSWindow, editor: EditorView, panes: TerminalPanes, session: EditorSession, app: AppDelegate) {
+    init(window: NSWindow, editor: EditorView, panes: TerminalPanes, session: EditorSession, app: Workspace) {
         self.window = window
         self.editor = editor
         self.panes = panes
@@ -2344,7 +2344,9 @@ final class SelfCheck {
                 """).stringValue ?? ""
             }
             func opened(_ url: String, at expected: String) async throws {
-                try app.application(NSApp, open: [require(URL(string: url), url)])
+                // As macOS hands it over: to the app, which hands it to the checkout open.
+                let delegate = try require(NSApp.delegate as? AppDelegate, "the app")
+                try delegate.application(NSApp, open: [require(URL(string: url), url)])
                 var at = ""
                 for _ in 0 ..< 50 where at != expected {
                     try await Task.sleep(for: .milliseconds(100))
@@ -3577,7 +3579,7 @@ final class SelfCheck {
 
     /// A real agent: Claude Code (haiku, the cheapest), given only sill's MCP server and file edits, fixes a fresh
     /// error. Printed, not interactive; it uses the person's Claude Code login.
-    private func liveAgent(app: AppDelegate, path: String) async throws {
+    private func liveAgent(app: Workspace, path: String) async throws {
         try "var order = 1;\nConsole.WriteLine(order.Total);\n".write(toFile: path, atomically: true, encoding: .utf8)
         _ = try await session.channel.lua("vim.cmd('silent! checktime')")
         let prompt = "This project does not build. Use sill's tools: build to see the errors, read_file to read the " +

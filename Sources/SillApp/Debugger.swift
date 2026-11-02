@@ -17,7 +17,7 @@ final class Debugger {
         case idle, building, running, paused(reason: String)
     }
 
-    private weak var app: AppDelegate?
+    private weak var app: Workspace?
     private let channel: NvimChannel
     private let directory: String
     private(set) var state: State = .idle
@@ -56,7 +56,7 @@ final class Debugger {
     /// The adapter has its first breakpoints and runs the program: later changes go as they come.
     private var configured = false
 
-    init(app: AppDelegate, channel: NvimChannel, directory: String) {
+    init(app: Workspace, channel: NvimChannel, directory: String) {
         self.app = app
         self.channel = channel
         self.directory = directory
