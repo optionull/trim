@@ -21,6 +21,20 @@ struct HomeCheck {
         exit(1)
     }
 
+    /// The sidecar processes this sill started.
+    private static func sidecars() async -> Int {
+        await Task.detached {
+            let process = Process(), output = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+            process.arguments = ["-P", "\(ProcessInfo.processInfo.processIdentifier)", "-f", "Sill.Sidecar.dll"]
+            process.standardOutput = output
+            try? process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return String(decoding: data, as: UTF8.self).split(separator: "\n").count
+        }.value
+    }
+
     private func until(_ what: String, seconds: Double = 15, _ condition: () -> Bool) async {
         let deadline = Date().addingTimeInterval(seconds)
         while !condition() {
@@ -126,6 +140,10 @@ struct HomeCheck {
                 app.opened[1].tools.sidebar.explorer.rows.map(\.name) == ["a.txt"]
         }
         step("beta, no walkthrough: its summary, and the explorer on its touched file, a.txt")
+        await until("both sidecars ready", seconds: 60) { app.opened.allSatisfy { $0.sidecarReady != nil } }
+        if app.opened[0].sidecar !== app.opened[1].sidecar { fail("two sidecars") }
+        if await Self.sidecars() != 1 { await fail("\(Self.sidecars()) sidecar processes") }
+        step("both share one .NET sidecar: one dotnet process for the app")
         if let path = environment["SILL_CHECK_SUMMARY_SHOT"], let view = app.opened[1].tools.summary {
             view.display()
             if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
@@ -138,6 +156,8 @@ struct HomeCheck {
         )
         app.opened[1].windowForCheck?.performClose(nil)
         await until("beta closed", seconds: 20) { app.opened.map(\.workingDirectory) == [feature] }
+        try? await Task.sleep(for: .seconds(1))
+        if await Self.sidecars() != 1 { await fail("beta closed took the sidecar: \(Self.sidecars()) running") }
         _ = try? await app.opened[0].channel.command("qa!")
         await until("alpha-feature ended", seconds: 20) { app.opened.isEmpty }
         home.view.display()

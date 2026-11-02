@@ -1067,6 +1067,14 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   patch's rename header becomes a plain one), not moving it back. The story's touched files carry renames too, and
   replays read their diffs the same way. Checked by `ReviewTests` (a file moved into `docs/` with a space in its name
   and changed: one rename, its hunk taken back in place); without `-M`, or with the rename header kept, it fails.
+- One .NET sidecar for the app (2026-11-02, owner's pick). `SharedSidecar` starts it for the first workspace that
+  asks (again after a failed start) and stops it when sill quits or a merge or diff tool session ends; closing a
+  checkout no longer stops it. Each was 50 to 95 MB, and a second checkout no longer waits for its own to start.
+  Roslyn is provisioned through it once (its progress to every workspace asking); each workspace's nvim still starts
+  its own Roslyn server. Nothing in the sidecar belongs to a checkout: profiles and telemetry are by run and process,
+  Roslyn and dbgshim a shared cache. Checked: `SILL_CHECK=home` (alpha-feature and beta open share one sidecar, one
+  dotnet process a child of sill; beta closed, it still runs); a sidecar per workspace, or closing one stopping it,
+  each fail it.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

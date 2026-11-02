@@ -91,5 +91,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_: Notification) {
         workspaces.forEach { $0.willTerminate() }
+        Task { await SharedSidecar.shared.stop() }
     }
 }

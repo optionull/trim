@@ -658,16 +658,15 @@ final class Workspace: NSObject, NSWindowDelegate {
         Nvim.lua(session.channel, "require'sill'.open_pane('terminal', 'botright 12')")
     }
 
-    /// Starts the sidecar on the user's dotnet. sill works without it; what went wrong is kept for the status line.
+    /// The app's sidecar on the user's dotnet, started by the first checkout to ask. sill works without it; what went
+    /// wrong is kept for the status line.
     private func startSidecar() {
-        let sidecar = Sidecar()
         Task { [weak self] in
-            let started = CACurrentMediaTime()
             do {
-                let ready = try await sidecar.start(dll: SidecarFiles.dll)
-                self?.sidecar = sidecar
-                self?.sidecarReady = (ready, CACurrentMediaTime() - started)
-                await self?.provisionRoslyn(sidecar)
+                let started = try await SharedSidecar.shared.start()
+                self?.sidecar = started.sidecar
+                self?.sidecarReady = (started.ready, started.seconds)
+                await self?.provisionRoslyn(started.sidecar)
             } catch {
                 self?.sidecarProblem = "\(error)"
                 NSLog("sill: the .NET sidecar did not start: \(error)")
@@ -681,7 +680,7 @@ final class Workspace: NSObject, NSWindowDelegate {
               ProcessInfo.processInfo.environment["SILL_ROSLYN"] != "0" else { return }
         roslynStatus = "Roslyn"
         do {
-            let server = try await sidecar.roslyn { [weak self] progress in
+            let server = try await SharedSidecar.shared.roslyn(sidecar) { [weak self] progress in
                 let text = progress.stage == "downloading" && progress.total > 0 ?
                     "Roslyn downloading \(progress.bytes * 100 / progress.total)%" : "Roslyn \(progress.stage)"
                 Task { @MainActor in
@@ -841,11 +840,9 @@ final class Workspace: NSObject, NSWindowDelegate {
         agents?.stop()
         hooks?.stop()
         window?.orderOut(nil)
-        let session = session, sidecar = sidecar
-        Task {
-            await session.stop()
-            await sidecar?.stop()
-        }
+        // The sidecar is the app's: the other checkouts keep it.
+        let session = session
+        Task { await session.stop() }
         onClosed?()
     }
 
@@ -895,7 +892,7 @@ final class Workspace: NSObject, NSWindowDelegate {
     private func endTool() async {
         let status = await toolStatus(nvim: session.channel.exitStatus() ?? 1)
         agents?.stop()
-        await sidecar?.stop()
+        await SharedSidecar.shared.stop()
         exit(status)
     }
 
@@ -906,11 +903,8 @@ final class Workspace: NSObject, NSWindowDelegate {
         if NSApp.isActive, !closed { Stories.left(workingDirectory) }
         agents?.stop()
         hooks?.stop()
-        let session = session, sidecar = sidecar
-        Task {
-            await session.stop()
-            await sidecar?.stop()
-        }
+        let session = session
+        Task { await session.stop() }
     }
 
     private func fail(_ error: Error) {
