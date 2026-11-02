@@ -36,9 +36,26 @@ final class Workspace: NSObject, NSWindowDelegate {
     let settings: SettingsController
     /// Home, when the app has it (sill started without a folder).
     weak var home: HomeController?
+    /// Told when its window closed with Home around (the app then forgets it).
+    var onClosed: (() -> Void)?
 
-    init(settings: SettingsController) {
+    /// The environment it opened with: the process's for the folder sill started on; for one opened from Home the
+    /// process's without what only the launch means (a check, a probe, the folder), and its own folder and
+    /// walkthrough.
+    let environment: [String: String]
+    static let launchOnly = ["SILL_CHECK", "SILL_PROBE", "SILL_SHOWCASE", "SILL_CWD", "SILL_WALK", "SILL_HOME"]
+
+    init(settings: SettingsController, folder: String? = nil, walkthrough: String? = nil) {
         self.settings = settings
+        var environment = ProcessInfo.processInfo.environment
+        if let folder {
+            for key in environment.keys where Self.launchOnly.contains(where: { key.hasPrefix($0) }) {
+                environment[key] = nil
+            }
+            environment["SILL_CWD"] = folder
+            if let walkthrough { environment["SILL_WALK"] = walkthrough }
+        }
+        self.environment = environment
     }
 
     /// The repository of the first file other apps asked to open, when one did before launch: the folder to open.
@@ -49,13 +66,25 @@ final class Workspace: NSObject, NSWindowDelegate {
         }
     }
 
+    /// The settings changed (the app tells every workspace).
+    func settingsApplied() {
+        guard chrome, root != nil else { return }
+        if Design.islands != Settings.shared.current.islands { root.setIslands(Settings.shared.current.islands) }
+    }
+
+    /// The grid's font changed (⌘+, the settings; the app tells every workspace).
+    func fontChanged() {
+        guard editor != nil else { return }
+        editor.fontChanged()
+        for view in [root as NSView?, tools?.sidebar, tools?.panel].compactMap(\.self) {
+            view.needsLayout = true
+            view.needsDisplay = true
+        }
+    }
+
     /// Opens it: its window, nvim and everything around them.
     func start() {
-        settings.onApplied = { [weak self] in
-            guard let self, chrome else { return }
-            if Design.islands != Settings.shared.current.islands { root.setIslands(Settings.shared.current.islands) }
-        }
-        let environment = ProcessInfo.processInfo.environment
+        let environment = environment
         let launchedFor = launchedFor
         buildMenu()
         let directory = environment["SILL_CWD"] ??
@@ -223,6 +252,13 @@ final class Workspace: NSObject, NSWindowDelegate {
             window.makeFirstResponder(editor)
         } else {
             window.center()
+            // Another checkout's window open already: this one beside it, not on top of it.
+            if let other = NSApp.windows.last(where: { $0 !== window && $0.isVisible && $0.delegate is Workspace }) {
+                window.setFrameTopLeftPoint(window.cascadeTopLeft(from: NSPoint(
+                    x: other.frame.minX,
+                    y: other.frame.maxY
+                )))
+            }
             window.makeKeyAndOrderFront(nil)
             window.makeFirstResponder(editor)
             NSApp.activate()
@@ -232,14 +268,6 @@ final class Workspace: NSObject, NSWindowDelegate {
         let session = session
         editor.onResize = { cols, rows in Task { await session.resize(cols: cols, rows: rows) } }
         editor.onFocus = { [weak self] in self?.panes.focusEditor() }
-        EditorFont.onChange = { [weak self] in
-            guard let self else { return }
-            editor.fontChanged()
-            for view in [root as NSView?, tools?.sidebar, tools?.panel].compactMap(\.self) {
-                view.needsLayout = true
-                view.needsDisplay = true
-            }
-        }
         editor.onKey = { [weak self] in self?.externalUI.keyPressed() }
         editor.keyInterceptor = { [weak self] event in self?.tools.handleKey(event) ?? false }
 
@@ -261,10 +289,14 @@ final class Workspace: NSObject, NSWindowDelegate {
             for await update in updates {
                 self?.show(update)
             }
-            // nvim exited (:qa).
-            if self?.tool != nil {
-                await self?.endTool()
-            } else if self?.check == nil {
+            // nvim exited (:qa): with Home around, this checkout closes; else sill ends. A workspace already closed
+            // and gone is nothing to end (an optional's nil would read as no check running, and quit sill).
+            guard let self else { return }
+            if tool != nil {
+                await endTool()
+            } else if home != nil {
+                if !closed { close() }
+            } else if check == nil {
                 NSApp.terminate(nil)
             }
         }
@@ -338,6 +370,8 @@ final class Workspace: NSObject, NSWindowDelegate {
     /// Files other apps asked to open before nvim was up.
     private var pendingOpens: [FileReference] = []
     private var editorReady = false
+    /// nvim is up and the files asked for are open.
+    var isReady: Bool { editorReady }
 
     /// Files from Finder or `open -a Sill`, and `sill://open?path=…&line=…&column=…` links: what a terminal or an
     /// agent's session hands over.
@@ -508,7 +542,7 @@ final class Workspace: NSObject, NSWindowDelegate {
         let channel = session.channel
         root.statusBar.onPullRequest = { [weak self] in self?.pulls.show() }
         // Checks read no one's GitHub: only a stand-in gh.
-        let checking = ProcessInfo.processInfo.environment["SILL_CHECK"] != nil
+        let checking = environment["SILL_CHECK"] != nil
         if !checking || ProcessInfo.processInfo.environment["SILL_GH"] != nil { pulls.start() }
         root.tabBar.onSelect = { handle in
             Task { _ = await channel.request("nvim_set_current_tabpage", params: [.int(Int64(handle))]) }
@@ -659,12 +693,80 @@ final class Workspace: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Closing the window quits, through the same question.
+    /// Closing the window quits, through the same question; with Home around it closes this checkout only, after the
+    /// same question for its files.
     func windowShouldClose(_: NSWindow) -> Bool {
         guard check == nil else { return true }
-        NSApp.terminate(nil)
+        guard home != nil else {
+            NSApp.terminate(nil)
+            return false
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            let modified = await unsavedFiles()
+            guard await Self.confirm(modified, channels: [session.channel]) else { return }
+            close()
+        }
         return false
     }
+
+    /// Its window in front again (opened from Home once more), on a walkthrough when one is asked for.
+    func bringToFront(walkthrough: String?) {
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        if let walkthrough { walker.open(walkthrough) }
+    }
+
+    /// The menu bar is the window in front's.
+    func windowDidBecomeKey(_: Notification) {
+        buildMenu()
+    }
+
+    private var closed = false
+
+    /// Ends it: its window, nvim and what it started; the app is told.
+    func close() {
+        closed = true
+        agents?.stop()
+        hooks?.stop()
+        window?.orderOut(nil)
+        let session = session, sidecar = sidecar
+        Task {
+            await session.stop()
+            await sidecar?.stop()
+        }
+        onClosed?()
+    }
+
+    /// Asks about unsaved files before they would be lost: save them all (true when they were), don't save (true),
+    /// cancel (false).
+    static func confirm(_ modified: [String], channels: [NvimChannel]) async -> Bool {
+        guard !modified.isEmpty else { return true }
+        let alert = NSAlert()
+        alert.messageText = modified.count == 1 ? "\(modified[0]) has unsaved changes" :
+            "\(modified.count) files have unsaved changes"
+        alert.informativeText = modified.count == 1 ? "Save it first?" :
+            modified.prefix(8).joined(separator: ", ") + (modified.count > 8 ? ", …" : "")
+        alert.addButton(withTitle: modified.count == 1 ? "Save" : "Save All")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Don't Save")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            var saved = true
+            for channel in channels where await (try? channel.command("wall")) == nil {
+                saved = false
+            }
+            return saved
+        case .alertThirdButtonReturn: return true
+        default: return false
+        }
+    }
+
+    /// Its window, for the checks.
+    var windowForCheck: NSWindow? { window }
+
+    /// Its nvim, for the app's questions (unsaved files when quitting).
+    var channel: NvimChannel { session.channel }
 
     /// The exit status git reads with `trustExitCode`: nvim's own (`:cquit` is 1), and 1 for a merge whose result
     /// still has conflicts in it, whatever nvim said.

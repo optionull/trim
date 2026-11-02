@@ -44,7 +44,9 @@ final class Hooks {
     /// The settings sill passes to the agents it starts.
     var settingsPath: String {
         (NSTemporaryDirectory() as NSString)
-            .appendingPathComponent("sill-settings-\(ProcessInfo.processInfo.processIdentifier).json")
+            .appendingPathComponent(
+                "sill-settings-\(ProcessInfo.processInfo.processIdentifier)-\(BasketFile.fingerprint([root])).json"
+            )
     }
 
     func start() {

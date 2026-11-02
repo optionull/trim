@@ -96,6 +96,29 @@ struct HomeCheck {
         await until("the review seen") { model.unseen.map(\.prepared.title) == ["The tax, once"] }
         step("the review walkthrough opened: no longer new; the handoff still is")
 
+        // A checkout opened from Home: in this sill, a window of its own; again, the same one; another, a second; its
+        // window closed, that one goes; :qa in the other ends it, and Home stays.
+        guard let app = NSApp.delegate as? AppDelegate else { fail("the app") }
+        guard let featureRow = model.rows.first(where: { $0.checkout.path == feature }) else { fail("the feature row") }
+        model.open(featureRow.checkout)
+        await until("its workspace", seconds: 60) { app.opened.count == 1 && app.opened[0].isReady }
+        if app.opened[0].workingDirectory != feature { fail("opened \(app.opened[0].workingDirectory)") }
+        model.open(featureRow.checkout)
+        try? await Task.sleep(for: .milliseconds(300))
+        if app.opened.count != 1 { fail("opened again: \(app.opened.count) workspaces") }
+        guard let betaRow = model.rows.first(where: { $0.checkout.path == beta }) else { fail("beta's row") }
+        model.open(betaRow.checkout)
+        await until("a second workspace", seconds: 60) { app.opened.count == 2 && app.opened[1].isReady }
+        step(
+            "opened from Home in this sill: alpha-feature, again the same, then beta beside it (\(app.opened.count) open)"
+        )
+        app.opened[1].windowForCheck?.performClose(nil)
+        await until("beta closed", seconds: 20) { app.opened.map(\.workingDirectory) == [feature] }
+        _ = try? await app.opened[0].channel.command("qa!")
+        await until("alpha-feature ended", seconds: 20) { app.opened.isEmpty }
+        home.view.display()
+        step("beta's window closed: it alone ends; :qa in alpha-feature ends it; Home stays")
+
         if let path = environment["SILL_CHECK_SHOT"] {
             home.view.display()
             if let bitmap = home.view.bitmapImageRepForCachingDisplay(in: home.view.bounds) {

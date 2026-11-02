@@ -991,6 +991,19 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
 - The check chain moved into the repository (2026-11-02): `mise run verify` (scripts/verify.sh, the fixtures in
   scripts/fixtures). It had lived in /tmp/sill-scripts, and macOS's periodic cleanup deleted it; rebuilt from the
   session's own record of every edit made to it.
+- Workspaces (phase 2, 2026-11-02). First, behaviour-identical: what AppDelegate held for the one folder sill opened
+  is a `Workspace`; AppDelegate keeps the app's own (settings, Home) and hands it launch, files and quitting (the full
+  chain passed before and after). Then many: a checkout opened from Home opens in this sill, in a window of its own
+  (cascaded beside the last), or its window comes to the front (on the walkthrough asked for). A workspace opened so
+  reads the process's environment without what only the launch means (SILL_CHECK, SILL_PROBE, SILL_SHOWCASE, SILL_CWD,
+  SILL_WALK, SILL_HOME). The settings and the grid's font tell every workspace (one listener each in the app, which
+  fans out); the menu bar is the window in front's (rebuilt as a window becomes key, Home's too); the MCP config and
+  the hooks' settings are named for the checkout as well as the process. With Home, closing a workspace's window (or
+  :qa in it) ends that checkout alone, after the question about its unsaved files; quitting asks once for all of them.
+  Found on the way: a closed workspace's "nvim exited" ran with `self` gone, and `self?.check == nil` read true, which
+  quit sill. Checked in the Home check (open a checkout, again the same window, a second beside it, its window closed,
+  :qa in the other, Home stays); the old exit path fails it. Each workspace still starts its own .NET sidecar (66 MB):
+  sharing one is next to look at.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

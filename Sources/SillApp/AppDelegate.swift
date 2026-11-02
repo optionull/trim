@@ -2,19 +2,27 @@ import AppKit
 import SillCore
 import SillEditor
 
-/// The app: its settings, Home when it started without a folder, and the checkout open in it (a `Workspace`), to which
-/// it hands the app's moments: files to open, quitting.
+/// The app: its settings, Home when it started without a folder, and the checkouts open in it (each a `Workspace`, in a
+/// window of its own), to which it hands the app's moments: files to open, a change of settings or font, quitting.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = SettingsController()
-    /// Made with the app, as files to open can come before launch is done; started when sill opens a folder.
+    /// The folder sill was started on: made with the app, as files to open can come before launch is done; started
+    /// when sill opens a folder (not with Home).
     private(set) lazy var workspace = Workspace(settings: settings)
+    /// The checkouts opened from Home.
+    private(set) var opened: [Workspace] = []
     /// Home, when sill started without a folder.
     private(set) var home: HomeController?
+
+    /// Every checkout open.
+    var workspaces: [Workspace] { (home == nil ? [workspace] : []) + opened }
 
     func applicationDidFinishLaunching(_: Notification) {
         // Before anything reads a setting.
         settings.start()
+        settings.onApplied = { [weak self] in self?.workspaces.forEach { $0.settingsApplied() } }
+        EditorFont.onChange = { [weak self] in self?.workspaces.forEach { $0.fontChanged() } }
         let environment = ProcessInfo.processInfo.environment
         if environment["SILL_BENCH"] == "1" {
             Bench.run()
@@ -29,11 +37,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) {
             home = HomeController(settings: settings)
             workspace.home = home
+            home?.onOpen = { [weak self] folder, walkthrough in self?.open(folder: folder, walkthrough: walkthrough) }
             home?.start()
             if environment["SILL_CHECK"] == "home" { Task { await HomeCheck(home: home!).run() } }
             if environment["SILL_CHECK"] == "homeshot" { Task { await HomeCheck(home: home!).shot() } }
             return
         }
+        workspace.start()
+    }
+
+    /// A checkout opened from Home: in a window of its own, or its window brought to the front when it is open (on
+    /// the walkthrough asked for).
+    func open(folder: String, walkthrough: String? = nil) {
+        let folder = realPath(folder)
+        if let open = opened.first(where: { $0.workingDirectory == folder }) {
+            open.bringToFront(walkthrough: walkthrough)
+            return
+        }
+        let workspace = Workspace(settings: settings, folder: folder, walkthrough: walkthrough)
+        workspace.home = home
+        workspace.onClosed = { [weak self, weak workspace] in self?.opened.removeAll { $0 === workspace } }
+        opened.append(workspace)
         workspace.start()
     }
 
@@ -50,11 +74,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    /// With Home: one question for the unsaved files of every checkout open.
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
-        home != nil ? .terminateNow : workspace.shouldTerminate()
+        guard home != nil else { return workspace.shouldTerminate() }
+        guard !opened.isEmpty, ProcessInfo.processInfo.environment["SILL_CHECK"] == nil else { return .terminateNow }
+        let open = opened
+        Task {
+            var modified: [String] = []
+            for workspace in open {
+                modified += await workspace.unsavedFiles()
+            }
+            await NSApp.reply(toApplicationShouldTerminate: Workspace.confirm(modified, channels: open.map(\.channel)))
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_: Notification) {
-        if home == nil { workspace.willTerminate() }
+        workspaces.forEach { $0.willTerminate() }
     }
 }

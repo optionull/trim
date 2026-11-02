@@ -168,17 +168,11 @@ final class HomeModel {
         rows.flatMap { row in row.state.unseen.map { (row.checkout, $0) } }.sorted { $0.prepared.at > $1.prepared.at }
     }
 
-    /// Opens a checkout in a sill of its own (and a walkthrough in it, which marks it seen).
+    /// Asked to open a checkout (and a walkthrough in it): the app opens it in a window of its own.
+    var onOpen: ((String, String?) -> Void)?
+
     func open(_ checkout: Checkout, walkthrough: String? = nil) {
-        guard let app = Bundle.main.bundleURL as URL? else { return }
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.createsNewApplicationInstance = true
-        configuration.environment = ["SILL_CWD": checkout.path].merging(
-            walkthrough.map { ["SILL_WALK": $0] } ?? [:]
-        ) { _, new in new }
-        NSWorkspace.shared.openApplication(at: app, configuration: configuration) { _, error in
-            if let error { NSLog("sill: \(checkout.path) did not open: \(error)") }
-        }
+        onOpen?(checkout.path, walkthrough)
         if let walkthrough, let folder = Checkouts.sillFolder(of: checkout) {
             Seen.mark(walkthrough, in: folder)
             reread([checkout.path])

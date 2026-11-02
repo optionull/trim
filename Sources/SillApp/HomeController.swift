@@ -11,6 +11,10 @@ final class HomeController: NSObject {
     private(set) var window: NSWindow!
     private(set) var view: HomeView!
     private var status: NSStatusItem?
+    /// Opens a checkout (and a walkthrough in it) in this sill.
+    var onOpen: ((String, String?) -> Void)? {
+        didSet { model?.onOpen = onOpen }
+    }
 
     init(settings: SettingsController) {
         self.settings = settings
@@ -21,6 +25,7 @@ final class HomeController: NSObject {
         let roots = Settings.shared.value("SILL_ROOTS").map { $0.split(separator: ":").map(String.init) } ??
             Settings.shared.current.roots
         model = HomeModel(roots: roots)
+        model.onOpen = onOpen
         view = HomeView(model: model)
         model.onChange = { [weak self] in
             self?.view.changed()
@@ -39,6 +44,7 @@ final class HomeController: NSObject {
         window.titleVisibility = .hidden
         window.backgroundColor = Design.editor
         window.contentView = view
+        window.delegate = self
         if ProcessInfo.processInfo.environment["SILL_OFFSCREEN"] == "1" {
             window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
             view.frame = NSRect(x: 0, y: 0, width: 980, height: 760)
@@ -190,5 +196,12 @@ extension HomeController: NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(ClosureItem(title: "Open Home") { [weak self] in self?.show() })
         menu.addItem(withTitle: "Quit sill", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+    }
+}
+
+extension HomeController: NSWindowDelegate {
+    /// Home in front: its own menu bar again.
+    func windowDidBecomeKey(_: Notification) {
+        buildMenu()
     }
 }

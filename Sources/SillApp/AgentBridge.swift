@@ -34,7 +34,9 @@ final class AgentBridge {
         self.directory = directory
         let temporary = NSTemporaryDirectory()
         let pid = ProcessInfo.processInfo.processIdentifier
-        configPath = (temporary as NSString).appendingPathComponent("sill-mcp-\(pid).json")
+        // One a checkout: sill can have several open.
+        configPath = (temporary as NSString)
+            .appendingPathComponent("sill-mcp-\(pid)-\(BasketFile.fingerprint([directory])).json")
         allowed = Set((Settings.shared.value("SILL_MCP_ALLOW") ?? "").split(separator: ",")
             .map(String.init))
         server = McpServer(
