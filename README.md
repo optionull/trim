@@ -30,6 +30,18 @@ checkout's window, or `:qa` in it, ends that checkout alone; Home stays.
 
 ![A checkout's summary: the agent idle after its last prompt, a new walkthrough, what was asked, two commits since main and the files touched](docs/showcase-summary-2026-11-02.png)
 
+## Run
+
+What a checkout can run, found from its project files (nothing built or asked of a tool): .NET programs (one per
+launch profile) and test projects, Swift executables and test targets, Cargo binaries and tests, package.json scripts
+(with the package manager its lockfile names), mise tasks and just recipes. The Run pane (the rail's play icon) lists
+what the branch touched first, then what was run before, then the rest; a row runs (↵), runs with its command line
+changed first (`e`), debugs (`d`, .NET) or profiles (`p`, .NET, Cargo, Swift). ⌘R runs the last again; ⇧⌘R picks
+one and asks for its command line, to change before it runs (`:SillRun`). What was run, as it was changed, is kept in
+the repository's `.sill/run.json`; it runs in a terminal at the bottom.
+
+![The Run pane: the .NET program the branch touched, with Debug, Profile and Run](docs/showcase-run-2026-11-02.png)
+
 ## Explorer
 
 A native macOS explorer of a codebase, for steering the coding agents that change it. nvim owns buffers, modes and

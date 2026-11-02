@@ -129,7 +129,16 @@ final class Workspace: NSObject, NSWindowDelegate {
             tools.pullRequest?.changed()
             root?.statusBar.state.pullRequest = pulls.label.map { ($0.text, PullRequestView.color($0.level)) }
         }
+        runner = Runner(app: self, channel: session.channel, directory: workingDirectory)
+        tools.makeRun = { [weak self] in
+            guard let self else { fatalError("the workspace is gone") }
+            let view = RunView(runner: runner)
+            runner.onChange = { [weak view] in view?.changed() }
+            return view
+        }
+        runner.refresh()
         stories = Stories(channel: session.channel, directory: workingDirectory)
+        defer { stories.refresh() }
         // The story read: the summary drawn again, the explorer's touched files; opened from Home, those come first.
         tools.sidebar.explorer.prefersTouched = home != nil
         stories.onChange = { [weak self] in
@@ -429,6 +438,7 @@ final class Workspace: NSObject, NSWindowDelegate {
     private(set) var tracer: Tracer!
     private(set) var replays: Replays!
     private(set) var stories: Stories!
+    private(set) var runner: Runner!
     private var summaryAsksSeen = 0
     private(set) var pulls: PullRequests!
     private(set) var hooks: Hooks!
@@ -466,6 +476,7 @@ final class Workspace: NSObject, NSWindowDelegate {
         tracer.update(screen)
         replays.update(screen)
         pulls.update(screen)
+        runner.update(screen)
         if screen.summaryAsks > summaryAsksSeen {
             summaryAsksSeen = screen.summaryAsks
             stories.show()
@@ -579,6 +590,7 @@ final class Workspace: NSObject, NSWindowDelegate {
             // The panes: opened (the current basket, else a choice of them).
             switch activity {
             case .summary: return stories.show()
+            case .run: return runner.show()
             case .walkthroughs:
                 // The newest not seen, else the newest, else a choice of them all.
                 if let prepared = stories.unseen ?? stories.walkthroughs.first { return walker.open(prepared.path) }
@@ -671,7 +683,11 @@ final class Workspace: NSObject, NSWindowDelegate {
     }
 
     @objc func buildProject(_: Any?) { builds.build() }
-    @objc func runProject(_: Any?) { run() }
+    /// ⌘R: the last run again (a choice the first time).
+    @objc func runProject(_: Any?) { runner.rerun() }
+    /// ⇧⌘R: a choice of what to run, its command line to change first.
+    @objc func chooseRun(_: Any?) { runner.pick() }
+    @objc func showRun(_: Any?) { runner.show() }
 
     /// Quitting (⌘Q, or closing the window) with files nvim has unsaved changes in asks first: save them all, throw
     /// them away, or stay. Without swap files nothing would be left to recover them from.
@@ -957,7 +973,10 @@ final class Workspace: NSObject, NSWindowDelegate {
         menu.addItem(projectItem)
         let projectMenu = NSMenu(title: "Project")
         projectMenu.addItem(withTitle: "Build", action: #selector(buildProject(_:)), keyEquivalent: "b")
-        projectMenu.addItem(withTitle: "Run", action: #selector(runProject(_:)), keyEquivalent: "r")
+        projectMenu.addItem(withTitle: "Run Again", action: #selector(runProject(_:)), keyEquivalent: "r")
+        let choose = projectMenu.addItem(withTitle: "Run…", action: #selector(chooseRun(_:)), keyEquivalent: "r")
+        choose.keyEquivalentModifierMask = [.command, .shift]
+        projectMenu.addItem(withTitle: "Runnables", action: #selector(showRun(_:)), keyEquivalent: "")
         projectMenu.addItem(.separator())
         // The tools of an IDE: there when needed, out of the way otherwise.
         for (title, command) in [

@@ -110,6 +110,12 @@ final class SelfCheck {
                 fflush(stdout)
                 exit(0)
             }
+            if ProcessInfo.processInfo.environment["SILL_CHECK"] == "run" {
+                try await runSteps()
+                print("sill check (run): passed")
+                fflush(stdout)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["SILL_CHECK"] == "pr" {
                 try await pullRequestSteps()
                 print("sill check (pull request): passed")
@@ -381,7 +387,8 @@ final class SelfCheck {
                         return nil
                     }
                     if let item = find(NSApp.mainMenu), let action = item.action {
-                        NSApp.sendAction(action, to: item.target, from: item)
+                        // Without a target, the window in front's: off screen there is none, so the workspace's.
+                        NSApp.sendAction(action, to: item.target ?? app, from: item)
                     } else {
                         say("no menu item \(argument)")
                     }
@@ -1735,6 +1742,70 @@ final class SelfCheck {
             "the agent: pull_request reads it (failing checks with links, the review); the next prompt is told once; " +
                 "gh only listed"
         )
+    }
+
+    /// Run (`SILL_CHECK=run`, in run-fixture.sh's Swift package): the Run pane finds hello; running it prints in a
+    /// terminal at the bottom and keeps it as a configuration; ⇧⌘R picks it and its command line is changed before it
+    /// runs (kept so); ⌘R runs that again.
+    private func runSteps() async throws {
+        let app = try require(app, "the app")
+        let runner = try require(app.runner, "the runner")
+        try await wait("the chrome") { $0.paneRects.contains { $0.kind == "panel" } }
+        runner.show()
+        try await wait("the Run pane") { $0.currentPaneKind == "run" }
+        let hello = try await waitFor("hello found", timeout: .seconds(20)) {
+            runner.runnables.first { $0.name == "hello" }
+        }
+        try expect(hello.command == "swift run hello" && hello.kind == .app && hello.profilable, "hello: \(hello)")
+        step("the Run pane finds hello, a Swift executable (swift run hello), profilable")
+
+        /// What the newest terminal shows, once it shows `wanted`.
+        func shown(_ wanted: String) async throws {
+            #if SILL_GHOSTTY
+                _ = try await waitFor(wanted, timeout: .seconds(120)) { () -> Bool? in
+                    let terminals = self.latest?.paneRects.filter { $0.kind == "terminal" } ?? []
+                    for pane in terminals {
+                        if let surface = self.panes.view(for: pane.pane) as? GhosttySurfaceView,
+                           (surface.visibleText() ?? "").split(separator: "\n")
+                           .contains(where: { $0.hasPrefix(wanted) })
+                        {
+                            return true
+                        }
+                    }
+                    return nil
+                }
+            #endif
+        }
+        runner.run(hello)
+        try await shown("sill-run-hello")
+        let file = app.workingDirectory + "/.sill/run.json"
+        _ = try await waitFor("run.json") { FileManager.default.fileExists(atPath: file) ? true : nil }
+        try expect(
+            RunConfigurations.load(file).last?.command == "swift run hello",
+            "run.json: \(RunConfigurations.load(file))"
+        )
+        step("Run: hello printed in a terminal at the bottom; kept in .sill/run.json")
+
+        // ⇧⌘R: the choice (what was run first), then its command line, changed.
+        app.chooseRun(nil)
+        try await Task.sleep(for: .milliseconds(600))
+        _ = await session.channel.request("nvim_input", params: [.string("1\r")])
+        try await Task.sleep(for: .milliseconds(600))
+        _ = await session.channel.request("nvim_input", params: [.string(" again\r")])
+        try await shown("sill-run-hello again")
+        _ = try await waitFor("the change kept") {
+            RunConfigurations.load(file).last?.command == "swift run hello again" ? true : nil
+        }
+        step("⇧⌘R: hello chosen, its command line changed to swift run hello again, run and kept")
+
+        // ⌘R: that again.
+        let before = runner.configurations.last?.lastRun ?? .distantPast
+        app.runProject(nil)
+        _ = try await waitFor("run again") {
+            (runner.configurations.last?.lastRun ?? .distantPast) > before &&
+                runner.configurations.last?.command == "swift run hello again" ? true : nil
+        }
+        step("⌘R: the last run again (swift run hello again)")
     }
 
     /// A hook command run as an agent runs it: `input` on stdin; its status and what it printed.

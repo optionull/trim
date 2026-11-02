@@ -78,6 +78,8 @@ $F/basket-fixture.sh /tmp/sill-config
 (cd /tmp/sill-config && run config SILL_OFFSCREEN=1 SILL_CHECK=config SILL_CHECK_CONFIG=1 SILL_CWD=/tmp/sill-config HEED_CONTROL=/tmp/no-heed.sock)
 $F/compat-fixture.sh /tmp/sill-compat-xdg
 (cd /tmp && run compat SILL_OFFSCREEN=1 SILL_CHECK=compat SILL_CHECK_USER=1 SILL_NVIM_CONFIG=1 XDG_CONFIG_HOME=/tmp/sill-compat-xdg SILL_CWD=/tmp HEED_CONTROL=/tmp/no-heed.sock)
+$F/run-fixture.sh /tmp/sill-run
+(cd /tmp/sill-run && run run SILL_CHECK=run SILL_CWD=/tmp/sill-run HEED_CONTROL=/tmp/no-heed.sock)
 $F/home-fixture.sh /tmp/sill-home
 (cd /tmp && run home SILL_HOME=1 SILL_CHECK=home SILL_OFFSCREEN=1 SILL_ROOTS=/tmp/sill-home/roots SILL_TRANSCRIPTS=/tmp/sill-home/transcripts HEED_CONTROL=/tmp/no-heed.sock)
 $F/pr-fixture.sh /tmp/sill-pr

@@ -127,6 +127,13 @@ final class Debugger {
 
     // MARK: A session
 
+    /// Debugs `project` (a project file's path), from the Run pane.
+    func debug(project chosen: String) {
+        guard state == .idle else { return say("A debug session is on: Shift-F5 stops it.") }
+        project = chosen
+        start()
+    }
+
     private func start() {
         lastExit = nil
         guard let app, let sidecar = app.sidecar else {

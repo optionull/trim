@@ -1017,6 +1017,22 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   its `.sill` changes (a walkthrough seen in a worktree is the repository's). Checked in the Home check (alpha-feature
   lands on its handoff, which Home then has seen; beta lands on its summary with a.txt touched and the explorer on
   it) and `StoryTests`; always landing on the summary fails it. Run (phase 3) is not on the rail yet.
+- Run (phase 3, 2026-11-02, owner: "Command shift r to pick (and alter) a run configuration"). `Runnables.find` reads
+  the files git knows (and new ones): .NET projects by `ProjectFile`'s kind (a program, a run per `launchSettings.json`
+  profile of `commandName: Project`; a test project, `dotnet test`; a library, none), `Package.swift`'s
+  `executableTarget`s and `testTarget`s, `Cargo.toml`'s `[[bin]]`s (else the package with `src/main.rs`) and its tests,
+  `package.json` scripts with pnpm, yarn, bun or npm by lockfile, `mise.toml` tasks and justfile recipes (not
+  assignments, defaults with `=` allowed). Debug where sill's debugger is (.NET programs), Profile where its profiler
+  is (.NET, Cargo, Swift). `RunConfigurations` keep what was run, its command as changed, one per name and folder,
+  the last first, in `.sill/run.json`. The Run pane (`run`, the rail's story group): touched on the branch (its files
+  in the runnable's folder), run before, then programs, tests, scripts; ↵ e d p. ⌘R (Project ▸ Run Again) runs the
+  last again, a choice the first time; ⇧⌘R (Run…, `:SillRun`) is the choice (`vim.ui.select`: what was run first,
+  then the touched, then the rest) and then the command line (`vim.ui.input`, the command as default) to change
+  before it runs. It runs as Run did, in a terminal at the bottom (`cd folder &&` when not at the root). A workspace
+  opened directly now reads its story at start too (the explorer's Touched tab). Checked: `SILL_CHECK=run`
+  (run-fixture.sh, a Swift package with hello: found, run in a terminal, kept; ⇧⌘R picks it and adds " again", run
+  and kept so; ⌘R that again) and `RunnablesTests`; running the command as found instead of as changed fails it.
+  Also: the probe's `menu` sends an action without a target to the workspace (off screen no window is in front).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

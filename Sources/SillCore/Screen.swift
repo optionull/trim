@@ -231,6 +231,8 @@ public struct Screen: Sendable {
     public private(set) var hooksAsks: [String] = []
     /// `:SillPR`: the worktree's pull request, asked for.
     public private(set) var pullRequestAsks = 0
+    /// `:SillRun`: a choice of what to run (no name), or one chosen with its command line as changed.
+    public private(set) var runAsks: [(name: String?, directory: String?, command: String?)] = []
     /// `:SillSummary`: the checkout's summary, asked for.
     public private(set) var summaryAsks = 0
     /// `:SillReplay [session]`: a session's log to replay ("" to pick one).
@@ -445,6 +447,12 @@ public struct Screen: Sendable {
             hooksAsks.append(args.first?.stringValue ?? "status")
         case let .notification(method, _) where method == "sill_pr":
             pullRequestAsks += 1
+        case let .notification(method, args) where method == "sill_run":
+            let fields = args.first?.dictionaryValue
+            runAsks.append((
+                fields?[.string("name")]?.stringValue, fields?[.string("directory")]?.stringValue,
+                fields?[.string("command")]?.stringValue
+            ))
         case let .notification(method, _) where method == "sill_summary":
             summaryAsks += 1
         case let .notification(method, args) where method == "sill_replay":

@@ -617,6 +617,21 @@ function M.ask_here()
 end
 
 --- sill's baskets to pick from: { file, label } each; the one picked opens.
+--- What to run: { name, folder, command, label } each; the one picked has its command line asked for, to change
+--- before it runs.
+function M.pick_run(items)
+  vim.ui.select(items, { prompt = 'Run', format_item = function(item) return item[4] end }, function(item)
+    if item then M.alter_run(item[1], item[2], item[3]) end
+  end)
+end
+
+--- A run's command line, to change (or keep) before it runs; empty, it does not.
+function M.alter_run(name, folder, command)
+  vim.ui.input({ prompt = 'Run ' .. name .. ': ', default = command }, function(line)
+    if line and line ~= '' then notify('sill_run', { name = name, directory = folder, command = line }) end
+  end)
+end
+
 --- The sessions to replay: { session, label } each; the one picked opens.
 function M.pick_replay(items)
   vim.ui.select(items, { prompt = 'Replay', format_item = function(item) return item[2] end }, function(item)
@@ -767,6 +782,9 @@ function M.setup()
   vim.api.nvim_create_user_command('SillHooks', function(opts) notify('sill_hooks', opts.args ~= '' and opts.args or 'status') end, {
     nargs = '?', complete = function() return { 'install', 'remove', 'status' } end,
     desc = "Agent hooks: install tells sill what every agent in this project does (.claude/settings.local.json)",
+  })
+  vim.api.nvim_create_user_command('SillRun', function() notify('sill_run', vim.empty_dict()) end, {
+    desc = 'Run something here: a choice of what was run and what there is, its command line to change first',
   })
   vim.api.nvim_create_user_command('SillSummary', function() notify('sill_summary') end, {
     desc = "What happened here: the agent, its walkthroughs, what was asked, the commits and the files touched",

@@ -38,6 +38,9 @@ final class ToolPanes {
     /// The code map, made the first time it opens.
     private(set) var map: CodeMapView?
     var makeMap: (() -> CodeMapView)?
+    /// The Run pane, made the first time it opens.
+    private(set) var run: RunView?
+    var makeRun: (() -> RunView)?
     /// The checkout's summary, made the first time it opens.
     private(set) var summary: SummaryView?
     var makeSummary: (() -> SummaryView)?
@@ -143,6 +146,19 @@ final class ToolPanes {
             covered.insert(rect.grid)
         } else {
             basket?.isHidden = true
+        }
+        if let rect = screen.paneRects.first(where: { $0.kind == "run" }), let make = makeRun {
+            let view = run ?? {
+                let made = make()
+                editor.addSubview(made)
+                run = made
+                return made
+            }()
+            view.frame = editor.rect(row: rect.row, col: rect.col, width: rect.width, height: rect.height)
+            view.isHidden = false
+            covered.insert(rect.grid)
+        } else {
+            run?.isHidden = true
         }
         if let rect = screen.paneRects.first(where: { $0.kind == "summary" }), let make = makeSummary {
             let view = summary ?? {
@@ -251,6 +267,7 @@ final class ToolPanes {
         case "replay": replay?.handleKey(event) ?? false
         case "pr": pullRequest?.handleKey(event) ?? false
         case "summary": summary?.handleKey(event) ?? false
+        case "run": run?.handleKey(event) ?? false
         case "basket": basket?.handleKey(event) ?? false
         default: false
         }
@@ -301,7 +318,7 @@ final class SidebarView: NSView {
         case .sourceControl: sourceControl
         case .agents: agents
         // The panes are not sidebar views.
-        case .summary, .walkthroughs, .map, .baskets, .review: explorer
+        case .summary, .walkthroughs, .run, .map, .baskets, .review: explorer
         }
         if activity == .sourceControl { sourceControl.refresh() }
         addSubview(content)

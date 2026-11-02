@@ -64,14 +64,15 @@ final class PillButton: NSButton {
 /// profiler, packages, telemetry) are in the Project menu, not here.
 enum Activity: String, CaseIterable {
     // What happened first (the story: its summary, its walkthroughs, its review), then the browsing.
-    case summary, walkthroughs, review, explorer, sourceControl, agents, map, baskets
+    case summary, walkthroughs, review, run, explorer, sourceControl, agents, map, baskets
 
     /// The story's: above the rule.
-    var story: Bool { self == .summary || self == .walkthroughs || self == .review }
+    var story: Bool { [.summary, .walkthroughs, .review, .run].contains(self) }
 
     var symbol: String {
         switch self {
         case .summary: "text.alignleft"
+        case .run: "play"
         case .walkthroughs: "book"
         case .explorer: "folder"
         case .sourceControl: "arrow.triangle.branch"
@@ -85,6 +86,7 @@ enum Activity: String, CaseIterable {
     var title: String {
         switch self {
         case .summary: "Summary"
+        case .run: "Run"
         case .walkthroughs: "Walkthroughs"
         case .explorer: "Explorer"
         case .sourceControl: "Changes"
@@ -99,6 +101,7 @@ enum Activity: String, CaseIterable {
     var pane: String? {
         switch self {
         case .summary: "summary"
+        case .run: "run"
         case .walkthroughs: "walk"
         case .map: "map"
         case .baskets: "basket"
