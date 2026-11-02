@@ -66,6 +66,8 @@ public struct Walkthrough: Equatable, Sendable {
     public var question: String?
     public var by: String?
     public var status: String?
+    /// The checkout it is about, when an agent wrote it for one (a handoff): its root.
+    public var worktree: String?
     /// The fingerprint written after an anchor (`@code Pricing.Total #a1b2c3d`), by the anchor's line: what its code
     /// was when it was added, to say when it moved on.
     public var fingerprints: [Int: String] = [:]
@@ -73,7 +75,7 @@ public struct Walkthrough: Equatable, Sendable {
     public init(_ source: String) {
         var lines = source.components(separatedBy: "\n")
         var title = "", target: String?, base: String?, offset = 0
-        var question: String?, by: String?, status: String?
+        var question: String?, by: String?, status: String?, worktree: String?
         // Front matter.
         if lines.first?.trimmingCharacters(in: .whitespaces) == "---",
            let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" })
@@ -88,6 +90,7 @@ public struct Walkthrough: Equatable, Sendable {
                 case "question": question = parts[1]
                 case "by": by = parts[1]
                 case "status": status = parts[1]
+                case "worktree": worktree = parts[1]
                 default: break
                 }
             }
@@ -176,6 +179,7 @@ public struct Walkthrough: Equatable, Sendable {
         self.question = question
         self.by = by
         self.status = status
+        self.worktree = worktree
         self.fingerprints = fingerprints
     }
 

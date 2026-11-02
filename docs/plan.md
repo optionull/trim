@@ -964,6 +964,33 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   fetched; without it the review says to fetch rather than compare with the wrong base. Not done: rename detection
   (the review counts a rename as a delete and an add: 669 files for GitHub's 648), and a pane's first opening costs
   about 250 ms once.
+- The pivot (2026-11-02, owner: "sill is the editor you leave running in the background to peek into what agents
+  are doing"; the plan agreed in chat): Home over the folders watched, then one sill for many checkouts with the
+  agent's story first (summary, walkthrough, review, run; touched files on the left), runnables, the handoff skill,
+  since-you-last-looked. Not an orchestrator: agents are working or idle, nothing "needs you".
+- Home (phase 1, 2026-11-02). `Checkouts.find` walks the roots (four levels, not into node_modules, bin, obj and the
+  like, nor into a checkout) and asks each repository for its worktrees (`git worktree list`, in parallel), wherever
+  they are. `CheckoutState.read`: the branch, the changes (`git --no-optional-locks status`: never git's index lock,
+  so an agent never finds git busy because sill looked; `.sill/` not counted), when a changed file was last written,
+  the last commit, the agent from Claude Code's transcripts (`~/.claude/projects/<cwd, non-alphanumerics as ->`: the
+  newest session's end, 256 KB, working while its last turn has not ended and was written in the last ten minutes;
+  the prompt from its `last-prompt` entries, else the person's last message), and the notebooks agents prepared in
+  the repository's `.sill` (handoffs, reviews, plans, walkthroughs) for this checkout (`worktree:` in their front
+  matter; the main checkout gets those naming none), seen when opened in sill since last written (`.sill/seen.json`,
+  written by the walker). Home's window lists them most recently active first with the summary of summaries on top;
+  the menu bar item counts the working; a checkout opens in a sill of its own (`SILL_CWD`, and `SILL_WALK` for a
+  walkthrough). First paint from a cache (Application Support), then a read in the background, then file events
+  (raw: `.git` and `.sill` count) re-reading only the checkout they are in, and the transcripts' folder for the
+  agents. Started without a folder (the Dock), sill is Home; `SILL_HOME=1` asks for it. The folders are `[home]
+  roots` (`SILL_ROOTS`), asked for on first launch with an open panel. On the owner's machine: 94 checkouts, read in
+  2.3 s, at once from the cache. Checked: `SILL_CHECK=home` (home-fixture.sh: a repository with a worktree outside
+  the roots, an old one, a handoff and a review walkthrough, a transcript with a turn under way: the order, the agent
+  working on "Round the tax once", the summary of summaries, then the turn ending, an edit, a walkthrough seen, each
+  followed live) and `CheckoutsTests`; finding no worktrees, or counting a walkthrough seen once ever opened, fails
+  them. Not checked: the first launch's questions (modal panels) and the menu bar item's menu, by hand only.
+- The check chain moved into the repository (2026-11-02): `mise run verify` (scripts/verify.sh, the fixtures in
+  scripts/fixtures). It had lived in /tmp/sill-scripts, and macOS's periodic cleanup deleted it; rebuilt from the
+  session's own record of every edit made to it.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

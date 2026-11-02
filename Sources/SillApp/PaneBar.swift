@@ -101,13 +101,13 @@ enum PaneBar {
     }
 
     /// Draws the keys the pane takes along the bottom of `bounds`, over whatever scrolled under them.
-    static func drawKeys(_ keys: String, in bounds: NSRect) {
+    static func drawKeys(_ keys: String, back: Bool = true, in bounds: NSRect) {
         let strip = NSRect(x: 0, y: bounds.height - footer, width: bounds.width, height: footer)
         Design.chrome.setFill()
         strip.fill()
         Design.border.setFill()
         NSRect(x: 0, y: strip.minY, width: bounds.width, height: 1).fill()
-        let line = text(keys + "  ·  q back", 11, Design.textFaint)
+        let line = text(keys + (back ? "  ·  q back" : ""), 11, Design.textFaint)
         line.drawLine(in: NSRect(
             x: 16,
             y: strip.midY - line.size().height / 2,

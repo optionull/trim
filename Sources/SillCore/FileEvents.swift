@@ -25,8 +25,13 @@ public final class FileEvents: @unchecked Sendable {
         "/DerivedData/",
     ]
 
-    public init(root: String) {
+    /// Every path as the file system reports it (Home: commits, branch switches and `.sill` count), not only the
+    /// files git follows.
+    public let raw: Bool
+
+    public init(root: String, raw: Bool = false) {
         self.root = root
+        self.raw = raw
     }
 
     deinit { stop() }
@@ -68,6 +73,13 @@ public final class FileEvents: @unchecked Sendable {
     }
 
     private func received(_ paths: [String]) {
+        if raw {
+            let real = Array(Set(paths.map { realPath($0) }))
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated { self?.onChange?(real) }
+            }
+            return
+        }
         // Real paths (/tmp is /private/tmp: realpath, not URL's resolving, which takes /private off again), files
         // only, not in skipped folders, then not ignored by git.
         let candidates = Set(paths.map { realPath($0) }).filter { path in

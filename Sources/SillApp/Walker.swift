@@ -80,6 +80,10 @@ final class Walker {
     func open(_ path: String, step: Int = 0, show: Bool = true) {
         self.path = path
         self.step = step
+        // A notebook of a repository's .sill, opened to be read: seen, for Home.
+        if show, let range = path.range(of: "/" + SillFolder.name + "/") {
+            Seen.mark(path, in: String(path[..<range.lowerBound]) + "/" + SillFolder.name)
+        }
         if show { Nvim.lua(channel, "require'sill'.show_pane(...)", [.string(pane)]) }
         Task { await read() }
     }

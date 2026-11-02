@@ -31,6 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private(set) var sidecarProblem: String?
 
     let settings = SettingsController()
+    /// Home, when sill started without a folder.
+    private(set) var home: HomeController?
 
     func applicationDidFinishLaunching(_: Notification) {
         // Before anything reads a setting.
@@ -44,12 +46,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             Bench.run()
             return
         }
-        buildMenu()
         // Started to open a file (from Finder, `open -a`, a sill:// link): in its repository, not in /.
         let launchedFor = pendingOpens.first.flatMap { reference in
             Review.git(["rev-parse", "--show-toplevel"], in: (reference.path as NSString).deletingLastPathComponent)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        // Started without a folder (the Dock, Finder, at login): Home, the checkouts under the folders watched; each
+        // opens in a sill of its own. SILL_HOME=1 asks for it (the checks).
+        if environment["SILL_HOME"] == "1" || (
+            environment["SILL_CWD"] == nil && environment["SILL_CHECK"] == nil && environment["SILL_PROBE"] == nil &&
+                environment["SILL_SHOWCASE"] == nil && FileManager.default.currentDirectoryPath == "/" &&
+                launchedFor == nil
+        ) {
+            home = HomeController(settings: settings)
+            home?.start()
+            if environment["SILL_CHECK"] == "home" { Task { await HomeCheck(home: home!).run() } }
+            if environment["SILL_CHECK"] == "homeshot" { Task { await HomeCheck(home: home!).shot() } }
+            return
+        }
+        buildMenu()
         let directory = environment["SILL_CWD"] ??
             (FileManager.default.currentDirectoryPath == "/" ? launchedFor : nil) ??
             FileManager.default.currentDirectoryPath
@@ -239,6 +254,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             check = SelfCheck(window: window, editor: editor, panes: panes, session: session, app: self)
         }
         startSidecar()
+        // Opened from Home on a walkthrough: shown once the chrome is up.
+        if let walkthrough = environment["SILL_WALK"] {
+            Task { [weak self] in
+                for _ in 0 ..< 100 where self?.tools.screen.paneRects.isEmpty != false {
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                self?.walker.open(walkthrough)
+            }
+        }
         let updates = session.updates
         Task { [weak self] in
             for await update in updates {
@@ -590,7 +614,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func buildProject(_: Any?) { builds.build() }
     @objc func runProject(_: Any?) { run() }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
+    /// An editor ends with its window; Home keeps running in the background, its window back from the Dock.
+    func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { home == nil }
+
+    func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows { home?.show() }
+        return true
+    }
 
     /// Quitting (⌘Q, or closing the window) with files nvim has unsaved changes in asks first: save them all, throw
     /// them away, or stay. Without swap files nothing would be left to recover them from.

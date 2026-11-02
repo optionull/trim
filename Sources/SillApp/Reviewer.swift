@@ -264,7 +264,8 @@ final class Reviewer {
             The changes are `git diff \(base.tree) \(now)` in \(directory) (git trees of the worktree then and now):
             \(list)
 
-            Follow the sill-walkthrough skill's review form. Write \(path) with `base: \(base.tree)` in its front \
+            Follow the sill-walkthrough skill's review form. Write \(path) with `base: \(base.tree)` and \
+            `worktree: \(worktree)` in its front \
             matter; show the part of a change a section is about with `@diff <path from the repository's root>`, code \
             it relates to with `@code Symbol`, and usage examples of what changed as isolated scripts in \
             \(folder)/examples, each printing what it shows, referenced with `@example examples/<file>`: for C# a .NET \

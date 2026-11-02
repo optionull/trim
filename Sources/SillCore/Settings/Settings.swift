@@ -30,6 +30,8 @@ public struct SillSettings: Equatable, Sendable {
     /// hooks.
     public var editorContext = true
     public var dotnet = ""
+    /// The folders whose git checkouts Home lists (asked for when sill first starts).
+    public var roots: [String] = []
     public var heedControl = ""
 
     public static let `default` = SillSettings()
@@ -47,6 +49,7 @@ public struct SillSettings: Equatable, Sendable {
             "SILL_MCP_ALLOW": agentAllow.joined(separator: ","),
         ]
         if !dotnet.isEmpty { environment["SILL_DOTNET"] = dotnet }
+        if !roots.isEmpty { environment["SILL_ROOTS"] = roots.joined(separator: ":") }
         if !heedControl.isEmpty { environment["HEED_CONTROL"] = heedControl }
         return environment
     }
@@ -58,7 +61,7 @@ public struct SillSettings: Equatable, Sendable {
         (["window", "islands"], nil), (["shell", "title_bar"], nil),
         (["nvim", "config"], "SILL_NVIM_CONFIG"), (["agents", "command"], "SILL_AGENT"),
         (["agents", "heed_agent"], "SILL_HEED_AGENT"), (["agents", "allow"], "SILL_MCP_ALLOW"),
-        (["agents", "editor_context"], nil),
+        (["agents", "editor_context"], nil), (["home", "roots"], "SILL_ROOTS"),
         (["dotnet", "path"], "SILL_DOTNET"), (["heed", "control"], "HEED_CONTROL"),
     ]
 }
@@ -140,6 +143,13 @@ public enum SettingsLoader {
             }
         }
         bool(["agents", "editor_context"]) { settings.editorContext = $0 }
+        if let found = value(["home", "roots"]) {
+            if let items = found.array, items.allSatisfy({ $0.string != nil }) {
+                settings.roots = items.compactMap(\.string)
+            } else {
+                problem(["home", "roots"], "should be a list of folders, like [\"~/Projects\"]")
+            }
+        }
         string(["dotnet", "path"]) { settings.dotnet = $0 }
         string(["heed", "control"]) { settings.heedControl = $0 }
 
@@ -204,6 +214,11 @@ public enum SettingsLoader {
     # With each prompt to an agent sill's hooks reach, what the editor shows: the file and line, the lines selected
     # last (in the last ten minutes), the basket open; only what changed since the session's last prompt.
     # editor_context = true
+
+    [home]
+    # The folders whose git checkouts Home lists, most recently active first; asked for when sill first starts.
+    # (SILL_ROOTS, separated by colons)
+    # roots = ["~/Projects"]
 
     [dotnet]
     # The dotnet to use; empty finds it (DOTNET_ROOT, your shell's PATH, the usual places). (SILL_DOTNET)
