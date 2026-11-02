@@ -63,10 +63,16 @@ final class PillButton: NSButton {
 /// understanding the code and steering (the code map, the baskets, the review). The tools of an IDE (debugger,
 /// profiler, packages, telemetry) are in the Project menu, not here.
 enum Activity: String, CaseIterable {
-    case explorer, sourceControl, agents, map, baskets, review
+    // What happened first (the story: its summary, its walkthroughs, its review), then the browsing.
+    case summary, walkthroughs, review, explorer, sourceControl, agents, map, baskets
+
+    /// The story's: above the rule.
+    var story: Bool { self == .summary || self == .walkthroughs || self == .review }
 
     var symbol: String {
         switch self {
+        case .summary: "text.alignleft"
+        case .walkthroughs: "book"
         case .explorer: "folder"
         case .sourceControl: "arrow.triangle.branch"
         case .agents: "sparkles"
@@ -78,6 +84,8 @@ enum Activity: String, CaseIterable {
 
     var title: String {
         switch self {
+        case .summary: "Summary"
+        case .walkthroughs: "Walkthroughs"
         case .explorer: "Explorer"
         case .sourceControl: "Changes"
         case .agents: "Agents"
@@ -90,6 +98,8 @@ enum Activity: String, CaseIterable {
     /// The pane it opens (in nvim's tab page), when it is not a sidebar view.
     var pane: String? {
         switch self {
+        case .summary: "summary"
+        case .walkthroughs: "walk"
         case .map: "map"
         case .baskets: "basket"
         case .review: "review"
@@ -121,10 +131,10 @@ final class ActivityBarView: NSView {
 
     override var isFlipped: Bool { true }
 
-    /// The sidebar's views, then a gap and a rule, then the panes.
+    /// The story's, then a gap and a rule, then the browsing.
     private func rect(_ activity: Activity) -> NSRect {
         let index = CGFloat(Activity.allCases.firstIndex(of: activity) ?? 0)
-        return NSRect(x: 0, y: 8 + index * 44 + (activity.pane != nil ? 17 : 0), width: bounds.width, height: 44)
+        return NSRect(x: 0, y: 8 + index * 44 + (activity.story ? 0 : 17), width: bounds.width, height: 44)
     }
 
     override func draw(_: NSRect) {
@@ -132,9 +142,9 @@ final class ActivityBarView: NSView {
         bounds.fill()
         Design.border.setFill()
         if !Design.islands { NSRect(x: bounds.width - 1, y: 0, width: 1, height: bounds.height).fill() }
-        if let firstPane = Activity.allCases.first(where: { $0.pane != nil }) {
+        if let browsing = Activity.allCases.first(where: { !$0.story }) {
             Design.border.setFill()
-            NSRect(x: 14, y: rect(firstPane).minY - 9, width: bounds.width - 28, height: 1).fill()
+            NSRect(x: 14, y: rect(browsing).minY - 9, width: bounds.width - 28, height: 1).fill()
         }
         for activity in Activity.allCases {
             let rect = rect(activity)

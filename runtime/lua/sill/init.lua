@@ -589,6 +589,7 @@ M.keys = {
   { 'n', '<leader>if', '<Cmd>SillFollow<CR>', 'Follow the agent' },
   { 'n', '<leader>ih', '<Cmd>SillReplay<CR>', "Replay an agent's session" },
   { 'n', '<leader>ip', '<Cmd>SillPR<CR>', "The branch's pull request" },
+  { 'n', '<leader>iu', '<Cmd>SillSummary<CR>', 'What happened here' },
 }
 
 --- From the right-click menu: the selection when there is one, else the line, to the basket.
@@ -766,6 +767,9 @@ function M.setup()
   vim.api.nvim_create_user_command('SillHooks', function(opts) notify('sill_hooks', opts.args ~= '' and opts.args or 'status') end, {
     nargs = '?', complete = function() return { 'install', 'remove', 'status' } end,
     desc = "Agent hooks: install tells sill what every agent in this project does (.claude/settings.local.json)",
+  })
+  vim.api.nvim_create_user_command('SillSummary', function() notify('sill_summary') end, {
+    desc = "What happened here: the agent, its walkthroughs, what was asked, the commits and the files touched",
   })
   vim.api.nvim_create_user_command('SillPR', function() notify('sill_pr') end, {
     desc = "The branch's pull request: what needs attention, its checks, reviews and comments",

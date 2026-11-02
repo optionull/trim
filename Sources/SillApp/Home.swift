@@ -112,6 +112,11 @@ final class HomeModel {
             uniquingKeysWith: { first, _ in first }
         )
         for path in paths {
+            // A repository's .sill (walkthroughs, what was seen) is every worktree's of it.
+            if let range = path.range(of: "/" + SillFolder.name + "/") {
+                let repository = String(path[..<range.lowerBound])
+                dirty.formUnion(rows.filter { $0.checkout.repository == repository }.map(\.checkout.path))
+            }
             if path.hasPrefix(Self.transcripts + "/") {
                 let folder = (path as NSString).deletingLastPathComponent
                 if let checkout = byTranscript[folder] { dirty.insert(checkout) }

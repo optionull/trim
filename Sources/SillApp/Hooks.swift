@@ -192,6 +192,7 @@ final class Hooks {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(8))
                 self?.app?.pulls?.refresh()
+                self?.app?.stories?.refresh()
             }
         default: break
         }

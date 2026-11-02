@@ -38,6 +38,9 @@ final class ToolPanes {
     /// The code map, made the first time it opens.
     private(set) var map: CodeMapView?
     var makeMap: (() -> CodeMapView)?
+    /// The checkout's summary, made the first time it opens.
+    private(set) var summary: SummaryView?
+    var makeSummary: (() -> SummaryView)?
     /// The branch's pull request, made the first time it opens.
     private(set) var pullRequest: PullRequestView?
     var makePullRequest: (() -> PullRequestView)?
@@ -141,6 +144,19 @@ final class ToolPanes {
         } else {
             basket?.isHidden = true
         }
+        if let rect = screen.paneRects.first(where: { $0.kind == "summary" }), let make = makeSummary {
+            let view = summary ?? {
+                let made = make()
+                editor.addSubview(made)
+                summary = made
+                return made
+            }()
+            view.frame = editor.rect(row: rect.row, col: rect.col, width: rect.width, height: rect.height)
+            view.isHidden = false
+            covered.insert(rect.grid)
+        } else {
+            summary?.isHidden = true
+        }
         if let rect = screen.paneRects.first(where: { $0.kind == "pr" }), let make = makePullRequest {
             let view = pullRequest ?? {
                 let made = make()
@@ -234,6 +250,7 @@ final class ToolPanes {
         case "trace": trace?.handleKey(event) ?? false
         case "replay": replay?.handleKey(event) ?? false
         case "pr": pullRequest?.handleKey(event) ?? false
+        case "summary": summary?.handleKey(event) ?? false
         case "basket": basket?.handleKey(event) ?? false
         default: false
         }
@@ -284,7 +301,7 @@ final class SidebarView: NSView {
         case .sourceControl: sourceControl
         case .agents: agents
         // The panes are not sidebar views.
-        case .map, .baskets, .review: explorer
+        case .summary, .walkthroughs, .map, .baskets, .review: explorer
         }
         if activity == .sourceControl { sourceControl.refresh() }
         addSubview(content)

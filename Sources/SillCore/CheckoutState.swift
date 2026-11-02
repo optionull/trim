@@ -84,7 +84,7 @@ public struct CheckoutState: Equatable, Sendable, Codable {
 
     /// The notebooks agents prepared for this checkout, newest first: those in its repository's `.sill` that name it
     /// (`worktree:`), and, for the main checkout, those that name none.
-    static func prepared(for checkout: Checkout) -> [Prepared] {
+    public static func prepared(for checkout: Checkout) -> [Prepared] {
         guard let folder = Checkouts.sillFolder(of: checkout) else { return [] }
         let seen = Seen.read(folder)
         var found: [Prepared] = []

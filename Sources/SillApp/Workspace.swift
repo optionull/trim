@@ -129,6 +129,25 @@ final class Workspace: NSObject, NSWindowDelegate {
             tools.pullRequest?.changed()
             root?.statusBar.state.pullRequest = pulls.label.map { ($0.text, PullRequestView.color($0.level)) }
         }
+        stories = Stories(channel: session.channel, directory: workingDirectory)
+        // The story read: the summary drawn again, the explorer's touched files; opened from Home, those come first.
+        tools.sidebar.explorer.prefersTouched = home != nil
+        stories.onChange = { [weak self] in
+            guard let self else { return }
+            tools.summary?.changed()
+            tools.sidebar.explorer.setTouched(stories.story?.touched ?? [])
+        }
+        tools.makeSummary = { [weak self] in
+            guard let self else { fatalError("the workspace is gone") }
+            let view = SummaryView(stories: stories)
+            view.onWalkthrough = { [weak self] path in self?.walker.open(path) }
+            view.onReview = { [weak self] in self?.reviewBranch() }
+            view.onFile = { [weak self] path in
+                guard let self else { return }
+                Nvim.lua(session.channel, "require'sill'.open_beside(...)", [.string(workingDirectory + "/" + path)])
+            }
+            return view
+        }
         replays = Replays(app: self, channel: session.channel, directory: workingDirectory)
         tools.makeReplay = { [weak self] in
             guard let self else { fatalError("the app is gone") }
@@ -276,12 +295,14 @@ final class Workspace: NSObject, NSWindowDelegate {
         }
         startSidecar()
         // Opened from Home on a walkthrough: shown once the chrome is up.
-        if let walkthrough = environment["SILL_WALK"] {
+        // Opened on a walkthrough, or from Home: shown once the chrome is up.
+        let walkthrough = environment["SILL_WALK"], fromHome = home != nil
+        if walkthrough != nil || fromHome {
             Task { [weak self] in
                 for _ in 0 ..< 100 where self?.tools.screen.paneRects.isEmpty != false {
                     try? await Task.sleep(for: .milliseconds(50))
                 }
-                self?.walker.open(walkthrough)
+                if let walkthrough { self?.walker.open(walkthrough) } else { await self?.land() }
             }
         }
         let updates = session.updates
@@ -407,6 +428,8 @@ final class Workspace: NSObject, NSWindowDelegate {
     private(set) var mapper: CodeMapper!
     private(set) var tracer: Tracer!
     private(set) var replays: Replays!
+    private(set) var stories: Stories!
+    private var summaryAsksSeen = 0
     private(set) var pulls: PullRequests!
     private(set) var hooks: Hooks!
     private(set) var baskets: Baskets!
@@ -443,6 +466,10 @@ final class Workspace: NSObject, NSWindowDelegate {
         tracer.update(screen)
         replays.update(screen)
         pulls.update(screen)
+        if screen.summaryAsks > summaryAsksSeen {
+            summaryAsksSeen = screen.summaryAsks
+            stories.show()
+        }
         hooks.update(screen)
         baskets.update(screen)
         for asked in screen.askQuestions.dropFirst(asksHandled) {
@@ -551,6 +578,11 @@ final class Workspace: NSObject, NSWindowDelegate {
             guard let self else { return }
             // The panes: opened (the current basket, else a choice of them).
             switch activity {
+            case .summary: return stories.show()
+            case .walkthroughs:
+                // The newest not seen, else the newest, else a choice of them all.
+                if let prepared = stories.unseen ?? stories.walkthroughs.first { return walker.open(prepared.path) }
+                return Nvim.lua(channel, "vim.cmd('SillWalk')")
             case .map: return Nvim.lua(channel, "vim.cmd('SillMap')")
             case .review: return Nvim.lua(channel, "vim.cmd('SillReview')")
             case .baskets:
@@ -720,6 +752,31 @@ final class Workspace: NSObject, NSWindowDelegate {
     /// The menu bar is the window in front's.
     func windowDidBecomeKey(_: Notification) {
         buildMenu()
+        stories?.refresh()
+    }
+
+    /// The branch's changes in the review: against where it left its base, pinned.
+    func reviewBranch() {
+        guard let fork = stories.story?.fork else { return Nvim.lua(session.channel, "vim.cmd('SillReview')") }
+        let directory = workingDirectory, base = stories.story?.base ?? "its base"
+        Task {
+            let tree = await Task.detached {
+                Review.git(["rev-parse", fork + "^{tree}"], in: directory)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }.value
+            guard let tree else { return }
+            reviewer.pin("where the branch left \(base)", tree: tree)
+            Nvim.lua(session.channel, "require'sill'.show_pane('review')")
+        }
+    }
+
+    /// Opened from Home: on its new walkthrough, else its summary (the story first, not the code).
+    private func land() async {
+        stories.refresh()
+        for _ in 0 ..< 200 where stories.story == nil {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        if let unseen = stories.unseen { walker.open(unseen.path) } else { stories.show() }
     }
 
     private var closed = false

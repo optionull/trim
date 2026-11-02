@@ -2049,7 +2049,7 @@ final class SelfCheck {
         end
         return out
         """).arrayValue?.compactMap(\.stringValue) ?? []
-        try expect(keys.count == 14 && keys.allSatisfy { $0.hasSuffix(" set") }, "the keys: \(keys)")
+        try expect(keys.count == 15 && keys.allSatisfy { $0.hasSuffix(" set") }, "the keys: \(keys)")
         let codeMenu = try require(
             NSApp.mainMenu?.items.first { $0.submenu?.title == "Code" }?.submenu,
             "the Code menu"

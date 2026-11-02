@@ -1004,6 +1004,19 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   quit sill. Checked in the Home check (open a checkout, again the same window, a second beside it, its window closed,
   :qa in the other, Home stays); the old exit path fails it. Each workspace still starts its own .NET sidecar (66 MB):
   sharing one is next to look at.
+- The story first (phase 2, 2026-11-02). `Story` (SillCore): the branch's base (origin's HEAD, else main or master;
+  on the base itself what is not pushed), where the branch left it, the files touched since with the worktree as it
+  is (`git diff --numstat -M <fork>`, renames followed, new files counted as added, `.sill/` left out), the commits
+  since, and the person's prompts from Claude Code's newest session here (text messages, not tools' results or
+  commands). A workspace reads it off the main thread when it opens, when its window comes to the front, and after an
+  agent's turn (`Stories`). The summary pane (`:SillSummary`, `␣iu`) says it; the explorer has a Touched tab first
+  (the file's name, its folder and lines after it) and opens on it in a checkout opened from Home (a folder opened
+  directly keeps Files, so its checks are unchanged); the rail is the story (summary, walkthroughs, review) over the
+  browsing. Opened from Home, a checkout lands on its newest unseen walkthrough, else its summary; `v` in the summary
+  pins where the branch left its base and reviews against it. Home now re-reads every checkout of a repository when
+  its `.sill` changes (a walkthrough seen in a worktree is the repository's). Checked in the Home check (alpha-feature
+  lands on its handoff, which Home then has seen; beta lands on its summary with a.txt touched and the explorer on
+  it) and `StoryTests`; always landing on the summary fails it. Run (phase 3) is not on the rail yet.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

@@ -29,21 +29,26 @@ final class ExplorerView: NSView, ToolContent {
         var missing = false
         /// A solution folder: its name in the .slnx (`/src/tooling/`).
         var solutionFolder: String?
+        /// Said after the name, faint: a touched file's folder and its lines changed.
+        var detail: String?
 
         static func == (lhs: Row, rhs: Row) -> Bool {
             lhs.path == rhs.path && lhs.name == rhs.name && lhs.depth == rhs.depth &&
                 lhs.isDirectory == rhs.isDirectory && lhs.ignored == rhs.ignored && lhs.nested == rhs.nested &&
                 lhs.project?.name == rhs.project?.name && lhs.project?.kind == rhs.project?.kind &&
-                lhs.excluded == rhs.excluded && lhs.missing == rhs.missing && lhs.solutionFolder == rhs.solutionFolder
+                lhs.excluded == rhs.excluded && lhs.missing == rhs.missing && lhs.solutionFolder == rhs
+                .solutionFolder &&
+                lhs.detail == rhs.detail
         }
 
         /// Opens to show more: a folder, a solution folder or project, a file with files nested under it.
         var opens: Bool { isDirectory || nested > 0 }
     }
 
-    /// The tree as the folders on disk have it, or as the solution (.slnx) does.
+    /// The files touched on the branch (since it left its base, and not committed), the tree as the folders on disk
+    /// have it, or as the solution (.slnx) does.
     enum Mode: Sendable, Equatable {
-        case files, solution
+        case touched, files, solution
     }
 
     let root: String
@@ -70,6 +75,26 @@ final class ExplorerView: NSView, ToolContent {
     /// The folder's .slnx, read, and how it differs from the disk; nil without one.
     private(set) var solution: (path: String, slnx: Slnx, drift: [Slnx.Drift])?
     private var modeFrames: [(Mode, NSRect)] = []
+    /// The files touched on the branch, most changed first (the workspace's story says).
+    private(set) var branchFiles: [Review.File] = []
+    /// Shows them first while there are any and no other was picked (a checkout opened from Home: the story first).
+    var prefersTouched = false
+    private var picked = false
+
+    /// The files touched, from the workspace's story.
+    func setTouched(_ files: [Review.File]) {
+        guard files != branchFiles else { return }
+        branchFiles = files
+        if prefersTouched, !picked, !files.isEmpty { mode = .touched }
+        if mode == .touched, files.isEmpty { mode = solution == nil ? .files : .solution }
+        rebuild()
+    }
+
+    /// The tabs there are: Touched while files are, Files, Solution with a .slnx.
+    private var modes: [Mode] {
+        (branchFiles.isEmpty ? [] : [.touched]) + [.files] + (solution == nil ? [] : [.solution])
+    }
+
     var onSolutionRead: ((String, Slnx, [Slnx.Drift]) -> Void)?
 
     init(channel: NvimChannel, root: String) {
@@ -86,8 +111,8 @@ final class ExplorerView: NSView, ToolContent {
     override var isFlipped: Bool { true }
 
     private var rowHeight: CGFloat { 26 }
-    /// The Files | Solution switch, when there is a solution.
-    private var switchHeight: CGFloat { solution == nil ? 0 : 30 }
+    /// The Touched | Files | Solution switch, when there is more than Files.
+    private var switchHeight: CGFloat { modes.count > 1 ? 30 : 0 }
     /// The solution's drift, in its tree.
     private var bannerHeight: CGFloat { mode == .solution && !(solution?.drift.isEmpty ?? true) ? 26 : 0 }
     private var listTop: CGFloat { switchHeight + bannerHeight + (filter == nil ? 4 : 40) }
@@ -128,8 +153,8 @@ final class ExplorerView: NSView, ToolContent {
             guard let self else { return }
             let first = solution == nil && read != nil
             solution = read.map { (path: $0.0, slnx: $0.1, drift: $0.2) }
-            if first { mode = .solution }
-            if solution == nil { mode = .files }
+            if first, mode != .touched { mode = .solution }
+            if solution == nil, mode == .solution { mode = .files }
             if let read { onSolutionRead?(read.0, read.1, read.2) }
             rebuild()
         }
@@ -143,7 +168,8 @@ final class ExplorerView: NSView, ToolContent {
     }
 
     func show(_ mode: Mode) {
-        guard mode != self.mode, mode == .files || solution != nil else { return }
+        guard mode != self.mode, modes.contains(mode) else { return }
+        picked = true
         self.mode = mode
         selected = 0
         rebuild { [weak self] in
@@ -202,6 +228,7 @@ final class ExplorerView: NSView, ToolContent {
         var showIgnored: Bool
         var mode: Mode
         var solution: Slnx?
+        var touched: [Review.File] = []
 
         func relative(_ path: String) -> String {
             path == root ? "" : String(path.dropFirst(root.count + 1))
@@ -239,7 +266,17 @@ final class ExplorerView: NSView, ToolContent {
         func rows() -> (rows: [Row], hidden: [String]) {
             let filtering = filter.map { !$0.isEmpty } ?? false
             var rows: [Row] = []
-            if mode == .solution, let solution, !filtering {
+            if mode == .touched, !filtering {
+                // A row a file, its name first: the folder and its lines changed after it.
+                rows = touched.map { file in
+                    let folder = (file.path as NSString).deletingLastPathComponent
+                    return Row(
+                        path: root + "/" + file.path, name: (file.path as NSString).lastPathComponent, depth: 1,
+                        isDirectory: false, ignored: false,
+                        detail: (folder.isEmpty ? "" : folder + "  ") + "+\(file.added) −\(file.removed)"
+                    )
+                }
+            } else if mode == .solution, let solution, !filtering {
                 rows = solutionRows(solution)
             } else {
                 rows = [Row(
@@ -422,7 +459,7 @@ final class ExplorerView: NSView, ToolContent {
         let number = generation
         let reading = Reading(
             root: root, expanded: expanded, filter: filter, ignored: ignored, showIgnored: showIgnored, mode: mode,
-            solution: solution?.slnx
+            solution: solution?.slnx, touched: branchFiles
         )
         Task { [weak self] in
             let (rows, hidden) = await Task.detached(priority: .userInitiated) { reading.rows() }.value
@@ -480,12 +517,17 @@ final class ExplorerView: NSView, ToolContent {
         drawRows()
     }
 
-    /// Files | Solution, at the top when the folder has a .slnx.
+    /// Touched | Files | Solution, at the top when there is more than Files.
     private func drawSwitch() {
         modeFrames = []
-        guard solution != nil else { return }
+        guard modes.count > 1 else { return }
         var x: CGFloat = 14
-        for (mode, title) in [(Mode.files, "Files"), (Mode.solution, "Solution")] {
+        for mode in modes {
+            let title = switch mode {
+            case .touched: "Touched"
+            case .files: "Files"
+            case .solution: "Solution"
+            }
             let active = mode == self.mode
             let label = NSAttributedString(string: title, attributes: [
                 .font: Design.ui(12, weight: active ? .semibold : .regular),
@@ -550,6 +592,11 @@ final class ExplorerView: NSView, ToolContent {
             ]
             if row.missing { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             let name = NSMutableAttributedString(string: row.name, attributes: attributes)
+            if let detail = row.detail {
+                name.append(NSAttributedString(string: "  " + detail, attributes: [
+                    .font: Design.ui(11), .foregroundColor: Design.textFaint,
+                ]))
+            }
             if let project = row.project, row.depth > 0 {
                 name.append(NSAttributedString(string: "  " + project.kind.rawValue, attributes: [
                     .font: Design.ui(11), .foregroundColor: Design.textFaint,
@@ -739,7 +786,9 @@ final class ExplorerView: NSView, ToolContent {
                 selected = parent
             }
         case "s":
-            show(mode == .files ? .solution : .files)
+            // The next tab there is.
+            let all = modes
+            show(all[((all.firstIndex(of: mode) ?? 0) + 1) % all.count])
         case "I":
             showIgnored.toggle()
             rebuild()

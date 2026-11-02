@@ -17,6 +17,19 @@ re-reads only its checkout. Nothing is written into the repositories it watches,
 
 ![Home: new from agents on top, then the checkouts, most recently active first, an agent's prompt under its checkout](docs/showcase-home-2026-11-02.png)
 
+## A checkout: the story first
+
+A checkout opened from Home opens in this sill, a window each (again: its window to the front). It opens on what
+happened, not on the code: its new walkthrough from an agent when there is one, else its summary (`:SillSummary`,
+`␣iu`, the rail's top icon): what the agent does or did and the last thing asked, the walkthroughs agents prepared
+(the new ones marked), what was asked, the commits since the branch left its base, and the files touched, each
+opening what it names. `w` reads the newest walkthrough, `v` reviews the branch against where it left its base. The
+explorer opens on those touched files (Touched | Files | Solution, `s` for the next). The rail has the story on top
+(summary, walkthroughs, review) and the browsing under a rule (explorer, changes, agents, map, baskets). Closing a
+checkout's window, or `:qa` in it, ends that checkout alone; Home stays.
+
+![A checkout's summary: the agent idle after its last prompt, a new walkthrough, what was asked, two commits since main and the files touched](docs/showcase-summary-2026-11-02.png)
+
 ## Explorer
 
 A native macOS explorer of a codebase, for steering the coding agents that change it. nvim owns buffers, modes and

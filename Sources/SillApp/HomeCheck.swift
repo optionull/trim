@@ -103,12 +103,36 @@ struct HomeCheck {
         model.open(featureRow.checkout)
         await until("its workspace", seconds: 60) { app.opened.count == 1 && app.opened[0].isReady }
         if app.opened[0].workingDirectory != feature { fail("opened \(app.opened[0].workingDirectory)") }
+        // The story first: its new walkthrough, which is then seen.
+        await until("its new walkthrough", seconds: 20) {
+            app.opened[0].walker.path?.hasSuffix("/handoffs/tax.walk.md") == true &&
+                app.opened[0].tools.screen.currentPaneKind == "walk"
+        }
+        await until("the handoff seen at Home", seconds: 20) { model.unseen.isEmpty }
+        step("alpha-feature opens on its new walkthrough (The tax, once), and Home has it seen")
         model.open(featureRow.checkout)
         try? await Task.sleep(for: .milliseconds(300))
         if app.opened.count != 1 { fail("opened again: \(app.opened.count) workspaces") }
         guard let betaRow = model.rows.first(where: { $0.checkout.path == beta }) else { fail("beta's row") }
         model.open(betaRow.checkout)
         await until("a second workspace", seconds: 60) { app.opened.count == 2 && app.opened[1].isReady }
+        // No walkthrough: its summary, and its explorer on the files touched.
+        await until("beta's summary", seconds: 20) {
+            app.opened[1].tools.screen.currentPaneKind == "summary" &&
+                app.opened[1].stories.story?.touched.map(\.path) == ["a.txt"]
+        }
+        await until("beta's touched files", seconds: 10) {
+            app.opened[1].tools.sidebar.explorer.mode == .touched &&
+                app.opened[1].tools.sidebar.explorer.rows.map(\.name) == ["a.txt"]
+        }
+        step("beta, no walkthrough: its summary, and the explorer on its touched file, a.txt")
+        if let path = environment["SILL_CHECK_SUMMARY_SHOT"], let view = app.opened[1].tools.summary {
+            view.display()
+            if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            }
+        }
         step(
             "opened from Home in this sill: alpha-feature, again the same, then beta beside it (\(app.opened.count) open)"
         )
