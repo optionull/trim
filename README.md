@@ -4,16 +4,20 @@ The editor you leave running in the background to look in on what your coding ag
 
 ## Home
 
-Started from the Dock (or at login), sill is Home: every git checkout in the folders you watch (asked for the first
-time; any number of them, and a folder that is itself a checkout asks whether its parent is meant), each worktree
-included wherever it is, the most recently active first. A row says what an agent is doing there (working, or idle
-with its last prompt, read from Claude Code's own session record), the branch, the files changed and when, and how
-many walkthroughs agents prepared that you have not seen. On top, the summary of summaries: every walkthrough not yet
-seen, newest first, in its agent's own words. A walkthrough opened in sill is seen. The menu bar's eye counts the
-agents working; its menu lists them and what is new. A checkout opens in a sill of its own, on its new walkthrough
-when there is one. Home paints from what it saw last at once and reads again in the background (2.3 s for 94
-checkouts), then follows the file system: an agent's turn ending, an edit, a commit, a walkthrough seen, each
-re-reads only its checkout. Nothing is written into the repositories it watches, and git's index is never locked.
+Started from the Dock (or at login), sill is Home, for one question: does anything need me, and where? Its headline
+answers in a line ("2 to look at · 3 agents working", and the newest walkthrough under it). Under it, every git
+checkout in the folders you watch (asked for the first time; any number of them, and a folder that is itself a
+checkout asks whether its parent is meant), each worktree included wherever it is, by repository, the one last active
+first. Each checkout says the one reason it is worth a look, in its colour: new from an agent (the walkthrough's
+title), an agent working (what it was asked, read from Claude Code's own session record), done, or files changed.
+What has been quiet for a week folds away (`z` shows it). At the right, the selected checkout before you go in: its
+new walkthroughs in their agents' own words, what it holds, and what ↵ does: it opens the checkout on its newest
+walkthrough, `o` on the checkout alone, `m` marks its walkthroughs read without opening them, `n` goes to the newest
+anywhere. A walkthrough opened in sill is read. The menu bar's eye counts the agents working; its menu lists them and
+what is new. A checkout opens in a sill of its own. Home paints from what it saw last at once and reads again in the
+background (2.3 s for 94 checkouts), then follows the file system: an agent's turn ending, an edit, a commit, a
+walkthrough seen, each re-reads only its checkout. Nothing is written into the repositories it watches, and git's
+index is never locked.
 
 ![Home: new from agents on top, then the checkouts, most recently active first, an agent's prompt under its checkout](docs/showcase-home-2026-11-02.png)
 

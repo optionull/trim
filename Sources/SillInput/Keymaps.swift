@@ -173,8 +173,11 @@ public enum Keymaps {
 
     /// Home has no checkout to go to: only the key list and the hints are shared.
     public static let home = Keymap(pane: "home", own: down("home") + [
-        PaneKey("home.open", ["<CR>"], "open"),
+        PaneKey("home.read", ["<CR>"], "open, on what is new"),
+        PaneKey("home.open", ["o"], "open the checkout", footer: false),
         PaneKey("home.new", ["n"], "the newest walkthrough"),
+        PaneKey("home.seen", ["m"], "mark its walkthroughs read"),
+        PaneKey("home.quiet", ["z"], "show the quiet ones", footer: false),
         PaneKey("home.refresh", ["r"], "read again"),
         PaneKey("home.folders", ["F"], "folders"),
     ], shared: global.filter { $0.pane == "keys" })

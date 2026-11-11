@@ -1111,6 +1111,17 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   `SILL_CHECK=config` with `SILL_CHECK_TREESITTER=1` (the parsers built, C# and Swift among them; `static` in
   Pricing.cs a tree-sitter keyword; a line added on disk marked) and `TreesitterTests`; a plan that skips what queries
   require, or staleness that ignores revisions, fails them.
+- Home's clarity pass (2026-11-11, the clarity review's third step: what is the view for, what must one see in a
+  second, what must and can one do). For "does anything need me, and where?": a headline that counts the checkouts
+  with something new and the agents working; checkouts by repository (`HomeList.groups`, the repository last active
+  first), each with one reason (`HomeList.reason`: new, working, done, changed) in its colour and a mark (new filled,
+  working haloed blue, done a ring; working shows on a row that also has something new); a week quiet folded under
+  "Quiet" (`z`); times as "12 min", "3 h", then the day. At 880 points and wider, the selected checkout at the right:
+  its new walkthroughs in their agents' words, chips for what it holds, and its buttons, ↵ the filled one. ↵ opens on
+  the newest walkthrough not read, `o` the checkout alone, `m` marks its walkthroughs read (`HomeModel.markSeen`).
+  The summary of summaries is now the headline's newest and each row's "New:" line. Checked: `HomeListTests` and
+  `SILL_CHECK=home` (`m` marks a second review read; with `markSeen` doing nothing it fails). Not done: the activity
+  strip and Home's pull request state, both new reads, to measure first.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

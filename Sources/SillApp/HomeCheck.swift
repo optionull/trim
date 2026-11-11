@@ -163,6 +163,20 @@ struct HomeCheck {
         home.view.display()
         step("beta's window closed: it alone ends; :qa in alpha-feature ends it; Home stays")
 
+        // m: a checkout's new walkthroughs marked read from Home, nothing opened.
+        let second = alpha + "/.sill/reviews/2"
+        try? FileManager.default.createDirectory(atPath: second, withIntermediateDirectories: true)
+        try? FileManager.default.copyItem(
+            atPath: alpha + "/.sill/reviews/1/review.walk.md",
+            toPath: second + "/review.walk.md"
+        )
+        model.refresh()
+        await until("a second review, new", seconds: 20) { model.unseen.count == 1 }
+        guard let alphaRow = model.rows.first(where: { $0.checkout.path == alpha }) else { fail("alpha") }
+        model.markSeen(alphaRow.checkout)
+        await until("marked read", seconds: 20) { model.unseen.isEmpty }
+        step("m: alpha's new review marked read from Home, nothing opened")
+
         if let path = environment["SILL_CHECK_SHOT"] {
             home.view.display()
             if let bitmap = home.view.bitmapImageRepForCachingDisplay(in: home.view.bounds) {

@@ -81,7 +81,7 @@ struct KeymapTests {
             "a": ["agent"], "r": ["refresh"], "w": ["walkthrough"], "v": ["review"], "m": ["seen"], "M": ["areaSeen"],
             "x": ["takeBack", "stop", "remove"], "y": ["keep"], "c": ["comment"], "e": ["edit"], "d": ["debug"],
             "p": ["profile"], "b": ["basket"], "u": ["update"], "o": ["open"], "<Tab>": ["side"], "l": ["expand"],
-            "h": ["collapse"], "s": ["snapshot"], "R": ["examples"], "n": ["new"], "t": ["turn"],
+            "h": ["collapse"], "s": ["snapshot"], "R": ["examples"], "n": ["new"], "t": ["turn"], "z": ["quiet"],
         ]
         for keymap in Keymaps.all {
             for command in keymap.own {

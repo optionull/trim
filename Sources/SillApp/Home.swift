@@ -176,6 +176,16 @@ final class HomeModel {
     /// Asked to open a checkout (and a walkthrough in it): the app opens it in a window of its own.
     var onOpen: ((String, String?) -> Void)?
 
+    /// Every walkthrough of a checkout not read yet, marked read (nothing in it opened).
+    func markSeen(_ checkout: Checkout) {
+        guard let folder = Checkouts.sillFolder(of: checkout),
+              let row = rows.first(where: { $0.checkout == checkout }), !row.state.unseen.isEmpty else { return }
+        for prepared in row.state.unseen {
+            Seen.mark(prepared.path, in: folder)
+        }
+        reread([checkout.path])
+    }
+
     func open(_ checkout: Checkout, walkthrough: String? = nil) {
         onOpen?(checkout.path, walkthrough)
         if let walkthrough, let folder = Checkouts.sillFolder(of: checkout) {
