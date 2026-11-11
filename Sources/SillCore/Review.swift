@@ -36,6 +36,21 @@ public enum Review {
 
         /// The first changed line, in the file as it is now: past the context the hunk starts with.
         public var firstChange: Int { newStart + lines.prefix { $0.hasPrefix(" ") }.count }
+
+        /// What git says the hunk is in, after the header's second `@@` (the function or type around it, by the
+        /// file's own diff driver or git's default guess), nil when it says nothing.
+        public var context: String? {
+            guard let end = header.range(
+                of: "@@",
+                range: header.index(header.startIndex, offsetBy: min(
+                    2,
+                    header.count
+                )) ..<
+                    header.endIndex
+            ) else { return nil }
+            let after = header[end.upperBound...].trimmingCharacters(in: .whitespaces)
+            return after.isEmpty ? nil : after
+        }
     }
 
     /// A file's diff: the lines before its first hunk (`diff --git`, `---`, `+++`, …), and its hunks.

@@ -56,16 +56,20 @@ final class ReviewView: NSView, ToolContent {
     private func drawBar() {
         let count = reviewer.files.count
         let summary = reviewer.reading ? "reading the worktree…" : count == 0 ? "nothing changed since" :
-            "\(count) file\(count == 1 ? "" : "s") changed since · \(reviewer.seenCount) seen"
+            "\(count) file\(count == 1 ? "" : "s") changed since"
+        let comments = reviewer.comments.count
         actionFrames = PaneBar.draw(
             title: "Review",
             detail: summary,
             actions: [
                 .init(
-                    id: "send", title: "Send review (\(reviewer.comments.count))", primary: true,
-                    enabled: !reviewer.comments.isEmpty
+                    id: "send",
+                    title: comments == 0 ? "No comments to send" :
+                        "Send \(comments) comment\(comments == 1 ? "" : "s")  a",
+                    primary: true,
+                    enabled: comments > 0
                 ),
-                .init(id: "walkthrough", title: "Walkthrough", enabled: !reviewer.files.isEmpty),
+                .init(id: "walkthrough", title: "Walkthrough  w", enabled: !reviewer.files.isEmpty),
             ],
             in: bounds
         ).map { ($0.id, 0, $0.rect) }
@@ -90,6 +94,38 @@ final class ReviewView: NSView, ToolContent {
             baselineFrames.append((index, rect))
             x = rect.maxX + 8
         }
+        // How much is left: the files seen of all, as a bar, and what was decided.
+        guard count > 0 else { return }
+        let seen = reviewer.seenCount
+        let label = NSMutableAttributedString(attributedString: text(
+            "\(seen) of \(count) seen",
+            12,
+            Design.text,
+            weight: .semibold
+        ))
+        let decided = [
+            reviewer.kept.isEmpty ? nil : "\(reviewer.kept.count) kept",
+            reviewer.comments.isEmpty ? nil : "\(reviewer.comments.count) to send",
+        ].compactMap { $0 }
+        if !decided.isEmpty { label.append(text("  ·  " + decided.joined(separator: " · "), 12, Design.textMuted)) }
+        let barWidth: CGFloat = 160
+        let right = bounds.width - 20
+        let labelX = right - barWidth - 12 - label.size().width
+        guard labelX > x + 12 else { return }
+        label.draw(at: NSPoint(x: labelX, y: PaneBar.height + 20 - label.size().height / 2))
+        let track = NSRect(x: right - barWidth, y: PaneBar.height + 17, width: barWidth, height: 6)
+        Design.border.setFill()
+        NSBezierPath(roundedRect: track, xRadius: 3, yRadius: 3).fill()
+        Design.accent.setFill()
+        NSBezierPath(
+            roundedRect: NSRect(
+                x: track.minX,
+                y: track.minY,
+                width: track.width * CGFloat(seen) / CGFloat(count),
+                height: track.height
+            ),
+            xRadius: 3, yRadius: 3
+        ).fill()
     }
 
     private func drawFiles() {
@@ -115,6 +151,13 @@ final class ReviewView: NSView, ToolContent {
                     rows.append(nil)
                     last = area
                 }
+                // An area all seen folds to its heading, unless the file being read is in it.
+                if let (_, total, seen) = areas.values.first(where: { $0.0 == area }), seen == total,
+                   index != reviewer.selectedFile,
+                   Review.area(of: reviewer.files[safe: reviewer.selectedFile]?.path ?? "") != area
+                {
+                    continue
+                }
                 rows.append(index)
             }
         } else {
@@ -134,11 +177,25 @@ final class ReviewView: NSView, ToolContent {
             defer { y += 30 }
             guard let index = entry, let file = reviewer.files[safe: index] else {
                 guard let (area, total, seen) = areas[row] else { continue }
+                let done = seen == total
                 let heading = NSMutableAttributedString(attributedString: text(
-                    area, 12, seen == total ? Design.textFaint : Design.textMuted, weight: .semibold
+                    (done ? "✓ " : "") + area, 12, done ? Design.textFaint : Design.text, weight: .semibold
                 ))
-                heading.append(text("  \(seen)/\(total) seen", 11, seen == total ? Design.accent : Design.textFaint))
-                heading.drawLine(in: NSRect(x: 16, y: y + 9, width: list - 32, height: 18))
+                heading.append(text("  \(total) file\(total == 1 ? "" : "s")", 11, Design.textFaint))
+                heading.drawLine(in: NSRect(x: 16, y: y + 9, width: list - 150, height: 18))
+                // The area's progress, as the whole review's at the top.
+                let track = NSRect(x: list - 120, y: y + 15, width: 70, height: 4)
+                Design.border.setFill()
+                track.fill()
+                Design.accent.withAlphaComponent(done ? 0.5 : 1).setFill()
+                NSRect(
+                    x: track.minX,
+                    y: track.minY,
+                    width: track.width * CGFloat(seen) / CGFloat(max(total, 1)),
+                    height: track.height
+                ).fill()
+                text("\(seen)/\(total)", 11, done ? Design.accent : Design.textFaint)
+                    .draw(at: NSPoint(x: list - 42, y: y + 8))
                 continue
             }
             if index == reviewer.selectedFile {
@@ -222,14 +279,21 @@ final class ReviewView: NSView, ToolContent {
                 NSBezierPath(roundedRect: box, xRadius: 8, yRadius: 8).fill()
                 (index == selectedHunk ? Design.accent : Design.border).setStroke()
                 NSBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
-                text(
-                    "line \(hunk.firstChange)" + (isKept ? " · kept" : ""),
-                    12,
-                    isKept ? Design.accent : Design.textMuted
-                )
-                .draw(at: NSPoint(x: box.minX + 14, y: box.minY + 9))
+                // Where it is: the function git names around it, then the line; kept, said so.
+                let place = NSMutableAttributedString()
+                if let context = hunk.context {
+                    place.append(text(
+                        context + "  ",
+                        12,
+                        index == selectedHunk ? Design.text : Design.textMuted,
+                        mono: true
+                    ))
+                }
+                place.append(text("line \(hunk.firstChange)", 12, Design.textFaint))
+                if isKept { place.append(text("  · kept", 12, Design.accent, weight: .semibold)) }
+                place.drawLine(in: NSRect(x: box.minX + 14, y: box.minY + 9, width: box.width - 330, height: 18))
                 var x = box.maxX - 12
-                for (title, action) in [("Comment", "comment"), ("Take back", "reject"), ("Keep", "keep")] {
+                for (title, action) in [("Comment  c", "comment"), ("Take back  x", "reject"), ("Keep  y", "keep")] {
                     let label = text(title, 12, action == "reject" ? Design.error : Design.text)
                     let rect = NSRect(
                         x: x - label.size().width - 20,

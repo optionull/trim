@@ -452,7 +452,10 @@ left alone.
 
 A file is marked seen with `m` (then the next not seen), a whole area with `M`; the marks are kept in `.sill` with the
 file's content then, so a file the agent changes again is not seen any more. A change of 20 files or more in more
-than one place is read by area (its folder two levels deep, the most changed first), each with how much of it is seen.
+than one place is read by area (its folder two levels deep, the most changed first), each with how much of it is seen
+as a bar; an area all seen folds to its heading. How much is left is at the top right ("10 of 23 seen", and what was
+kept or is to be sent), each change is named by the function git finds around it, and its buttons say their keys
+(`y` keep, `x` take back, `c` comment); `a` sends the comments, and the button says how many.
 
 ![Review by area: 23 files changed since you last looked, the tests' area all seen, README next](docs/showcase-review-by-area-2026-11-02.png)
 

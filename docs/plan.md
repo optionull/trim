@@ -1132,6 +1132,14 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   walkthrough, review and run clickable); `SILL_CHECK_SHOTS=<folder>` saves pictures of it there and in
   `SILL_CHECK=looked`. Not done: hiding the Problems panel on story views while it is empty, a run's result (its exit
   code is not kept yet) and the pull request's state among the verdicts.
+- The review's clarity pass (2026-11-12, the clarity review's third step, third view). For "decide on each change,
+  and know how much is left": the files seen of all as a bar at the top right with what was kept and what is to be
+  sent; by area, each heading with its own bar, and an area all seen folded to its heading (unless the file read is
+  in it); each hunk named by git's function context (`Review.Hunk.context`, after the header's second `@@`) before
+  its line; the hunk's buttons with their keys; the send button says how many comments, or that there are none.
+  Checked: `HunkContextTests` and `SILL_CHECK=looked` (its picture, in `SILL_CHECK_SHOTS`, after the tests' area is
+  marked seen). Not done: changes of the same shape folded into one row ("9 alike"), and the handoff's note on a file
+  above its diff.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

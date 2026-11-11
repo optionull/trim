@@ -2073,6 +2073,10 @@ final class SelfCheck {
             !reviewer.reading && !reviewer.isSeen(reviewer.files[0]) && reviewer.seenCount == 10 ? true : nil
         }
         step("m marks \(first) seen, M the tests' area: kept in .sill; \(first) changed again is no longer seen")
+        if let folder = ProcessInfo.processInfo.environment["SILL_CHECK_SHOTS"] {
+            app.tools.review?.display()
+            try shot(to: folder + "/review-by-area.png")
+        }
 
         // A glance away: the point stays.
         NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
