@@ -1311,6 +1311,61 @@ final class SelfCheck {
             try self.shot(to: shot)
         }
         step("typing Tax. offers \(menu.prefix(3).joined(separator: ", ")) in sill's menu, from Roslyn")
+        // The typing thrown away: a buffer with changes of its own would make the reading below ask first.
+        _ = await session.channel.request("nvim_input", params: [.string("<Esc>")])
+        _ = try await session.channel.lua("vim.cmd('silent edit!')")
+
+        // What changed since the branch's base, beside the lines: a line added on disk, marked once nvim reads it.
+        let pricing = root + "/Pricing.cs"
+        let text = try String(contentsOfFile: pricing, encoding: .utf8)
+        try (text + "// added\n").write(toFile: pricing, atomically: true, encoding: .utf8)
+        _ = try await session.channel.lua("vim.cmd('checktime')")
+        var marks: String?
+        for _ in 0 ..< 80 where marks == nil {
+            try await Task.sleep(for: .milliseconds(250))
+            marks = try? await session.channel.lua("""
+            local hunks = vim.b.sill_hunks or {}
+            local last = vim.api.nvim_buf_line_count(0)
+            for _, hunk in ipairs(hunks) do
+              if hunk.kind == 'add' and hunk.first <= last and last < hunk.first + hunk.count then
+                local marks = vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_get_namespaces().sill_gutter,
+                  { last - 1, 0 }, { last - 1, -1 }, { details = true })
+                return marks[1] and marks[1][4].sign_hl_group or nil
+              end
+            end
+            """).stringValue
+        }
+        try expect(marks == "SillGutterAdd", "the mark: \(marks ?? "none in 20 s")")
+        try text.write(toFile: pricing, atomically: true, encoding: .utf8)
+        step("a line added to Pricing.cs on disk is marked added in the sign column")
+
+        // Tree-sitter: the parsers built (or there from an earlier run), and C# highlighted with them.
+        guard ProcessInfo.processInfo.environment["SILL_CHECK_TREESITTER"] == "1" else { return }
+        let parsers = SyntaxParsers.shared
+        let outcome = try await waitFor("the parsers", timeout: .seconds(900)) { parsers.outcome }
+        try expect(outcome == nil, "the parsers: \(outcome ?? "")")
+        let built = try FileManager.default.contentsOfDirectory(atPath: SyntaxParsers.folder.path + "/parser")
+        try expect(built.contains("c_sharp.so") && built.contains("swift.so"), "the parsers built: \(built.sorted())")
+        _ = try await session.channel.lua("vim.cmd('checktime')")
+        let captures = try await session.channel.lua("""
+        vim.wait(3000, function() return vim.b.ts_highlight end)
+        if not vim.b.ts_highlight then return 'not highlighting' end
+        -- nvim parses as it can: the whole file, now.
+        vim.treesitter.get_parser(0):parse(true)
+        local row = vim.fn.search('static', 'nw') - 1
+        local col = vim.fn.getline(row + 1):find('static') - 1
+        local names = {}
+        for _, capture in ipairs(vim.treesitter.get_captures_at_pos(0, row, col)) do
+          table.insert(names, capture.capture)
+        end
+        return table.concat(names, ' ')
+        """).stringValue ?? ""
+        try expect(captures.contains("keyword"), "static in Pricing.cs: \(captures)")
+        step("tree-sitter: \(built.count) parsers built; Pricing.cs highlighted by tree-sitter, static a \(captures)")
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try await Task.sleep(for: .milliseconds(500))
+            try shot(to: path)
+        }
     }
 
     /// A person's own config (`SILL_CHECK=compat`, its XDG_CONFIG_HOME holding an nvim config that opens a start screen

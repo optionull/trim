@@ -1095,6 +1095,22 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   closes, `g` waits and `v` reviews, `gr`, `[keys]` rebinding `gV`, `:SillKey go.run`, hello's Run clicked by its
   hint) and `SILL_CHECK=chrome` (`gg` then `j`); a clash, an unhandled command or a key with two meanings each fail
   `KeymapTests`.
+- Tree-sitter and change marks in sill's own nvim (2026-11-11, the clarity review's second step; owner: downloading
+  parsers on first launch is fine, and keeps them up to date). nvim 0.12 ships parsers for C, Lua, Vim script, its
+  help, queries and Markdown only, so C# and the rest were coloured by syntax files until Roslyn's semantic tokens
+  came. `SyntaxParsers` (one for the app) asks git for nvim-treesitter's `main`, takes its tarball, has nvim read
+  `parsers.lua` as JSON, plans with `Treesitter.plan` (the wanted languages and what their queries require, nvim's own
+  left out), and builds each grammar at its pin with the Command Line Tools' `cc` (Swift's from its newest
+  `-with-generated-files` tag, as its parser.c is generated), four at a time, into `~/Library/Caches/sill/treesitter`,
+  with nvim-treesitter's queries beside them; 25 parsers in about 15 s here. Checked within the week: nothing asked;
+  a new commit rebuilds only parsers whose pin moved; a failed build is tried again next start; without the Command
+  Line Tools nothing is asked of `cc` (macOS would offer its installer) and nvim's syntax files stay. Only with sill's
+  own config (`config = "yours"` is left alone). `lua/sill/syntax.lua` starts tree-sitter on each buffer with a parser
+  (`cs` → `c_sharp` and the like registered). `lua/sill/gutter.lua` marks lines added, changed or removed against the
+  branch's merge base with the default branch (HEAD on it), off nvim's loop, `]h`/`[h` between them. Checked:
+  `SILL_CHECK=config` with `SILL_CHECK_TREESITTER=1` (the parsers built, C# and Swift among them; `static` in
+  Pricing.cs a tree-sitter keyword; a line added on disk marked) and `TreesitterTests`; a plan that skips what queries
+  require, or staleness that ignores revisions, fails them.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

@@ -201,6 +201,10 @@ local groups = {
   GitSignsAdd = { fg = p.accent },
   GitSignsChange = { fg = p.modified },
   GitSignsDelete = { fg = p.error },
+  -- sill's own marks of what changed since the branch left its base (lua/sill/gutter.lua).
+  SillGutterAdd = { fg = p.accent },
+  SillGutterChange = { fg = p.modified },
+  SillGutterDelete = { fg = p.error },
 
   -- Spelling, terminal.
   SpellBad = { undercurl = true, sp = p.error },

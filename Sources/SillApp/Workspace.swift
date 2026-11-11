@@ -383,13 +383,19 @@ final class Workspace: NSObject, NSWindowDelegate {
                 // sill's own nvim (the default) for a person; the checks run bare, unless one asks for it.
                 let checking = (environment["SILL_CHECK"] != nil && environment["SILL_CHECK_USER"] != "1") ||
                     showcaseAlone
-                if !startup.userConfig, !checking || environment["SILL_CHECK_CONFIG"] == "1" {
+                let ownConfig = !startup.userConfig && (!checking || environment["SILL_CHECK_CONFIG"] == "1")
+                if ownConfig {
                     base += ["--cmd", "lua require('sill.config')"]
                 }
                 try await session.start(
                     runtime: Runtime.directory, cols: cols, rows: rows, cwd: workingDirectory, appName: startup.appName,
                     extraArgs: base + Array(arguments)
                 )
+                // Tree-sitter's parsers for sill's own nvim, built the first time (the checks build them only when
+                // they ask: it is the network and the compiler).
+                if ownConfig, environment["SILL_CHECK"] == nil || environment["SILL_CHECK_TREESITTER"] == "1" {
+                    SyntaxParsers.shared.ensure(channel: session.channel)
+                }
                 if merging {
                     _ = try await session.channel.lua(
                         "require('sill.merge').open(...)",

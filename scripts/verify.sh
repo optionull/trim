@@ -75,7 +75,7 @@ rm -rf /tmp/sill-walk /tmp/sill-walk-home && mkdir -p /tmp/sill-walk-home && cp 
 cd /tmp/sill-walk
 run walk SILL_OFFSCREEN=1 SILL_CHECK=walk SILL_CWD=/tmp/sill-walk SILL_AGENT=echo CFFIXED_USER_HOME=/tmp/sill-walk-home HEED_CONTROL=/tmp/no-heed.sock
 $F/basket-fixture.sh /tmp/sill-config
-(cd /tmp/sill-config && run config SILL_OFFSCREEN=1 SILL_CHECK=config SILL_CHECK_CONFIG=1 SILL_CWD=/tmp/sill-config HEED_CONTROL=/tmp/no-heed.sock)
+(cd /tmp/sill-config && run config SILL_OFFSCREEN=1 SILL_CHECK=config SILL_CHECK_CONFIG=1 SILL_CHECK_TREESITTER=1 SILL_CWD=/tmp/sill-config HEED_CONTROL=/tmp/no-heed.sock)
 $F/compat-fixture.sh /tmp/sill-compat-xdg
 (cd /tmp && run compat SILL_OFFSCREEN=1 SILL_CHECK=compat SILL_CHECK_USER=1 SILL_NVIM_CONFIG=1 XDG_CONFIG_HOME=/tmp/sill-compat-xdg SILL_CWD=/tmp HEED_CONTROL=/tmp/no-heed.sock)
 $F/run-fixture.sh /tmp/sill-run

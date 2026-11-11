@@ -219,7 +219,14 @@ default). `:SillZen` (⌃⌘Z, View ▸ Zen) hides the bars, the explorer and th
 
 By default sill runs its own nvim setup, not yours: nothing to install or configure, and the editor in the same
 colours as everything around it (`colors/sill.lua`, from sill's palette: plain text first, structure tinted, comments
-faint, problems loud). Completion comes from the language server as you type, in sill's own menu; `<leader>ff` (or
+faint, problems loud). Code is coloured by tree-sitter: the first time sill runs it builds the parsers for the
+languages it knows (C#, Razor, F#, TypeScript, JavaScript, Rust, Swift, Python, Go, Java, Kotlin, Ruby, the web's,
+the config files', 25 in all, well under a minute on an M-series Mac) in the background, each grammar at the revision nvim-treesitter pins,
+with nvim-treesitter's queries, into `~/Library/Caches/sill/treesitter`; once a week it asks for nvim-treesitter's
+newest pins and builds again only what moved. It needs the Command Line Tools' `cc` (`xcode-select --install`);
+without them nvim's own syntax files colour the code. The sign column marks what changed since the branch left its
+base (committed or not, so an agent's commits stay marked) and tints the line number; `]h` and `[h` go to the next and
+previous change. Completion comes from the language server as you type, in sill's own menu; `<leader>ff` (or
 `:find`) finds a file fuzzily among the ones git knows, `<leader>/` searches the code, `<leader>e` shows the explorer;
 nvim's own LSP keys (`grn`, `gra`, `grr`, `gri`, `K`, `[d`, `]d`) work as they are. Problems are underlined, and the
 line under the cursor shows its own. Additions of yours go in `~/.config/sill/init.lua`.
