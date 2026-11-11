@@ -100,10 +100,7 @@ final class TraceView: NSView, ToolContent {
     private func drawBar() {
         let state = tracer.tree.map { "\($0.direction.label) of \($0.nodes[0].item.name)" } ?? ""
         PaneBar.draw(title: "Trace", detail: state + (tracer.busy ? " · asking…" : ""), in: bounds)
-        PaneBar.drawKeys(
-            "j/k · l open · h close · ↵ go to · d callers/callees · e explain · b to the basket",
-            in: bounds
-        )
+        PaneBar.drawKeys("trace", in: bounds)
     }
 
     // MARK: Input
@@ -126,29 +123,29 @@ final class TraceView: NSView, ToolContent {
         if node.expanded { tracer.close(index) } else { Task { await tracer.open(index) } }
     }
 
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
+    var keyKind: String { "trace" }
+
+    var hintTargets: [NSRect] { rows.map(\.rect) }
+
+    func perform(_ command: String, key _: String) -> Bool {
         let visible = tracer.tree?.visible ?? []
         let position = visible.firstIndex(of: selected) ?? 0
-        switch event.charactersIgnoringModifiers ?? "" {
-        case "j", String(UnicodeScalar(NSDownArrowFunctionKey)!):
-            selected = visible[safe: position + 1] ?? selected
-        case "k", String(UnicodeScalar(NSUpArrowFunctionKey)!):
-            selected = visible[safe: position - 1] ?? selected
-        case "l", String(UnicodeScalar(NSRightArrowFunctionKey)!):
-            Task { await tracer.open(selected) }
-        case "h", String(UnicodeScalar(NSLeftArrowFunctionKey)!):
+        switch command {
+        case "trace.down": selected = visible[safe: position + 1] ?? selected
+        case "trace.up": selected = visible[safe: position - 1] ?? selected
+        case "trace.expand": Task { await tracer.open(selected) }
+        case "trace.collapse":
             if tracer.tree?.nodes[safe: selected]?.expanded == true {
                 tracer.close(selected)
             } else if let parent = tracer.tree?.nodes[safe: selected]?.parent {
                 selected = parent
             }
-        case "\r": tracer.reveal(selected)
-        case "d":
+        case "trace.open": tracer.reveal(selected)
+        case "trace.turn":
             selected = 0
             Task { await tracer.turn() }
-        case "e": tracer.explain(selected)
-        case "b": tracer.addToBasket(selected)
+        case "trace.agent": tracer.explain(selected)
+        case "trace.basket": tracer.addToBasket(selected)
         default: return false
         }
         needsDisplay = true

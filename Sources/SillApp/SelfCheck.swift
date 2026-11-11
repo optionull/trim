@@ -3,6 +3,7 @@ import Metal
 import os
 import SillCore
 import SillEditor
+import SillInput
 import SillNvim
 import SillRender
 import SillSidecar
@@ -1565,8 +1566,8 @@ final class SelfCheck {
         let view = try await waitFor("the basket view") { app.tools.basket }
         try view.handleKey(require(NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
-            characters: "f", charactersIgnoringModifiers: "f", isARepeat: false, keyCode: 3
-        ), "f"))
+            characters: "A", charactersIgnoringModifiers: "A", isARepeat: false, keyCode: 0
+        ), "A"))
         _ = try await waitFor("the findings asked for") {
             app.agents.lastPrompt?.hasPrefix("Conclude the investigation: Why the rounding") == true ? true : nil
         }
@@ -1580,7 +1581,7 @@ final class SelfCheck {
         let after = try await fire(base.merging(edit) { $1 }.merging(["hook_event_name": "PreToolUse"]) { $1 })
         try expect(!after.contains("additionalContext"), "no reminder once concluded: \(after)")
         step("an investigation open: an edit gets a reminder (not a refusal) and is noted; a turn without findings " +
-            "marks it stopped, f asks for them; once concluded, neither")
+            "marks it stopped, A asks for them; once concluded, neither")
 
         try expect(
             app.agents.agentCommand(prompt: "x").contains("--settings '\(hooks.settingsPath)'"),
@@ -1795,8 +1796,61 @@ final class SelfCheck {
                 }
             #endif
         }
-        runner.run(hello)
+        // The keys: through the keyboard as the window sends them.
+        func press(_ keys: String) throws {
+            for character in keys {
+                let event = try require(NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                    characters: String(character), charactersIgnoringModifiers: String(character), isARepeat: false,
+                    keyCode: 0
+                ), "a key")
+                try expect(app.tools.handleKey(event), "\(character) taken")
+            }
+        }
+        func overlay(in view: NSView?) -> KeyOverlay.Mode? {
+            view?.subviews.compactMap { $0 as? KeyOverlay }.first?.mode
+        }
+        let runView = try require(app.tools.run, "the Run view")
+        /// The window as a picture in SILL_CHECK_SHOTS (a folder), named.
+        func picture(_ name: String) throws {
+            guard let folder = ProcessInfo.processInfo.environment["SILL_CHECK_SHOTS"] else { return }
+            try shot(to: URL(fileURLWithPath: folder).appendingPathComponent(name + ".png").path)
+        }
+        try picture("keys-footer")
+        try press("?")
+        try picture("keys-help")
+        try expect(overlay(in: runView) == .help, "? lists the keys")
+        try press("?")
+        try expect(overlay(in: runView) == nil, "? again closes them")
+        try press("g")
+        try expect(overlay(in: runView) == .waiting, "g waits, listing what follows")
+        try picture("keys-g")
+        try press("v")
+        try await wait("g v: the review") { $0.currentPaneKind == "review" }
+        try expect(overlay(in: runView) == nil, "nothing left waiting")
+        try press("gr")
+        try await wait("g r: Run again") { $0.currentPaneKind == "run" }
+        Keymaps.overrides = ["go.review": ["gV"]]
+        try press("gV")
+        try await wait("g V, as the settings bind it: the review") { $0.currentPaneKind == "review" }
+        Keymaps.overrides = [:]
+        _ = await session.channel.request("nvim_command", params: [.string("SillKey go.run")])
+        try await wait(":SillKey go.run") { $0.currentPaneKind == "run" }
+        step("keys: ? lists and closes, g waits then v reviews, g r runs, [keys] rebinds g V, :SillKey go.run")
+
+        // f: a label on what can be clicked; hello's Run button by its label runs it, as a click does.
+        runView.display()
+        let targets = runView.hintTargets.filter { runView.bounds.intersects($0) }
+        try press("f")
+        try expect(overlay(in: runView) == .hints, "f puts labels on")
+        try picture("keys-hints")
+        let labels = KeyOverlay.labels(targets.count)
+        let button = try require(runView.button("run", of: "hello"), "hello's Run")
+        let index = try require(targets.firstIndex(of: button), "a label on hello's Run")
+        try press(labels[index])
+        try expect(overlay(in: runView) == nil, "the labels go once one is typed")
         try await shown("sill-run-hello")
+        step("f: labels on what can be clicked; hello's Run, typed by its label, runs hello")
         let file = app.workingDirectory + "/.sill/run.json"
         _ = try await waitFor("run.json") { FileManager.default.fileExists(atPath: file) ? true : nil }
         try expect(
@@ -2359,7 +2413,7 @@ final class SelfCheck {
                 .contains("3. Tax.Of(decimal) at Tax.cs:5") && prompt.contains("return net + Tax.Of(net);"),
             "the prompt: \(prompt.prefix(600))"
         )
-        step("e asks the agent to explain Run → Total → Of, each step with its code")
+        step("a asks the agent to explain Run → Total → Of, each step with its code")
 
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             _ = try await session.channel.lua("require'sill'.show_pane('trace')")
@@ -3996,7 +4050,7 @@ final class SelfCheck {
             explorer.rows.firstIndex { $0.name == "Package.swift" },
             "Package.swift in the explorer"
         )
-        type("g")
+        type("gg")
         for _ in 0 ..< target {
             type("j")
         }

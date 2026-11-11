@@ -132,14 +132,13 @@ final class AgentsView: NSView, ToolContent {
         onOpen?(ordered[index])
     }
 
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
-        switch event.charactersIgnoringModifiers {
-        case "j", String(UnicodeScalar(NSDownArrowFunctionKey)!):
-            selected = min(selected + 1, max(ordered.count - 1, 0))
-        case "k", String(UnicodeScalar(NSUpArrowFunctionKey)!): selected = max(selected - 1, 0)
-        case "\r", "o":
-            if ordered.indices.contains(selected) { onOpen?(ordered[selected]) }
+    var keyKind: String { "agents" }
+
+    func perform(_ command: String, key _: String) -> Bool {
+        switch command {
+        case "agents.down": selected = min(selected + 1, max(ordered.count - 1, 0))
+        case "agents.up": selected = max(selected - 1, 0)
+        case "agents.open": if ordered.indices.contains(selected) { onOpen?(ordered[selected]) }
         default: return false
         }
         needsDisplay = true

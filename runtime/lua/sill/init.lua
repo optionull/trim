@@ -795,6 +795,13 @@ function M.setup()
   vim.api.nvim_create_user_command('SillReplay', function(opts) notify('sill_replay', opts.args) end, {
     nargs = '?', desc = "Replay an agent's session: its prompts, what its tools did, and each turn's changes",
   })
+  vim.api.nvim_create_user_command('SillKey', function(opts) notify('sill_key', opts.args) end, {
+    nargs = 1,
+    complete = function(lead)
+      return vim.tbl_filter(function(name) return vim.startswith(name, lead) end, vim.g.sill_keys or {})
+    end,
+    desc = "A command of sill's panes by its name (review.keep, go.summary, keys.help): ? in a pane lists them",
+  })
   vim.api.nvim_create_user_command('SillMap', function() notify('sill_map') end,
     { desc = "The code map: the repository's projects, what each builds on, where it starts, what changes most" })
   vim.api.nvim_create_user_command('SillFollow', function() notify('sill_follow') end,

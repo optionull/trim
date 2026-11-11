@@ -152,7 +152,7 @@ final class CodeMapView: NSView, ToolContent {
         let files = map.map { $0.projects.reduce($0.otherFiles) { $0 + $1.files } } ?? 0
         let detail = map.map { "\($0.name) · \($0.projects.count) projects · \(files) files" } ?? ""
         PaneBar.draw(title: "Code map", detail: detail + (mapper.building ? " · reading…" : ""), in: bounds)
-        PaneBar.drawKeys("j/k projects · ↵ open · s summary · w walkthrough · r read again", in: bounds)
+        PaneBar.drawKeys("map", in: bounds)
     }
 
     /// A line from each project down to each it references: the selected one's in the accent.
@@ -261,26 +261,29 @@ final class CodeMapView: NSView, ToolContent {
     /// The projects in the order drawn: row by row.
     private var order: [Int] { mapper.map?.layers.flatMap(\.self) ?? [] }
 
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
+    var keyKind: String { "map" }
+
+    var hintTargets: [NSRect] { links.map(\.0) + cards.values.map { $0 } }
+
+    func perform(_ command: String, key _: String) -> Bool {
         let order = order
-        switch event.characters ?? "" {
-        case "j":
+        switch command {
+        case "map.down":
             selected = order.first.map { first in
                 selected.flatMap { order.firstIndex(of: $0) }.map { order[min($0 + 1, order.count - 1)] } ?? first
             }
-        case "k":
+        case "map.up":
             selected = selected.flatMap { order.firstIndex(of: $0) }.map { order[max($0 - 1, 0)] }
-        case "\r":
+        case "map.open":
             guard let selected, let project = mapper.map?.projects[safe: selected] else { return false }
             if let place = project.entryPoints.first {
                 mapper.open(place.path, line: place.line)
             } else {
                 mapper.open(project.file)
             }
-        case "s": mapper.askForSummary()
-        case "w": mapper.askForTour()
-        case "r": mapper.rebuild()
+        case "map.agent": mapper.askForSummary()
+        case "map.walkthrough": mapper.askForTour()
+        case "map.refresh": mapper.rebuild()
         default: return false
         }
         needsDisplay = true

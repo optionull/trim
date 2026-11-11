@@ -48,7 +48,7 @@ final class ReplayView: NSView, ToolContent {
         PaneBar.draw(title: "Replay", detail: detail, in: bounds)
         drawTurns(turns)
         drawChanges()
-        PaneBar.drawKeys("j/k turns · J/K files · ↵ open the file · r read again", in: bounds)
+        PaneBar.drawKeys("replay", in: bounds)
     }
 
     /// The turns, numbered: the prompt, how many steps, and the selected one's steps under it.
@@ -214,19 +214,22 @@ final class ReplayView: NSView, ToolContent {
         replays.select(index)
     }
 
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
-        switch event.charactersIgnoringModifiers ?? "" {
-        case "j": select(turn: min(replays.selected + 1, max((replays.log?.turns.count ?? 1) - 1, 0)))
-        case "k": select(turn: max(replays.selected - 1, 0))
-        case "J":
+    var keyKind: String { "replay" }
+
+    var hintTargets: [NSRect] { turnFrames.map(\.1) + fileFrames.map(\.1) }
+
+    func perform(_ command: String, key _: String) -> Bool {
+        switch command {
+        case "replay.down": select(turn: min(replays.selected + 1, max((replays.log?.turns.count ?? 1) - 1, 0)))
+        case "replay.up": select(turn: max(replays.selected - 1, 0))
+        case "replay.next":
             selectedFile = min(selectedFile + 1, max(replays.files.count - 1, 0))
             scroll = 0
-        case "K":
+        case "replay.previous":
             selectedFile = max(selectedFile - 1, 0)
             scroll = 0
-        case "\r": if let file = replays.files[safe: selectedFile] { replays.reveal(file.path) }
-        case "r":
+        case "replay.open": if let file = replays.files[safe: selectedFile] { replays.reveal(file.path) }
+        case "replay.refresh":
             if let session = replays.session {
                 let turn = replays.selected
                 replays.open(session)

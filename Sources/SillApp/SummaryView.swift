@@ -104,7 +104,7 @@ final class SummaryView: NSView, ToolContent {
                 let line = NSMutableAttributedString(attributedString: text(
                     parts.joined(separator: " · "), 14, Design.text, weight: .semibold
                 ))
-                if count > 0 { line.append(text("    n reviews them", 12, Design.accent)) }
+                if count > 0 { line.append(text("    V reviews them", 12, Design.accent)) }
                 row(line, height: 28) { [weak self] in self?.onReviewSince?() }
                 for file in since.files.sorted(by: { $0.added + $0.removed > $1.added + $1.removed }).prefix(6) {
                     let line = NSMutableAttributedString(attributedString: text(
@@ -183,11 +183,7 @@ final class SummaryView: NSView, ToolContent {
             }
             if files.count > 12 { row(text("v reviews all \(files.count)", 12, Design.textFaint)) }
         }
-        PaneBar.drawKeys(
-            "w the newest walkthrough · n review what is new · v review the branch · a click opens what it names · " +
-                "r read again",
-            in: bounds
-        )
+        PaneBar.drawKeys("summary", note: "a click opens what it names", in: bounds)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -209,13 +205,16 @@ final class SummaryView: NSView, ToolContent {
         if let prepared = stories.unseen ?? stories.walkthroughs.first { onWalkthrough?(prepared.path) }
     }
 
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
-        switch event.charactersIgnoringModifiers ?? "" {
-        case "w": openWalkthrough()
-        case "v": onReview?()
-        case "n": onReviewSince?()
-        case "r": stories.refresh()
+    var keyKind: String { "summary" }
+
+    var hintTargets: [NSRect] { actionFrames.map(\.1) + links.map(\.0) }
+
+    func perform(_ command: String, key _: String) -> Bool {
+        switch command {
+        case "summary.walkthrough": openWalkthrough()
+        case "summary.review": onReview?()
+        case "summary.reviewSince": onReviewSince?()
+        case "summary.refresh": stories.refresh()
         default: return false
         }
         return true

@@ -50,11 +50,7 @@ final class ReviewView: NSView, ToolContent {
         drawBar()
         drawFiles()
         drawHunks()
-        PaneBar.drawKeys(
-            "j/k files · J/K changes · m seen · M area seen · a keep · x take back · c comment · s send · " +
-                "w walkthrough · ↵ side by side",
-            in: bounds
-        )
+        PaneBar.drawKeys("review", in: bounds)
     }
 
     private func drawBar() {
@@ -325,28 +321,30 @@ final class ReviewView: NSView, ToolContent {
 
     /// j/k files, J/K changes, x takes the change back, c comments, a keeps, s sends the review, r reads again,
     /// Return opens the file side by side, 1 to 9 pick a baseline.
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
-        let key = event.characters ?? ""
-        if let number = Int(key), number >= 1, number <= 9 {
+    var keyKind: String { "review" }
+
+    var hintTargets: [NSRect] { baselineFrames.map(\.1) + fileFrames.map(\.1) + actionFrames.map(\.2) }
+
+    func perform(_ command: String, key: String) -> Bool {
+        let hunks = reviewer.diff?.hunks.count ?? 0
+        switch command {
+        case "review.baseline":
+            guard let number = Int(key), number >= 1 else { return false }
             reviewer.select(baseline: number - 1)
             return true
-        }
-        let hunks = reviewer.diff?.hunks.count ?? 0
-        switch key {
-        case "j": selectedHunk = 0; reviewer.select(file: reviewer.selectedFile + 1)
-        case "k": selectedHunk = 0; reviewer.select(file: reviewer.selectedFile - 1)
-        case "J": selectedHunk = min(selectedHunk + 1, max(hunks - 1, 0))
-        case "K": selectedHunk = max(selectedHunk - 1, 0)
-        case "x": perform("reject", selectedHunk)
-        case "c": perform("comment", selectedHunk)
-        case "a": perform("keep", selectedHunk)
-        case "m": reviewer.toggleSeen()
-        case "M": reviewer.markAreaSeen()
-        case "s": reviewer.sendReview()
-        case "w": reviewer.askForWalkthrough()
-        case "r": reviewer.refresh()
-        case "\r": reviewer.openSideBySide()
+        case "review.down": selectedHunk = 0; reviewer.select(file: reviewer.selectedFile + 1)
+        case "review.up": selectedHunk = 0; reviewer.select(file: reviewer.selectedFile - 1)
+        case "review.next": selectedHunk = min(selectedHunk + 1, max(hunks - 1, 0))
+        case "review.previous": selectedHunk = max(selectedHunk - 1, 0)
+        case "review.takeBack": perform("reject", selectedHunk)
+        case "review.comment": perform("comment", selectedHunk)
+        case "review.keep": perform("keep", selectedHunk)
+        case "review.seen": reviewer.toggleSeen()
+        case "review.areaSeen": reviewer.markAreaSeen()
+        case "review.agent": reviewer.sendReview()
+        case "review.walkthrough": reviewer.askForWalkthrough()
+        case "review.refresh": reviewer.refresh()
+        case "review.side": reviewer.openSideBySide()
         default: return false
         }
         needsDisplay = true

@@ -430,19 +430,18 @@ final class PackagesView: NSView, ToolContent {
             right: buttonsLeft,
             in: bounds
         )
-        let keys = "j/k packages · u update · a ask agent · r read again"
         guard let report = scanner.report else {
             let message = scanner.scanning ? "Asking the SDK about every package (a restore first)…" :
                 scanner.problem ?? "Refresh reads the solution's packages."
             text(message, 14, Design.textMuted).draw(at: NSPoint(x: 28, y: Self.bar + 24))
-            PaneBar.drawKeys(keys, in: bounds)
+            PaneBar.drawKeys("packages", in: bounds)
             return
         }
         drawCards(report)
         drawChips(report)
         drawTable()
         drawSide()
-        PaneBar.drawKeys(keys, in: bounds)
+        PaneBar.drawKeys("packages", in: bounds)
     }
 
     private func drawCards(_ report: PackageReport) {
@@ -780,20 +779,21 @@ final class PackagesView: NSView, ToolContent {
     }
 
     /// j/k and the arrows move; 1 to 5 pick a filter; u updates; a asks an agent; r refreshes.
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
-        let key = event.charactersIgnoringModifiers ?? ""
-        if let number = Int(key), (1 ... Filter.allCases.count).contains(number) {
+    var keyKind: String { "packages" }
+
+    var hintTargets: [NSRect] { filterFrames.map(\.1) + rowFrames.map(\.1) + actionFrames.map(\.1) }
+
+    func perform(_ command: String, key: String) -> Bool {
+        switch command {
+        case "packages.filter":
+            guard let number = Int(key), (1 ... Filter.allCases.count).contains(number) else { return false }
             filter = Filter.allCases[number - 1]
             select(0)
-            return true
-        }
-        switch key {
-        case "j", String(UnicodeScalar(NSDownArrowFunctionKey)!): select(selected + 1)
-        case "k", String(UnicodeScalar(NSUpArrowFunctionKey)!): select(selected - 1)
-        case "u": if let package = current { perform("update", package) }
-        case "a": if let package = current { perform("agent", package) }
-        case "r": scanner.scan()
+        case "packages.down": select(selected + 1)
+        case "packages.up": select(selected - 1)
+        case "packages.update": if let package = current { perform("update", package) }
+        case "packages.agent": if let package = current { perform("agent", package) }
+        case "packages.refresh": scanner.scan()
         default: return false
         }
         return true

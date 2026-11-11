@@ -1091,28 +1091,32 @@ final class ProfileView: NSView, ToolContent {
 
     /// 1 to 5 pick a tab; s takes a snapshot and x stops while recording; a sends to an agent; j/k and Return in the
     /// tables; 0 shows the whole flame graph again; Escape lets the frame go.
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
-        let key = event.charactersIgnoringModifiers ?? ""
-        if let number = Int(key), (1 ... Tab.allCases.count).contains(number) {
+    var keyKind: String { "profile" }
+
+    var hintTargets: [NSRect] { tabFrames.map(\.1) + buttonFrames().map(\.1) }
+
+    func perform(_ command: String, key: String) -> Bool {
+        switch command {
+        case "profile.tab":
+            guard let number = Int(key), (1 ... Tab.allCases.count).contains(number) else { return false }
             select(tab: Tab.allCases[number - 1])
             return true
-        }
-        switch key {
-        case "s" where isRecording && canSnapshot: snapshotClicked()
-        case "x" where isRecording: onStop?()
-        case "a": sendClicked()
-        case "j", String(UnicodeScalar(NSDownArrowFunctionKey)!): row += 1
-        case "k", String(UnicodeScalar(NSUpArrowFunctionKey)!): row = max(row - 1, 0)
-        case "\r": openRow()
-        case "0":
+        case "profile.snapshot":
+            guard isRecording, canSnapshot else { return false }
+            snapshotClicked()
+        case "profile.stop":
+            guard isRecording else { return false }
+            onStop?()
+        case "profile.agent": sendClicked()
+        case "profile.down": row += 1
+        case "profile.up": row = max(row - 1, 0)
+        case "profile.open": openRow()
+        case "profile.all":
             if stretch != nil { clearStretch() }
             from = 0
             to = Double(profile.totalSamples)
-        case "\u{1B}":
-            selected = nil
-        default:
-            return false
+        case "profile.clear": selected = nil
+        default: return false
         }
         changed()
         return true

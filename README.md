@@ -24,13 +24,13 @@ happened, not on the code: its new walkthrough from an agent when there is one, 
 `␣iu`, the rail's top icon): what the agent does or did and the last thing asked, the walkthroughs agents prepared
 (the new ones marked), what was asked, the commits since the branch left its base, and the files touched, each
 opening what it names. `w` reads the newest walkthrough, `v` reviews the branch against where it left its base. The
-explorer opens on those touched files (Touched | Files | Solution, `s` for the next). The rail has the story on top
+explorer opens on those touched files (Touched | Files | Solution, `⇥` for the next). The rail has the story on top
 (summary, walkthroughs, review) and the browsing under a rule (explorer, changes, agents, map, baskets). Closing a
 checkout's window, or `:qa` in it, ends that checkout alone; Home stays.
 
 Since you last looked: leaving sill (another app in front, or the checkout's window closed) notes the worktree as it
 is; coming back after five minutes or more makes that the point the summary starts from ("Since you last looked, 2 h
-ago: 3 prompts · 1 commit · 7 files changed") and the review has it as a baseline (`n` in the summary). A glance at a
+ago: 3 prompts · 1 commit · 7 files changed") and the review has it as a baseline (`V` in the summary). A glance at a
 terminal does not move it.
 
 ![A checkout's summary: the agent idle after its last prompt, a new walkthrough, what was asked, two commits since main and the files touched](docs/showcase-summary-2026-11-02.png)
@@ -66,6 +66,23 @@ IDE (build, run, debug, a profiler, packages) are in the Project menu, out of th
 The activity bar on the left is the front door: Explorer, Changes and Agents switch the sidebar; under a rule, the
 code map, the baskets and the review open their panes, and the icon of the one showing is lit. A pane opens in place
 of the code, with one header (what it shows, its actions) and its keys along the bottom; `q` puts the code back.
+
+### Keys in sill's own panes
+
+Home, the summary, the review, Run and every other pane sill draws take keys the same way, from one list. A key means
+the same thing in every pane where it means anything: `↵` does what the pane is for, `a` hands something to the agent,
+`r` reads again, `x` takes away or stops, `m` marks seen, `w` is a walkthrough, `v` a review, `j`/`k` move and `J`/`K`
+step through what a row holds (a file's changes, a walkthrough's steps). Each pane's footer shows its keys as keys.
+
+- `g` then a letter goes somewhere, and while it waits a panel lists what can follow: `gh` Home, `gs` the summary,
+  `gw` the newest walkthrough, `gv` the review, `gr` Run, `gm` the code map, `gp` the pull request, `gb` the baskets,
+  `ge` the explorer, `gc` the changes, `ga` the agents. A sequence sill does not finish goes to nvim (`gt` still
+  changes tab).
+- `?` lists every key of the pane you are in, `f` puts a label on everything that can be clicked (type it to click).
+- Every command has a name (`review.keep`, `go.summary`): `:SillKey review.keep` runs it, and `[keys]` in the settings
+  gives it other keys (`review.keep = "Y"`, or a list).
+
+In the review `y` keeps a change, `x` takes it back, `c` comments and `a` sends the comments.
 
 ![The front door: the code map of a 60-project solution in place of the code, its icon lit in the activity bar, the explorer and the problems around it](docs/showcase-front-door-2026-10-25.png)
 
@@ -146,7 +163,7 @@ still has conflicts in it, or when you give up with `:cq`, and git then keeps th
 
 The explorer shows the folders on disk, informed by the project files: a project's folder says what kind of project it
 is, files nest as Visual Studio nests them (`Counter.razor.cs` under `Counter.razor`), and files a project removes are
-dimmed. In a folder with a .slnx it opens on the solution's tree (`s`, or Files | Solution, switches) and says where the
+dimmed. In a folder with a .slnx it opens on the solution's tree (`⇥`, or Files | Solution, switches) and says where the
 .slnx differs from the folders on disk; `:SillSlnx sync` shows the .slnx rewritten so its folders follow the disk, and
 `:SillSlnx apply` writes it.
 
@@ -269,7 +286,7 @@ running.
   starts from.
 - Each session's events are logged in `.sill/sessions/<session>.jsonl`.
 - While an agent's investigation is open, an edit gets a reminder that investigations are read-only (it is not
-  refused) and is noted in the basket; a turn that ends without findings marks the basket *stopped*, and `f` in it asks
+  refused) and is noted in the basket; a turn that ends without findings marks the basket *stopped*, and `A` in it asks
   for them.
 
 ![A plan presented for approval: its steps, and the code it names as cells](docs/showcase-plan-2026-10-25.png)
@@ -309,7 +326,7 @@ from sill, build output and what git ignores are not followed.
 `:SillMap` draws the repository for someone who does not know it: its projects (.NET project files, Swift package
 targets, Rust, Node and Python packages) in rows, each above what it references, with what kind each is, how big,
 where it starts (`Main`, a web host, HTTP endpoints, `@main`, `fn main`) and the files git history changes most. A
-click opens a project, an entry point or a hot file. `s` asks the agent for a summary, which it puts on top with
+click opens a project, an entry point or a hot file. `a` asks the agent for a summary, which it puts on top with
 `code_map_summary` (kept in `.sill`, never committed); `w` asks it for a walkthrough of the codebase. The map is
 built from the files git tracks and their last 2,000 commits, so it is there in about a second even for 60 projects;
 an agent gets the same through the `code_map` tool.
@@ -319,8 +336,8 @@ an agent gets the same through the `code_map` tool.
 ## Tracing a symbol
 
 `:SillTrace` on a symbol shows who calls it as a tree, a level at a time as you open it (`l`/`h`, or a click);
-`:SillTrace callees`, or `d` in the pane, shows what it calls instead. A caller opens in the editor where it makes the
-call (`↵`, or a double click). `e` sends the path from the symbol to the selected row to the agent to explain, each
+`:SillTrace callees`, or `t` in the pane, shows what it calls instead. A caller opens in the editor where it makes the
+call (`↵`, or a double click). `a` sends the path from the symbol to the selected row to the agent to explain, each
 step with its code. The tree comes from the language server's call hierarchy (Roslyn for C#), asked without making
 nvim wait; an agent gets the same through `trace_symbol` (by `Type.Member`, a few levels deep), and you see it as it
 asks.
@@ -352,7 +369,7 @@ Collect the code you want to ask about while you read, then ask about all of it 
 the selected lines (or the current one; `:%SillBasket add` the whole file) to the current basket, and `b` in the trace
 pane adds a caller with how it calls; you stay where you are. Lines that touch or overlap a piece already in the
 basket join it. `:SillBasket new <title>` starts a basket, `:SillBasket` picks one, `:SillBasket send <question>` (or
-`s` in its pane) gives the agent the question with every piece and note, the code as it is now, and the agent's answer
+`a` in its pane) gives the agent the question with every piece and note, the code as it is now, and the agent's answer
 is written back into the basket as its findings (`basket_conclude`). A sent basket is closed: the next piece starts a
 new one.
 

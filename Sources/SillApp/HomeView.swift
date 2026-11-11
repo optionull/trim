@@ -5,7 +5,7 @@ import SillEditor
 /// Home's window: on top what agents prepared that is not seen yet (the summary of summaries), under it every checkout
 /// most recently active first: what an agent does there, its branch, its changes, its new walkthroughs.
 @MainActor
-final class HomeView: NSView {
+final class HomeView: NSView, ToolContent {
     let model: HomeModel
     private var selected = 0
     private var scroll: CGFloat = 0
@@ -159,11 +159,7 @@ final class HomeView: NSView {
             let when = text(state.active == .distantPast ? "" : Self.ago(state.active), 12, Design.textFaint)
             when.draw(at: NSPoint(x: left + width - when.size().width, y: y + 9))
         }
-        PaneBar.drawKeys(
-            "j/k checkouts · ↵ open · n the newest walkthrough · r read again · f folders",
-            back: false,
-            in: bounds
-        )
+        PaneBar.drawKeys("home", back: false, in: bounds)
     }
 
     // MARK: Input
@@ -192,21 +188,34 @@ final class HomeView: NSView {
         model.open(unseen[index].checkout, walkthrough: unseen[index].prepared.path)
     }
 
+    private let keyboard = Keyboard()
+
     override func keyDown(with event: NSEvent) {
-        switch event.charactersIgnoringModifiers ?? "" {
-        case "j", String(UnicodeScalar(NSDownArrowFunctionKey)!): selected = min(
-                selected + 1,
-                max(model.rows.count - 1, 0)
-            )
-        case "k", String(UnicodeScalar(NSUpArrowFunctionKey)!): selected = max(selected - 1, 0)
-        case "\r": if model.rows.indices.contains(selected) { model.open(model.rows[selected].checkout) }
-        case "n": openNew(0)
-        case "r": model.refresh()
-        case "f": onRoots?()
-        default: return super.keyDown(with: event)
+        if !keyboard.handle(event, in: self) { super.keyDown(with: event) }
+    }
+
+    var keyKind: String { "home" }
+
+    /// A row's label on its name; the new walkthroughs and the buttons as they are.
+    var hintTargets: [NSRect] {
+        actionFrames.map(\.1) + newFrames.map(\.1) + rowFrames.map { NSRect(
+            x: $0.1.minX + 40, y: $0.1.minY, width: $0.1.width - 40, height: min($0.1.height, 32)
+        ) }
+    }
+
+    func perform(_ command: String, key _: String) -> Bool {
+        switch command {
+        case "home.down": selected = min(selected + 1, max(model.rows.count - 1, 0))
+        case "home.up": selected = max(selected - 1, 0)
+        case "home.open": if model.rows.indices.contains(selected) { model.open(model.rows[selected].checkout) }
+        case "home.new": openNew(0)
+        case "home.refresh": model.refresh()
+        case "home.folders": onRoots?()
+        default: return false
         }
         keepSelectionInView()
         needsDisplay = true
+        return true
     }
 
     /// The selected row scrolled into view.

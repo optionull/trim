@@ -2,14 +2,39 @@ import AppKit
 import MessagePack
 import SillCore
 import SillEditor
+import SillInput
 import SillNvim
 import SillRender
 
-/// A view sill draws over a pane's placeholder window. While that window is current, keys come here first; a key
-/// the view does not take goes to nvim (so <C-w> and : still work).
+/// A view sill draws over a pane's placeholder window. While that window is current, keys come here first, through
+/// `Keyboard` and the pane's keymap (`Keymaps`, by `keyKind`): a key the keymap does not take goes to nvim (so <C-w>
+/// and : still work).
 @MainActor
 protocol ToolContent: NSView {
-    func handleKey(_ event: NSEvent) -> Bool
+    /// Its keymap's pane (`review`, `run`, …).
+    var keyKind: String { get }
+    /// Does the command its keymap names (`review.keep`), typed as `key` (the digit of `review.baseline`). False when
+    /// it is not this pane's.
+    func perform(_ command: String, key: String) -> Bool
+    /// Takes a key before the keymap sees it: typing into a filter.
+    func captureKey(_ event: NSEvent) -> Bool
+    /// What can be clicked, in the view's own coordinates: where `f` puts its labels.
+    var hintTargets: [NSRect] { get }
+}
+
+extension ToolContent {
+    func captureKey(_: NSEvent) -> Bool { false }
+    var hintTargets: [NSRect] { [] }
+
+    /// One key, not a sequence: what the checks type.
+    @discardableResult
+    func handleKey(_ event: NSEvent) -> Bool {
+        if captureKey(event) { return true }
+        guard let key = KeyNotation.keys(for: event), let keymap = Keymaps.current(keyKind),
+              case let .command(name) = keymap.match([key]), !name.hasPrefix("go."), !name.hasPrefix("keys.")
+        else { return false }
+        return perform(name, key: key)
+    }
 }
 
 /// The sidebar and the bottom panel, laid over the placeholder windows nvim keeps for them.
@@ -252,25 +277,37 @@ final class ToolPanes {
         panel.show(screen)
     }
 
+    /// The keys of every native pane, one keymap each.
+    let keyboard = Keyboard()
+
+    /// The tool view whose window is current, if one is.
+    var current: (NSView & ToolContent)? {
+        switch screen.currentPaneKind {
+        case "sidebar": sidebar.content
+        case "panel": panel
+        case "profile": profile
+        case "packages": packages
+        case "review": review
+        case "walk": walk
+        case "telemetry": telemetry
+        case "map": map
+        case "trace": trace
+        case "replay": replay
+        case "pr": pullRequest
+        case "summary": summary
+        case "run": run
+        case "basket": basket
+        default: nil
+        }
+    }
+
     /// Keys for the tool view whose window is current, if one is.
     func handleKey(_ event: NSEvent) -> Bool {
-        switch screen.currentPaneKind {
-        case "sidebar": sidebar.handleKey(event)
-        case "panel": panel.handleKey(event)
-        case "profile": profile?.handleKey(event) ?? false
-        case "packages": packages?.handleKey(event) ?? false
-        case "review": review?.handleKey(event) ?? false
-        case "walk": walk?.handleKey(event) ?? false
-        case "telemetry": telemetry?.handleKey(event) ?? false
-        case "map": map?.handleKey(event) ?? false
-        case "trace": trace?.handleKey(event) ?? false
-        case "replay": replay?.handleKey(event) ?? false
-        case "pr": pullRequest?.handleKey(event) ?? false
-        case "summary": summary?.handleKey(event) ?? false
-        case "run": run?.handleKey(event) ?? false
-        case "basket": basket?.handleKey(event) ?? false
-        default: false
+        guard let view = current, !view.isHidden else {
+            keyboard.end()
+            return false
         }
+        return keyboard.handle(event, in: view)
     }
 }
 
@@ -289,7 +326,7 @@ final class SidebarView: NSView {
     let explorer: ExplorerView
     let sourceControl: SourceControlView
     let agents: AgentsView
-    private var content: NSView & ToolContent
+    private(set) var content: NSView & ToolContent
     var focused = false {
         didSet { if focused != oldValue { needsDisplay = true; content.needsDisplay = true } }
     }
@@ -366,7 +403,9 @@ final class EmptyStateView: NSView, ToolContent {
 
     override var isFlipped: Bool { true }
 
-    func handleKey(_: NSEvent) -> Bool { false }
+    var keyKind: String { "" }
+
+    func perform(_: String, key _: String) -> Bool { false }
 
     override func draw(_: NSRect) {
         let width = min(bounds.width - 32, 260)
@@ -399,7 +438,7 @@ final class EmptyStateView: NSView, ToolContent {
 }
 
 /// The bottom panel: Problems (nvim's diagnostics), Tests and Output, and Send all to agent.
-final class BottomPanelView: NSView {
+final class BottomPanelView: NSView, ToolContent {
     static let header: CGFloat = 36
     enum Tab: String, CaseIterable {
         case problems = "Problems", output = "Output", debug = "Debug"
@@ -634,21 +673,29 @@ final class BottomPanelView: NSView {
         if event.clickCount >= 2 || !focused { open(selected) }
     }
 
-    /// j/k (or the arrows) move, Return opens, Tab goes to the next tab.
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
-        switch event.charactersIgnoringModifiers {
-        case "j", String(UnicodeScalar(NSDownArrowFunctionKey)!):
-            selected = min(selected + 1, max(problems.count - 1, 0))
-        case "k", String(UnicodeScalar(NSUpArrowFunctionKey)!):
-            selected = max(selected - 1, 0)
-        case "\r":
-            open(selected)
-        case "\t":
+    var keyKind: String { "problems" }
+
+    var hintTargets: [NSRect] {
+        tabFrames.map(\.1) + (send.isHidden ? [] : [send.frame])
+            + (tab == .problems ? problems.indices.map { NSRect(
+                x: 0,
+                y: Self.header + CGFloat($0) * rowHeight,
+                width: 240,
+                height: rowHeight
+            ) } : [])
+    }
+
+    /// j/k (or the arrows) move, Return opens, Tab goes to the next tab, a sends them all to an agent.
+    func perform(_ command: String, key _: String) -> Bool {
+        switch command {
+        case "problems.down": selected = min(selected + 1, max(problems.count - 1, 0))
+        case "problems.up": selected = max(selected - 1, 0)
+        case "problems.open": open(selected)
+        case "problems.side":
             let all = tabs
             select(all[(all.firstIndex(of: tab)! + 1) % all.count])
-        default:
-            return false
+        case "problems.agent": sendAll()
+        default: return false
         }
         needsDisplay = true
         return true

@@ -13,7 +13,7 @@ var targets: [Target] = [
     // nvim over msgpack-RPC: the process, the transport and the redraw events. Lifted from Veil (MIT).
     .target(name: "SillNvim", dependencies: [messagePack]),
     // What the UI draws, built from redraw events: grids, their placement, and which windows are terminal panes.
-    .target(name: "SillCore", dependencies: ["SillNvim", messagePack]),
+    .target(name: "SillCore", dependencies: ["SillNvim", "SillInput", messagePack]),
     .testTarget(name: "SillCoreTests", dependencies: ["SillCore", "SillNvim", messagePack], exclude: ["Fixtures"]),
     // AppKit input in nvim's terms: key notation, mouse and IME.
     .target(name: "SillInput"),

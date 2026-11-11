@@ -216,7 +216,7 @@ final class WalkView: NSView, ToolContent {
         if pieces.isEmpty {
             text("No code in it yet.", 12, Design.textFaint).draw(at: NSPoint(x: 20, y: y + 4))
         }
-        text("Tab context · ↵ open · x remove · s send", 11, Design.textFaint).draw(
+        text("Tab context · ↵ open · x remove · a send", 11, Design.textFaint).draw(
             with: NSRect(x: 20, y: bounds.height - 44, width: outline - 32, height: 36),
             options: [.usesLineFragmentOrigin]
         )
@@ -263,8 +263,8 @@ final class WalkView: NSView, ToolContent {
             y += 30
         }
         text(
-            basket ? "Tab files · i context · j/k scroll · n/p sections · o open · x remove · s send" :
-                "j/k scroll · n/p sections · o open · a ask · e run · r read again",
+            basket ? "Tab files · i context · j/k scroll · J/K sections · o open · x remove · a send" :
+                "j/k scroll · J/K steps · o open · a ask · R run · r read again · ? keys",
             11,
             Design.textFaint
         ).draw(
@@ -644,57 +644,43 @@ final class WalkView: NSView, ToolContent {
         actionFrames.filter { $0.0 == "remove" && $0.2.minY >= 0 }.min { $0.2.minY < $1.2.minY }.flatMap { Int($0.1) }
     }
 
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
+    var keyKind: String { basket ? "basket" : "walk" }
+
+    var hintTargets: [NSRect] { fileFrames.map(\.1) + outlineFrames.map(\.1) + actionFrames.map(\.2) }
+
+    func perform(_ command: String, key _: String) -> Bool {
         let step = EditorFont.metrics.height * 3
-        if basket {
-            switch event.characters ?? "" {
-            case "\t":
-                side = switch side {
-                case .outline: .files
-                case .files: .context
-                case .context: .outline
-                }
-                needsDisplay = true
-                return true
-            case "i":
-                // The details of the first piece in view.
-                if let line = pieceInView() {
-                    if expanded.contains(line) { expanded.remove(line) } else { expanded.insert(line) }
-                }
-                needsDisplay = true
-                return true
-            case "s":
-                onSend?()
-                return true
-            case "f":
-                onAskFindings?()
-                return true
-            case "x":
-                // The first piece in view.
-                if let line = pieceInView() { onRemove?(line) }
-                return true
-            case "a", "e": return false
-            default: break
+        switch command {
+        case "basket.side":
+            side = switch side {
+            case .outline: .files
+            case .files: .context
+            case .context: .outline
             }
-        }
-        switch event.characters ?? "" {
-        case "j", String(UnicodeScalar(NSDownArrowFunctionKey)!):
-            scroll = min(scroll + step, max(documentHeight - bounds.height, 0))
-        case "k", String(UnicodeScalar(NSUpArrowFunctionKey)!): scroll = max(scroll - step, 0)
-        case "n": show(section: currentSection + 1)
-        case "p": show(section: max(currentSection - 1, 0))
-        case "o", "\r":
+        case "basket.details":
+            // The details of the first piece in view.
+            if let line = pieceInView() {
+                if expanded.contains(line) { expanded.remove(line) } else { expanded.insert(line) }
+            }
+        case "basket.agent": onSend?()
+        case "basket.findings": onAskFindings?()
+        // The first piece in view.
+        case "basket.remove": if let line = pieceInView() { onRemove?(line) }
+        case "walk.down", "basket.down": scroll = min(scroll + step, max(documentHeight - bounds.height, 0))
+        case "walk.up", "basket.up": scroll = max(scroll - step, 0)
+        case "walk.next", "basket.next": show(section: currentSection + 1)
+        case "walk.previous", "basket.previous": show(section: max(currentSection - 1, 0))
+        case "walk.open", "basket.open":
             walker.go(to: currentSection)
             walker.openCode()
-        case "a": askAboutSection()
-        case "e":
+        case "walk.agent": askAboutSection()
+        case "walk.examples":
             // The examples of the section in view.
             for case let .example(file, _) in walker.walk?.steps[safe: currentSection]?.blocks ?? [] {
                 let path = examplePath(file)
                 Task { await walker.run(example: path) }
             }
-        case "r": Task { await walker.read() }
+        case "walk.refresh", "basket.refresh": Task { await walker.read() }
         default: return false
         }
         needsDisplay = true

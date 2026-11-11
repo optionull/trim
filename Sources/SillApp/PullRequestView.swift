@@ -67,7 +67,7 @@ final class PullRequestView: NSView, ToolContent {
             let why = pulls.problem ?? (pulls.reading ? "Reading the branch's pull requests…" :
                 "No pull request for \(pulls.branch?.name ?? "this branch") yet: when an agent opens one, it shows here.")
             text(why, 14, Design.textMuted).draw(at: NSPoint(x: left, y: y))
-            PaneBar.drawKeys("r read again", in: bounds)
+            PaneBar.drawKeys("pr", only: ["pr.refresh"], in: bounds)
             return
         }
         func heading(_ title: String) {
@@ -180,10 +180,7 @@ final class PullRequestView: NSView, ToolContent {
                 Design.textFaint
             ))
         }
-        PaneBar.drawKeys(
-            "v review · w walkthrough · a send to agent · o open on GitHub · a click on a check opens it · r read again",
-            in: bounds
-        )
+        PaneBar.drawKeys("pr", note: "a click on a check opens it", in: bounds)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -205,14 +202,17 @@ final class PullRequestView: NSView, ToolContent {
         needsDisplay = true
     }
 
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
-        switch event.charactersIgnoringModifiers ?? "" {
-        case "a": pulls.sendToAgent()
-        case "o": pulls.openInBrowser()
-        case "v": pulls.review()
-        case "w": pulls.walkthrough()
-        case "r": pulls.refresh()
+    var keyKind: String { "pr" }
+
+    var hintTargets: [NSRect] { actionFrames.map(\.1) + checkFrames.map(\.1) }
+
+    func perform(_ command: String, key _: String) -> Bool {
+        switch command {
+        case "pr.agent": pulls.sendToAgent()
+        case "pr.browser": pulls.openInBrowser()
+        case "pr.review": pulls.review()
+        case "pr.walkthrough": pulls.walkthrough()
+        case "pr.refresh": pulls.refresh()
         default: return false
         }
         return true

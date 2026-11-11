@@ -66,12 +66,11 @@ final class TelemetryView: NSView, ToolContent {
         case .traces: drawTraces()
         case .metrics: drawMetrics()
         }
-        let keys = switch tab {
-        case .logs: "1-3 tabs · a all · w warnings · e errors · x stop"
-        case .traces: "1-3 tabs · j/k traces · x stop"
-        case .metrics: "1-3 tabs · x stop"
+        let keys: Set<String> = switch tab {
+        case .logs: ["telemetry.tab", "telemetry.level", "telemetry.stop"]
+        case .traces, .metrics: ["telemetry.tab", "telemetry.stop"]
         }
-        PaneBar.drawKeys(keys, in: bounds)
+        PaneBar.drawKeys("telemetry", only: keys, in: bounds)
     }
 
     // MARK: Logs
@@ -219,18 +218,24 @@ final class TelemetryView: NSView, ToolContent {
         }
     }
 
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
-        switch event.characters ?? "" {
-        case "1": select(tab: .logs)
-        case "2": select(tab: .traces)
-        case "3": select(tab: .metrics)
-        case "a": minimumLevel = 0
-        case "w": minimumLevel = 3
-        case "e": minimumLevel = 4
-        case "j": selectedTrace += 1
-        case "k": selectedTrace = max(selectedTrace - 1, 0)
-        case "x": watch.stop()
+    var keyKind: String { "telemetry" }
+
+    var hintTargets: [NSRect] { tabFrames.map(\.1) + (tab == .traces ? traceFrames.map(\.1) : []) }
+
+    func perform(_ command: String, key: String) -> Bool {
+        switch command {
+        case "telemetry.tab":
+            switch key {
+            case "1": select(tab: .logs)
+            case "2": select(tab: .traces)
+            case "3": select(tab: .metrics)
+            default: return false
+            }
+        // All, then warnings and worse, then errors alone.
+        case "telemetry.level": minimumLevel = minimumLevel >= 4 ? 0 : minimumLevel >= 3 ? 4 : 3
+        case "telemetry.down": selectedTrace += 1
+        case "telemetry.up": selectedTrace = max(selectedTrace - 1, 0)
+        case "telemetry.stop": watch.stop()
         default: return false
         }
         needsDisplay = true

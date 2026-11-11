@@ -737,39 +737,56 @@ final class ExplorerView: NSView, ToolContent {
         needsDisplay = true
     }
 
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
-              let key = event.charactersIgnoringModifiers else { return false }
-        if var filter {
-            switch key {
-            case "\u{1B}":
-                self.filter = nil
-            case "\r":
-                self.filter = filter.isEmpty ? nil : filter
-                activate(rows.firstIndex { !$0.isDirectory } ?? selected)
-                self.filter = nil
-            case "\u{7F}":
-                filter = String(filter.dropLast())
-                self.filter = filter
-            default:
-                guard let character = event.characters, character.unicodeScalars.allSatisfy({ $0.value >= 0x20 })
-                else { return true }
-                filter += character
-                self.filter = filter
-            }
-            rebuild()
-            return true
+    var keyKind: String { "explorer" }
+
+    /// The rows in view (a label at the right of their indent), the tabs and Show.
+    var hintTargets: [NSRect] {
+        let visible = max(Int((bounds.height - Self.footer - listTop) / rowHeight), 1)
+        let rowRects = rows.indices.dropFirst(top).prefix(visible).map { index in
+            let x = 26 + CGFloat(rows[index].depth) * 14
+            return NSRect(
+                x: x,
+                y: listTop + CGFloat(index - top) * rowHeight,
+                width: bounds.width - x,
+                height: rowHeight
+            )
         }
-        let down = String(UnicodeScalar(NSDownArrowFunctionKey)!), up = String(UnicodeScalar(NSUpArrowFunctionKey)!)
-        let right = String(UnicodeScalar(NSRightArrowFunctionKey)!),
-            left = String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+        return modeFrames.map(\.1) + rowRects + (footerShow.isEmpty ? [] : [footerShow])
+    }
+
+    /// While a filter is typed, every key is the filter's.
+    func captureKey(_ event: NSEvent) -> Bool {
+        guard var filter, event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
+              let key = event.charactersIgnoringModifiers else { return false }
         switch key {
-        case "j", down: selected = min(selected + 1, max(rows.count - 1, 0))
-        case "k", up: selected = max(selected - 1, 0)
-        case "g": selected = 0
-        case "G": selected = max(rows.count - 1, 0)
-        case "\r", "o": activate(selected)
-        case "l", right:
+        case "\u{1B}":
+            self.filter = nil
+        case "\r":
+            self.filter = filter.isEmpty ? nil : filter
+            activate(rows.firstIndex { !$0.isDirectory } ?? selected)
+            self.filter = nil
+        case "\u{7F}":
+            filter = String(filter.dropLast())
+            self.filter = filter
+        default:
+            guard let character = event.characters, character.unicodeScalars.allSatisfy({ $0.value >= 0x20 })
+            else { return true }
+            filter += character
+            self.filter = filter
+        }
+        rebuild()
+        needsDisplay = true
+        return true
+    }
+
+    func perform(_ command: String, key _: String) -> Bool {
+        switch command {
+        case "explorer.down": selected = min(selected + 1, max(rows.count - 1, 0))
+        case "explorer.up": selected = max(selected - 1, 0)
+        case "explorer.top": selected = 0
+        case "explorer.bottom": selected = max(rows.count - 1, 0)
+        case "explorer.open": activate(selected)
+        case "explorer.expand":
             guard rows.indices.contains(selected) else { return true }
             let row = rows[selected]
             if row.opens, !expanded.contains(row.path) {
@@ -777,7 +794,7 @@ final class ExplorerView: NSView, ToolContent {
             } else if !row.isDirectory {
                 activate(selected)
             }
-        case "h", left:
+        case "explorer.collapse":
             guard rows.indices.contains(selected) else { return true }
             let row = rows[selected]
             if row.opens, expanded.contains(row.path), row.depth > 0 {
@@ -785,16 +802,16 @@ final class ExplorerView: NSView, ToolContent {
             } else if let parent = rows[..<selected].lastIndex(where: { $0.depth < row.depth }) {
                 selected = parent
             }
-        case "s":
+        case "explorer.side":
             // The next tab there is.
             let all = modes
             show(all[((all.firstIndex(of: mode) ?? 0) + 1) % all.count])
-        case "I":
+        case "explorer.ignored":
             showIgnored.toggle()
             rebuild()
-        case "R":
+        case "explorer.refresh":
             refresh()
-        case "/":
+        case "explorer.filter":
             filter = ""
             rebuild()
         default:

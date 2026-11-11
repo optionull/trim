@@ -2,6 +2,7 @@ import AppKit
 import SillAgent
 import SillCore
 import SillEditor
+import SillInput
 import SillNvim
 import SillRender
 import SillSidecar
@@ -465,6 +466,7 @@ final class Workspace: NSObject, NSWindowDelegate {
     private(set) var stories: Stories!
     private(set) var runner: Runner!
     private var summaryAsksSeen = 0
+    private var keyAsksSeen = 0
     private(set) var pulls: PullRequests!
     private(set) var hooks: Hooks!
     private(set) var baskets: Baskets!
@@ -508,6 +510,12 @@ final class Workspace: NSObject, NSWindowDelegate {
         }
         hooks.update(screen)
         baskets.update(screen)
+        for name in screen.keyAsks.dropFirst(keyAsksSeen) where !tools.keyboard.run(name, in: tools.current) {
+            Nvim.lua(session.channel, "vim.notify(..., vim.log.levels.WARN)", [
+                .string("sill: \(name) is not a command of this pane (? in a pane lists them)"),
+            ])
+        }
+        keyAsksSeen = screen.keyAsks.count
         for asked in screen.askQuestions.dropFirst(asksHandled) {
             agents.ask(path: asked.path, from: asked.from, to: asked.to, lines: asked.lines, question: asked.question)
         }
@@ -636,6 +644,14 @@ final class Workspace: NSObject, NSWindowDelegate {
                 Nvim.lua(channel, "require'sill'.focus('sidebar')")
             }
         }
+        tools.keyboard.go = { [weak self] name in self?.go(name) }
+        tools.keyboard.forward = { keys in
+            Task { _ = await channel.request("nvim_input", params: [.string(keys)]) }
+        }
+        // `:SillKey`'s completion: every command's name.
+        Task { _ = await channel.request("nvim_set_var", params: [
+            .string("sill_keys"), .array(Keymaps.names.map { .string($0) }),
+        ]) }
         editor.contextMenu = { [weak self] in
             guard let self else { return NSMenu() }
             return ContextMenu.menu(directory: workingDirectory, channel: channel) { [weak self] command in
@@ -644,6 +660,32 @@ final class Workspace: NSObject, NSWindowDelegate {
         }
         tools.panel.onSendToAgent = { [weak self] problems in self?.agents.send(problems) }
         tools.sidebar.agents.onOpen = { [weak self] session in self?.agents.open(session) }
+    }
+
+    /// Where `g…` goes (`go.review`, …): what the rail's icon opens; the sidebar's views shown and focused, not
+    /// toggled; Home to the front.
+    private func go(_ name: String) {
+        let pane: [String: Activity] = [
+            "go.summary": .summary, "go.walkthrough": .walkthroughs, "go.review": .review, "go.run": .run,
+            "go.map": .map, "go.baskets": .baskets,
+        ]
+        let sidebar: [String: Activity] = ["go.explorer": .explorer, "go.changes": .sourceControl, "go.agents": .agents]
+        if let activity = pane[name] {
+            root.activityBar.onSelect?(activity)
+        } else if let activity = sidebar[name] {
+            tools.sidebar.show(activity)
+            root.activityBar.selected = activity
+            Nvim.lua(session.channel, "require'sill'.focus('sidebar')")
+        } else if name == "go.pr" {
+            pulls.show()
+        } else if name == "go.home" {
+            if let home { return home.show() }
+            Nvim.lua(session.channel, "vim.notify(...)", [
+                .string(
+                    "sill: no Home in this sill, which started on a folder; started from the Dock, it opens on Home"
+                ),
+            ])
+        }
     }
 
     /// Run: a terminal pane at the bottom running the project's run command, guessed from its files.

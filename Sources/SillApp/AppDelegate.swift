@@ -1,6 +1,7 @@
 import AppKit
 import SillCore
 import SillEditor
+import SillInput
 
 /// The app: its settings, Home when it started without a folder, and the checkouts open in it (each a `Workspace`, in a
 /// window of its own), to which it hands the app's moments: files to open, a change of settings or font, quitting.
@@ -21,7 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_: Notification) {
         // Before anything reads a setting.
         settings.start()
-        settings.onApplied = { [weak self] in self?.workspaces.forEach { $0.settingsApplied() } }
+        Keymaps.overrides = Settings.shared.current.keyBindings
+        settings.onApplied = { [weak self] in
+            Keymaps.overrides = Settings.shared.current.keyBindings
+            self?.workspaces.forEach { $0.settingsApplied() }
+        }
         EditorFont.onChange = { [weak self] in self?.workspaces.forEach { $0.fontChanged() } }
         let environment = ProcessInfo.processInfo.environment
         if environment["SILL_BENCH"] == "1" {

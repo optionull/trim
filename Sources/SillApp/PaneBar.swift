@@ -1,5 +1,6 @@
 import AppKit
 import SillEditor
+import SillInput
 
 /// The one header of a tool pane (the map, a trace, the review, the profiler, the packages, telemetry): its title, what
 /// it shows (cut to fit, never under anything), and its actions at the right; and the one footer, the keys it takes.
@@ -100,20 +101,44 @@ enum PaneBar {
         return (frames, x)
     }
 
-    /// Draws the keys the pane takes along the bottom of `bounds`, over whatever scrolled under them.
-    static func drawKeys(_ keys: String, back: Bool = true, in bounds: NSRect) {
+    /// Draws the keys the pane takes along the bottom of `bounds`, over whatever scrolled under them: its keymap's
+    /// (`Keymaps`) as key caps, the ones the footer shows, then `note` (what is not a key: a click, a ⌘ shortcut), and
+    /// `?` for the rest at the right. `only` keeps those of the commands named (what the pane can do now).
+    static func drawKeys(
+        _ kind: String,
+        note: String = "",
+        back: Bool = true,
+        only: Set<String>? = nil,
+        in bounds: NSRect
+    ) {
         let strip = NSRect(x: 0, y: bounds.height - footer, width: bounds.width, height: footer)
         Design.chrome.setFill()
         strip.fill()
         Design.border.setFill()
         NSRect(x: 0, y: strip.minY, width: bounds.width, height: 1).fill()
-        let line = text(keys + (back ? "  ·  q back" : ""), 11, Design.textFaint)
-        line.drawLine(in: NSRect(
-            x: 16,
-            y: strip.midY - line.size().height / 2,
-            width: bounds.width - 32,
-            height: line.size().height
-        ))
+        let help = text("all keys", 11, Design.textMuted)
+        let helpX = bounds.width - 16 - help.size().width
+        let capTop = strip.minY + (footer - 19) / 2
+        KeyCaps.draw(["?"], at: NSPoint(x: helpX - 22, y: capTop))
+        help.draw(at: NSPoint(x: helpX, y: strip.midY - help.size().height / 2))
+        let limit = helpX - 40
+        var x: CGFloat = 16
+        var items = (Keymaps.current(kind)?.own ?? []).filter { $0.footer && only?.contains($0.name) != false }
+            .map { (keys: KeySequence.split($0.keys.first ?? ""), title: $0.title) }
+        if back { items.append((["q"], "back")) }
+        for item in items {
+            let title = text(item.title, 11, Design.textMuted)
+            let capsWidth = item.keys.reduce(CGFloat(0)) { width, key in
+                width + max(text(KeySequence.cap(key), 11, Design.text).size().width + 8, 18) + 2
+            }
+            guard x + capsWidth + 5 + title.size().width <= limit else { break }
+            x = KeyCaps.draw(item.keys, at: NSPoint(x: x, y: capTop)) + 3
+            title.draw(at: NSPoint(x: x, y: strip.midY - title.size().height / 2))
+            x += title.size().width + 14
+        }
+        if !note.isEmpty, x < limit {
+            text(note, 11, Design.textFaint).drawLine(in: NSRect(x: x, y: strip.midY - 7, width: limit - x, height: 16))
+        }
     }
 
     private static func text(

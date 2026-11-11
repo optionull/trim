@@ -116,16 +116,14 @@ final class SourceControlView: NSView, ToolContent {
         needsDisplay = true
     }
 
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
-        switch event.charactersIgnoringModifiers {
-        case "j", String(UnicodeScalar(NSDownArrowFunctionKey)!): selected = min(
-                selected + 1,
-                max(entries.count - 1, 0)
-            )
-        case "k", String(UnicodeScalar(NSUpArrowFunctionKey)!): selected = max(selected - 1, 0)
-        case "\r", "o": open(selected)
-        case "R": refresh()
+    var keyKind: String { "changes" }
+
+    func perform(_ command: String, key _: String) -> Bool {
+        switch command {
+        case "changes.down": selected = min(selected + 1, max(entries.count - 1, 0))
+        case "changes.up": selected = max(selected - 1, 0)
+        case "changes.open": open(selected)
+        case "changes.refresh": refresh()
         default: return false
         }
         needsDisplay = true

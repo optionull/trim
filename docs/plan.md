@@ -196,6 +196,9 @@ Nothing sill adds shadows a core nvim key.
   keyboard.
 - `<leader>a`: jump to the next agent that needs you. (Board 2 shows `ga`, which shadows "print character
   code".)
+- sill's own panes (Home, the summary, the review, Run, …) take keys from one list, `Keymaps`: `g` then a letter
+  goes somewhere, `?` lists the pane's keys, `f` labels what can be clicked, `:SillKey <name>` runs a command by
+  name and `[keys]` in the settings rebinds it. These are the panes' keys, not nvim's: in the editor `g` is nvim's.
 
 ## 12. First week
 
@@ -1053,7 +1056,8 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   active again) makes the leaving the point when it was 300 s or more ago, else drops it, so a glance does not move
   the point under a review. `Stories` reads what is new since (files: the worktree now against the point's tree,
   80 ms on docs-builder off the main thread; prompts and commits after it) and the summary leads with it; the review
-  gets "since you last looked" as a lasting baseline (never trimmed, in its place by time), `n` in the summary.
+  gets "since you last looked" as a lasting baseline (never trimmed, in its place by time), `n` in the summary
+  (`V` since the keymaps, below).
   Review by area: 20 files or more in more than one area (`Review.area`, two folders deep, which the prompt outline
   now shares) are listed under area headings, the most changed first, each with its seen count. `SeenFiles` keeps
   marks in `.sill/seen-files.json` with each file's blob (`git ls-tree` of the current tree), so a file changed again
@@ -1075,6 +1079,22 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   Roslyn and dbgshim a shared cache. Checked: `SILL_CHECK=home` (alpha-feature and beta open share one sidecar, one
   dotnet process a child of sill; beta closed, it still runs); a sidecar per workspace, or closing one stopping it,
   each fail it.
+- One keymap for sill's own panes (2026-11-11, the clarity review's first step, owner: "Go"). `Keymaps` (SillInput)
+  lists every key of every native pane and Home, each a named command (`review.keep`), so a key means one thing
+  wherever it means anything; `KeymapTests` holds the grammar (`a` the agent, `r` read again, `x` take away or stop,
+  `J`/`K` inside a row …), that no key in a pane is two things or the start of another, and that every name is
+  handled somewhere in `Sources/SillApp`. The clashes moved: the review's keep `a` → `y` and send `s` → `a`, the map's
+  summary `s` → `a`, the trace's callees `d` → `t` and explain `e` → `a`, the PR's browser `o` → `gB`, telemetry's
+  levels `a`/`w`/`e` → `L`, the summary's since-you-looked `n` → `V`, a walkthrough's sections `n`/`p` → `J`/`K` and
+  examples `e` → `R`, the basket's send `s` → `a` and findings `f` → `A`, the explorer's tab `s` → `⇥`, top `g` →
+  `gg`, refresh `R` → `r`, Home's folders `f` → `F`. `Keyboard` dispatches: a pane's `perform(name, key:)` does the
+  command, `g…` goes where the rail goes (a panel lists what can follow; a sequence sill does not finish goes to nvim,
+  so `gt` still changes tab), `?` lists the pane's keys, `f` labels what can be clicked (a typed label clicks it, a
+  real button pressed as one), `:SillKey <name>` runs a command and `[keys]` in the settings rebinds one (a name that
+  is no command is a settings problem). Footers draw the keymap as key caps. Checked: `SILL_CHECK=run` (`?` opens and
+  closes, `g` waits and `v` reviews, `gr`, `[keys]` rebinding `gV`, `:SillKey go.run`, hello's Run clicked by its
+  hint) and `SILL_CHECK=chrome` (`gg` then `j`); a clash, an unhandled command or a key with two meanings each fail
+  `KeymapTests`.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

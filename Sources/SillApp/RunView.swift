@@ -170,10 +170,7 @@ final class RunView: NSView, ToolContent {
                 x = button.minX - 8
             }
         }
-        PaneBar.drawKeys(
-            "j/k · ↵ run · e change the command, then run · d debug · p profile · ⌘R run again · ⇧⌘R choose",
-            in: bounds
-        )
+        PaneBar.drawKeys("run", note: "⌘R run again · ⇧⌘R choose", in: bounds)
     }
 
     // MARK: Input
@@ -208,16 +205,25 @@ final class RunView: NSView, ToolContent {
         needsDisplay = true
     }
 
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
-        switch event.charactersIgnoringModifiers ?? "" {
-        case "j", String(UnicodeScalar(NSDownArrowFunctionKey)!): selected = min(selected + 1, max(items.count - 1, 0))
-        case "k", String(UnicodeScalar(NSUpArrowFunctionKey)!): selected = max(selected - 1, 0)
-        case "\r": perform("run", selected)
-        case "e": perform("alter", selected)
-        case "d": perform("debug", selected)
-        case "p": perform("profile", selected)
-        case "r": runner.refresh()
+    var keyKind: String { "run" }
+
+    var hintTargets: [NSRect] { actionFrames.map(\.1) + buttonFrames.map(\.2) }
+
+    /// Where a runnable's button was drawn (`run`, `profile`, `debug`), for the checks.
+    func button(_ id: String, of name: String) -> NSRect? {
+        let all = items
+        return buttonFrames.first { all[safe: $0.0]?.runnable.name == name && $0.1 == id }?.2
+    }
+
+    func perform(_ command: String, key _: String) -> Bool {
+        switch command {
+        case "run.down": selected = min(selected + 1, max(items.count - 1, 0))
+        case "run.up": selected = max(selected - 1, 0)
+        case "run.run": perform("run", selected)
+        case "run.edit": perform("alter", selected)
+        case "run.debug": perform("debug", selected)
+        case "run.profile": perform("profile", selected)
+        case "run.refresh": runner.refresh()
         default: return false
         }
         needsDisplay = true

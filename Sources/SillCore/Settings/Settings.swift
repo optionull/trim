@@ -1,4 +1,5 @@
 import Foundation
+import SillInput
 
 /// sill's settings: `~/.config/sill/settings.toml` (or under `$XDG_CONFIG_HOME`), edited by hand or through the
 /// settings window, which changes one value in place and leaves the rest of the file alone. What nvim already has a
@@ -33,6 +34,8 @@ public struct SillSettings: Equatable, Sendable {
     /// The folders whose git checkouts Home lists (asked for when sill first starts).
     public var roots: [String] = []
     public var heedControl = ""
+    /// Other keys for sill's own panes' commands, by the command's name (`[keys]`, `review.keep = "Y"`).
+    public var keyBindings: [String: [String]] = [:]
 
     public static let `default` = SillSettings()
 
@@ -153,9 +156,42 @@ public enum SettingsLoader {
         string(["dotnet", "path"]) { settings.dotnet = $0 }
         string(["heed", "control"]) { settings.heedControl = $0 }
 
+        // `[keys]`: a command's name, its pane and its verb (`review.keep`, so `[keys.review]` and `keep` too), and a key
+        // or a list of them in nvim's notation.
+        if let found = value(["keys"]) {
+            if let panes = found.table {
+                let names = Set(Keymaps.names)
+                func bind(_ path: [String], _ name: String, _ value: TOMLValue?) {
+                    guard names.contains(name)
+                    else { return problem(path, "is not a command (? in a pane lists them)") }
+                    let keys: [String]? = switch value {
+                    case let .string(key)?: [key]
+                    case let .array(items)?: items.allSatisfy { $0.string != nil } ? items.compactMap(\.string) : nil
+                    default: nil
+                    }
+                    guard let keys, !keys.isEmpty, keys.allSatisfy({ !$0.isEmpty }) else {
+                        return problem(path, "should be a key, like \"Y\", or a list of them")
+                    }
+                    settings.keyBindings[name] = keys
+                }
+                for pane in panes.keys {
+                    // `"review.keep" = "Y"`, quoted: the name as one key.
+                    guard let verbs = panes[pane]?.table else {
+                        bind(["keys", pane], pane, panes[pane])
+                        continue
+                    }
+                    for verb in verbs.keys {
+                        bind(["keys", pane, verb], "\(pane).\(verb)", verbs[verb])
+                    }
+                }
+            } else {
+                problem(["keys"], "should be a table, [keys]")
+            }
+        }
+
         // A key sill does not know is most likely a typo: say so rather than ignore it.
         let known = Set(SillSettings.keys.map(\.path))
-        for table in document.root.keys {
+        for table in document.root.keys where table != "keys" {
             guard let inner = document.root[table]?.table else {
                 problem([table], "is not a setting (settings are in tables, like [editor])")
                 continue
@@ -227,6 +263,12 @@ public enum SettingsLoader {
     [heed]
     # heed's control socket; empty is heed's own place. (HEED_CONTROL)
     # control = ""
+
+    [keys]
+    # Other keys for the commands of sill's own panes (Home, the summary, the review, Run, …), by the command's
+    # name: ? in a pane lists them, with their keys. A key in nvim's notation, or a list of them.
+    # review.keep = "Y"
+    # run.debug = ["d", "<F5>"]
 
     """
 }

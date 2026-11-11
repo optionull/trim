@@ -35,6 +35,25 @@ struct SettingsTests {
         ])
     }
 
+    @Test("[keys] gives a command other keys, by its name; a name that is no command is reported")
+    func keys() throws {
+        let (settings, problems) = SettingsLoader.decode("""
+        [keys]
+        review.keep = "Y"
+        "run.debug" = ["d", "<F5>"]
+        review.kepe = "Y"
+        run.edit = 3
+        [keys.summary]
+        review = "R"
+        """)
+        let read = try #require(settings)
+        #expect(read.keyBindings == ["review.keep": ["Y"], "run.debug": ["d", "<F5>"], "summary.review": ["R"]])
+        #expect(problems.map(\.description) == [
+            "keys.review.kepe: is not a command (? in a pane lists them)",
+            "keys.run.edit: should be a key, like \"Y\", or a list of them",
+        ])
+    }
+
     @Test("a syntax error keeps the last good settings")
     func syntax() {
         let store = Settings(environment: [:])
