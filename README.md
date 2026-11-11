@@ -25,12 +25,17 @@ index is never locked.
 
 A checkout opened from Home opens in this sill, a window each (again: its window to the front). It opens on what
 happened, not on the code: its new walkthrough from an agent when there is one, else its summary (`:SillSummary`,
-`␣iu`, the rail's top icon): what the agent does or did and the last thing asked, the walkthroughs agents prepared
-(the new ones marked), what was asked, the commits since the branch left its base, and the files touched, each
-opening what it names. `w` reads the newest walkthrough, `v` reviews the branch against where it left its base. The
-explorer opens on those touched files (Touched | Files | Solution, `⇥` for the next). The rail has the story on top
-(summary, walkthroughs, review) and the browsing under a rule (explorer, changes, agents, map, baskets). Closing a
-checkout's window, or `:qa` in it, ends that checkout alone; Home stays.
+`␣iu`, the rail's top icon, `gs`), which answers "what happened here since I looked, and is it any good?". On top a
+headline (the new walkthrough's title, else what happened, counted: "2 prompts, 2 commits and 4 files changed since
+main") and its verdicts (the agent working or done, walkthroughs not read, commits and lines since the base). Under
+it, at the left, the walkthrough to read, in its agent's words, and the session as a line through time: what was
+asked, what was committed, when you last looked. At the right, what the agent said to run (`R` runs the first, with
+when it last ran) and where it changed, by folder, each file's churn as a bar. `↵` does what the summary is for:
+reads the walkthrough not read, else reviews what changed since you looked, else the branch; `v` reviews the branch
+against where it left its base, `w` opens the newest walkthrough. The explorer opens on the touched files (Touched |
+Files | Solution, `⇥` for the next). The rail has the story on top (summary, walkthroughs, review) and the browsing
+under a rule (explorer, changes, agents, map, baskets). Closing a checkout's window, or `:qa` in it, ends that
+checkout alone; Home stays.
 
 Since you last looked: leaving sill (another app in front, or the checkout's window closed) notes the worktree as it
 is; coming back after five minutes or more makes that the point the summary starts from ("Since you last looked, 2 h

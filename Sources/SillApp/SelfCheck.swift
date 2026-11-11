@@ -1991,6 +1991,22 @@ final class SelfCheck {
         view.perform("command", key)
         try await shown("sill-run-hello handed")
         step("the handoff's notebook: Run it runs swift run hello handed in a terminal")
+
+        // The summary, on the handoff: its headline, the walkthrough to read and what it says to run.
+        app.stories.show()
+        try await wait("the summary") { $0.currentPaneKind == "summary" }
+        // The run's terminals closed: the summary as it is when nothing else is open.
+        _ = try await session.channel.lua("vim.cmd('only')")
+        try await wait("the summary alone") { $0.paneRects.filter { $0.kind == "terminal" }.isEmpty }
+        try await Task.sleep(for: .milliseconds(300))
+        let summary = try await waitFor("the summary's view") { app.tools.summary }
+        _ = try await waitFor("the handoff in the summary", timeout: .seconds(20)) {
+            app.stories.unseen != nil || !app.stories.walkthroughs.isEmpty ? true : nil
+        }
+        summary.display()
+        try expect(summary.hintTargets.count >= 3, "the summary's walkthrough, review and run")
+        try picture("summary")
+        step("the summary: the handoff to read, the review, and Hello greets to run")
     }
 
     /// Since you last looked (`SILL_CHECK=looked`, in looked-fixture.sh's checkout: a leaving an hour ago, 23 files
@@ -2017,6 +2033,10 @@ final class SelfCheck {
         }
         try expect(baseline.tree == since.point.tree && baseline.lasting, "the baseline: \(baseline)")
         step("opened an hour after it was left: the summary says 23 files changed since; the review has that baseline")
+        if let folder = ProcessInfo.processInfo.environment["SILL_CHECK_SHOTS"] {
+            app.tools.summary?.display()
+            try shot(to: folder + "/summary-since.png")
+        }
 
         app.reviewSince()
         try await wait("the review") { $0.currentPaneKind == "review" }
@@ -2032,7 +2052,7 @@ final class SelfCheck {
                 },
             "by area: \(areas)"
         )
-        step("n: the review of what is new, by area (src/Shop/, tests/Shop.Tests/, then the root)")
+        step("V: the review of what is new, by area (src/Shop/, tests/Shop.Tests/, then the root)")
 
         reviewer.select(file: 0)
         reviewer.toggleSeen()

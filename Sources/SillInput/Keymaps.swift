@@ -34,9 +34,11 @@ public enum Keymaps {
     ]
 
     public static let summary = Keymap(pane: "summary", own: [
-        PaneKey("summary.walkthrough", ["w"], "the newest walkthrough"),
+        PaneKey("summary.read", ["<CR>"], "read or review what is new"),
+        PaneKey("summary.walkthrough", ["w"], "the newest walkthrough", footer: false),
         PaneKey("summary.review", ["v"], "review the branch"),
         PaneKey("summary.reviewSince", ["V"], "review since you looked"),
+        PaneKey("summary.examples", ["R"], "run what the agent says"),
         PaneKey("summary.refresh", ["r"], "read again"),
     ])
 

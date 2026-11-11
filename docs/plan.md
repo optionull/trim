@@ -1122,6 +1122,16 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   The summary of summaries is now the headline's newest and each row's "New:" line. Checked: `HomeListTests` and
   `SILL_CHECK=home` (`m` marks a second review read; with `markSeen` doing nothing it fails). Not done: the activity
   strip and Home's pull request state, both new reads, to measure first.
+- The summary's clarity pass (2026-11-11, the clarity review's third step, second view). For "what happened here
+  since I looked, and is it any good?": a headline (`StoryLine.headline`: the walkthrough not read, else what
+  happened counted, else the latest walkthrough's title) with verdict chips; at the left the walkthrough to read as
+  the one card with its buttons, the others under it, and the session as a line (`StoryLine.place`: prompts, commits
+  and the last look by time, a day at most); at the right the handoff's runs (`R`, with when each last ran from
+  `.sill/run.json`) and the touched files by folder with churn bars. `↵` reads the walkthrough not read, else reviews
+  since you looked, else the branch. Checked: `StoryLineTests` and `SILL_CHECK=run` (the summary on the handoff, its
+  walkthrough, review and run clickable); `SILL_CHECK_SHOTS=<folder>` saves pictures of it there and in
+  `SILL_CHECK=looked`. Not done: hiding the Problems panel on story views while it is empty, a run's result (its exit
+  code is not kept yet) and the pull request's state among the verdicts.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
