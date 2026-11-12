@@ -1,7 +1,7 @@
 -- sill's own nvim (the default; `[nvim] config = "yours"` runs the person's instead): an editor for reading code and
 -- steering agents, set up so it needs no setting up. It uses what nvim has built in (the language servers sill
--- starts, their completion through sill's native menu, fuzzy finding, the diagnostics) and tree-sitter parsers sill
--- builds into its cache the first time it runs, in sill's colours. Your own additions go in ~/.config/sill/init.lua,
+-- starts, their completion through sill's native menu, fuzzy finding, the diagnostics) and the tree-sitter parsers
+-- Sill.app ships, in sill's colours. Your own additions go in ~/.config/sill/init.lua,
 -- which loads after this.
 local o, map = vim.o, vim.keymap.set
 
@@ -82,7 +82,7 @@ map('n', '<leader>q', '<Cmd>copen<CR>', { desc = 'Search results' })
 map('v', '<', '<gv')
 map('v', '>', '>gv')
 
--- Syntax: tree-sitter, with the parsers sill builds the first time it runs (nvim's syntax files until then).
+-- Syntax: tree-sitter, with the parsers Sill.app ships (nvim's syntax files for a language without one).
 require('sill.syntax').setup()
 -- What changed since the branch left its base, beside the lines; ]h and [h go to the next and previous change.
 require('sill.gutter').setup()

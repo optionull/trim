@@ -112,7 +112,9 @@ the settings in it.
 ## Building
 
 Tools come from mise (`mise.toml`): Zig for GhosttyKit, SwiftFormat and SwiftLint. Xcode with the Metal toolchain
-and nvim 0.12 or later are needed too; `mise run doctor` checks.
+and nvim 0.12 or later are needed too; `mise run doctor` checks. The build makes `Vendor/treesitter` the first time
+(the parsers the app ships, about a minute; again only when `TREESITTER_COMMIT` moves, which `mise run
+treesitter-latest` helps bump).
 
 ```sh
 mise run ghostty   # build Vendor/GhosttyKit.xcframework once (without it, panes show a stand-in)
@@ -228,12 +230,10 @@ default). `:SillZen` (⌃⌘Z, View ▸ Zen) hides the bars, the explorer and th
 
 By default sill runs its own nvim setup, not yours: nothing to install or configure, and the editor in the same
 colours as everything around it (`colors/sill.lua`, from sill's palette: plain text first, structure tinted, comments
-faint, problems loud). Code is coloured by tree-sitter: the first time sill runs it builds the parsers for the
-languages it knows (C#, Razor, F#, TypeScript, JavaScript, Rust, Swift, Python, Go, Java, Kotlin, Ruby, the web's,
-the config files', 25 in all, well under a minute on an M-series Mac) in the background, each grammar at the revision nvim-treesitter pins,
-with nvim-treesitter's queries, into `~/Library/Caches/sill/treesitter`; once a week it asks for nvim-treesitter's
-newest pins and builds again only what moved. It needs the Command Line Tools' `cc` (`xcode-select --install`);
-without them nvim's own syntax files colour the code. The sign column marks what changed since the branch left its
+faint, problems loud). Code is coloured by tree-sitter, with the parsers Sill.app ships for the languages it knows (C#, Razor, F#,
+TypeScript, JavaScript, Rust, Swift, Python, Go, Java, Kotlin, Ruby, the web's and the config files', 25 in all): each
+grammar at the revision nvim-treesitter pins, with nvim-treesitter's queries, built ahead of time, so nothing is
+compiled on your Mac. The sign column marks what changed since the branch left its
 base (committed or not, so an agent's commits stay marked) and tints the line number; `]h` and `[h` go to the next and
 previous change. Completion comes from the language server as you type, in sill's own menu; `<leader>ff` (or
 `:find`) finds a file fuzzily among the ones git knows, `<leader>/` searches the code, `<leader>e` shows the explorer;

@@ -1339,13 +1339,10 @@ final class SelfCheck {
         try text.write(toFile: pricing, atomically: true, encoding: .utf8)
         step("a line added to Pricing.cs on disk is marked added in the sign column")
 
-        // Tree-sitter: the parsers built (or there from an earlier run), and C# highlighted with them.
-        guard ProcessInfo.processInfo.environment["SILL_CHECK_TREESITTER"] == "1" else { return }
-        let parsers = SyntaxParsers.shared
-        let outcome = try await waitFor("the parsers", timeout: .seconds(900)) { parsers.outcome }
-        try expect(outcome == nil, "the parsers: \(outcome ?? "")")
-        let built = try FileManager.default.contentsOfDirectory(atPath: SyntaxParsers.folder.path + "/parser")
-        try expect(built.contains("c_sharp.so") && built.contains("swift.so"), "the parsers built: \(built.sorted())")
+        // Tree-sitter: the parsers the app ships, and C# highlighted with them.
+        let shipped = Bundle.main.resourcePath.map { $0 + "/treesitter/parser" } ?? ""
+        let built = try FileManager.default.contentsOfDirectory(atPath: shipped)
+        try expect(built.contains("c_sharp.so") && built.contains("swift.so"), "the parsers shipped: \(built.sorted())")
         _ = try await session.channel.lua("vim.cmd('checktime')")
         let captures = try await session.channel.lua("""
         vim.wait(3000, function() return vim.b.ts_highlight end)
@@ -1361,7 +1358,7 @@ final class SelfCheck {
         return table.concat(names, ' ')
         """).stringValue ?? ""
         try expect(captures.contains("keyword"), "static in Pricing.cs: \(captures)")
-        step("tree-sitter: \(built.count) parsers built; Pricing.cs highlighted by tree-sitter, static a \(captures)")
+        step("tree-sitter: \(built.count) parsers shipped; Pricing.cs highlighted by tree-sitter, static a \(captures)")
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             try await Task.sleep(for: .milliseconds(500))
             try shot(to: path)

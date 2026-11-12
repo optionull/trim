@@ -1149,6 +1149,14 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   `.sill` once, warmed off the main thread when the workspace starts. The context takes under a millisecond (0.3 to
   0.4 s on the one prompt that follows a basket edit, nvim still busy). Checked: `SILL_CHECK=hooks` passing in a
   whole verify run and six runs alone. Not done: Baskets' own `relative` calls still ask git, off the hook path.
+- The parsers shipped, not built on a person's Mac (2026-11-12, owner: "I didn't realize it needed native code, we
+  should build and ship this ahead of time"). `scripts/treesitter.lua` (run by nvim) builds them once per
+  `TREESITTER_COMMIT` (mise.toml) into `Vendor/treesitter` (72 s here, then 4 s while the pin holds); `bundle.sh`
+  copies them to `Contents/Resources/treesitter` and signs each ad hoc, `sign.sh` with the identity (not run yet:
+  signing is deferred). `lua/sill/syntax.lua` puts that folder on the runtimepath. `SyntaxParsers`, the cache and the
+  weekly check are gone: the parsers move with sill's releases. The app grows by 59 MB. Checked:
+  `SILL_CHECK=config` (25 parsers in the bundle, Pricing.cs highlighted; without the runtimepath line it fails) and
+  `TreesitterBuildTests` (the plan from a cut-down parsers.lua).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

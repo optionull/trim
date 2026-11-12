@@ -14,6 +14,9 @@ app="${BUILD_DIR:-$root/build}/Sill.app"
 keychain=()
 [ -n "${2:-}" ] && keychain=(--keychain "$2")
 
+# Tree-sitter's parsers are native code in Resources: each signed before the app (not yet run: signing is deferred).
+codesign --force --options runtime --timestamp --sign "$identity" ${keychain[@]+"${keychain[@]}"} \
+  "$app"/Contents/Resources/treesitter/parser/*.so
 codesign --force --options runtime --timestamp --sign "$identity" ${keychain[@]+"${keychain[@]}"} "$app"
 codesign --verify --strict --deep --verbose=2 "$app"
 echo "sign: $app signed by $identity"

@@ -396,11 +396,6 @@ final class Workspace: NSObject, NSWindowDelegate {
                     runtime: Runtime.directory, cols: cols, rows: rows, cwd: workingDirectory, appName: startup.appName,
                     extraArgs: base + Array(arguments)
                 )
-                // Tree-sitter's parsers for sill's own nvim, built the first time (the checks build them only when
-                // they ask: it is the network and the compiler).
-                if ownConfig, environment["SILL_CHECK"] == nil || environment["SILL_CHECK_TREESITTER"] == "1" {
-                    SyntaxParsers.shared.ensure(channel: session.channel)
-                }
                 if merging {
                     _ = try await session.channel.lua(
                         "require('sill.merge').open(...)",

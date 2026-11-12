@@ -31,10 +31,16 @@ if [ -n "$native" ]; then
   echo "bundle: the sidecar carries native code, which would need signing: $native" >&2
   exit 1
 fi
+# Tree-sitter's parsers for sill's own nvim, native code built ahead of time (once per $TREESITTER_COMMIT, into
+# Vendor/treesitter) so no one needs a compiler; signed one by one, as the app's signature does not cover them.
+nvim -l "$root/scripts/treesitter.lua" "$root/Vendor/treesitter"
+rm -rf "$app/Contents/Resources/treesitter"
+cp -R "$root/Vendor/treesitter" "$app/Contents/Resources/treesitter"
+codesign --force --sign - "$app"/Contents/Resources/treesitter/parser/*.so
 sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
   "$root/Resources/Info.plist" >"$app/Contents/Info.plist"
 codesign --force --sign - "$app"
-for wanted in runtime/plugin/sill.lua sidecar/Sill.Sidecar.dll; do
+for wanted in runtime/plugin/sill.lua sidecar/Sill.Sidecar.dll treesitter/parser/c_sharp.so treesitter/queries/c_sharp/highlights.scm; do
   if [ ! -f "$app/Contents/Resources/$wanted" ]; then
     echo "bundle: $wanted is missing from the app" >&2
     exit 1

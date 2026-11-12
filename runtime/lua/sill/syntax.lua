@@ -1,7 +1,6 @@
 -- Tree-sitter highlighting in sill's own nvim: for every buffer whose language has a parser, nvim's own (C, Lua,
--- Vim script, Markdown) or one sill built into its cache (~/Library/Caches/sill/treesitter, built by the app's
--- SyntaxParsers, which says when they are there). Until then, and for a language without one, nvim's syntax
--- files colour the buffer as they always did.
+-- Vim script, Markdown) or one Sill.app ships (Contents/Resources/treesitter, beside this runtime: built ahead of time
+-- by scripts/treesitter.lua). For a language without one, nvim's syntax files colour the buffer as they always did.
 local M = {}
 
 -- Filetypes whose parser has another name.
@@ -25,24 +24,15 @@ local function start(buf)
   pcall(vim.treesitter.start, buf, language)
 end
 
-local added = false
-local function add(folder)
-  if added or vim.fn.isdirectory(folder) == 0 then return end
-  added = true
-  vim.opt.runtimepath:append(folder)
-end
-
---- The parsers are in `folder`: every buffer open highlights with them, and every one opened later.
-function M.ready(folder)
-  add(folder)
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if not vim.b[buf].ts_highlight then start(buf) end
-  end
+--- The parsers Sill.app ships: `treesitter` beside the runtime this file is in.
+local function shipped()
+  local here = debug.getinfo(1, 'S').source:gsub('^@', '')
+  return vim.fn.fnamemodify(here, ':p:h:h:h:h') .. '/treesitter'
 end
 
 function M.setup()
-  -- What an earlier start built is there at once; the app says when a build is done.
-  add(vim.fn.expand('~/Library/Caches/sill/treesitter'))
+  local folder = shipped()
+  if vim.fn.isdirectory(folder) == 1 then vim.opt.runtimepath:append(folder) end
   vim.api.nvim_create_autocmd('FileType', {
     group = vim.api.nvim_create_augroup('sill_syntax', {}),
     callback = function(args) start(args.buf) end,
