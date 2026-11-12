@@ -11,6 +11,8 @@ record Order(int Id, string Customer, double Total);
 
 static class Pricing
 {
+    // Its own frame: .NET 11's JIT would otherwise inline the loop into Main, and the hot spot would be Main's.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     public static double Total(int seed)
     {
         double total = 0;

@@ -9,7 +9,7 @@ enum BuiltSidecar {
         .appendingPathComponent("sidecar/Sill.Sidecar")
 
     static let dll: URL = {
-        let output = project.appendingPathComponent("bin/Release/net10.0/Sill.Sidecar.dll")
+        let output = project.appendingPathComponent("bin/Release/net11.0/Sill.Sidecar.dll")
         // A build that does not run leaves the dll missing, and the tests that start it say so.
         guard let dotnet = try? Sidecar.findDotnet() else { return output }
         let build = Process()

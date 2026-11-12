@@ -71,7 +71,7 @@ public sealed partial class SuspendedLaunch : IDisposable
     {
         if (OperatingSystem.IsWindows())
         {
-            // sill's copy, on .NET 10, has no Windows start (Passenger's uses .NET 11's StartSuspended): sill is macOS's.
+            // sill's copy has no Windows start (Passenger's uses .NET 11's StartSuspended): sill is macOS's.
             throw new PlatformNotSupportedException("sill's debugger runs on macOS");
         }
         Dictionary<string, string> environment = [];

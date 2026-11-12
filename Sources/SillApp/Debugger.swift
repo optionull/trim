@@ -73,7 +73,7 @@ final class Debugger {
         }
         return URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("sidecar/Sill.DebugAdapter/bin/Release/net10.0/Sill.DebugAdapter.dll")
+            .appendingPathComponent("sidecar/Sill.DebugAdapter/bin/Release/net11.0/Sill.DebugAdapter.dll")
     }
 
     /// nvim's asks that are new, and its breakpoints as they are now.

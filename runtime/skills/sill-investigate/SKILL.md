@@ -30,7 +30,7 @@ comes after the person has read the findings.
    - `problems` for what the compiler says.
 5. **Reproduce it when you can**: an isolated script beside the basket (`.sill/baskets/examples/<file>`), shown with
    `basket_note` and `@example examples/<file>` on a line of its own. The forms are the walkthrough skill's: for C# a
-   .NET 10 file-based app with `#:project <the .csproj's absolute path>`; reach the code by absolute paths in the
+   .NET file-based app with `#:project <the .csproj's absolute path>`; reach the code by absolute paths in the
    worktree you work in (`.sill` is shared by every worktree of the repository).
 6. **Conclude** with `basket_conclude`: the answer first, in a sentence or two; then why you are sure (or how sure you
    are, and what would settle it); what is still open; and the next steps you suggest. Name code in `code spans`.

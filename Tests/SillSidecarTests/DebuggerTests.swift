@@ -9,7 +9,7 @@ enum BuiltAdapter {
         .appendingPathComponent("sidecar/Sill.DebugAdapter")
 
     static let dll: URL = {
-        let output = project.appendingPathComponent("bin/Release/net10.0/Sill.DebugAdapter.dll")
+        let output = project.appendingPathComponent("bin/Release/net11.0/Sill.DebugAdapter.dll")
         guard let dotnet = try? Sidecar.findDotnet() else { return output }
         let build = Process()
         build.executableURL = dotnet
@@ -52,7 +52,7 @@ struct DebuggerTests {
         build.standardOutput = FileHandle.nullDevice
         try build.run()
         build.waitUntilExit()
-        let program = project.appendingPathComponent("bin/Debug/net10.0/Sample.dll").path
+        let program = project.appendingPathComponent("bin/Debug/net11.0/Sample.dll").path
         let source = project.appendingPathComponent("Program.cs").path
         #expect(FileManager.default.fileExists(atPath: program))
 

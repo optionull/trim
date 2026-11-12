@@ -114,7 +114,7 @@ kept or is to be sent), each change is named by the function git finds around it
 
 Walkthrough (`w`) asks the agent for a walkthrough of the changes to review: a throwaway notebook inside the
 repository's `.sill` folder (private, never committed) that goes through them by idea, with each part's diff and usage examples of what changed as
-isolated scripts (a .NET 10 file-based app referencing the changed project, or a TypeScript, Python, Rust or Swift
+isolated scripts (a .NET file-based app referencing the changed project, or a TypeScript, Python, Rust or Swift
 script). It opens as one scrolling document with an outline; Run runs an example in place, its output under it.
 
 ![A review walkthrough: the outline, a section's diff, the changed method](docs/showcase-review-walkthrough-2026-10-25.png)
@@ -367,7 +367,7 @@ processes running and debugs one; Shift-F5 then detaches and leaves it running.
 `:SillProfile` builds the program of the project you are in and runs it under the profiler: .NET with EventPipe, a
 Cargo package with samply, a Swift package with xctrace (Instruments' Time Profiler). Stop (`x`) shows the CPU
 profile: the flame graph and the hot spots with where they are written. For .NET (which needs the sidecar, on your
-dotnet 10) Take snapshot (`s`) records the heap while it runs; a second one is compared with the first, object by object,
+dotnet 11) Take snapshot (`s`) records the heap while it runs; a second one is compared with the first, object by object,
 as a treemap of what grew, and the profile has allocations and collections too. Send to agent gives the hot frame or
 the growth to an agent. Above the flame graph, CPU over time: drag across it to see a stretch of the run alone,
 click (or 0) for all of it. Selecting a type in the heap diff shows who keeps its objects alive, the path from a GC

@@ -20,7 +20,8 @@ the window, and exits non-zero on the first failing step; it also measures idle 
 `SILL_CHECK_SHOT=<file.png>` saves the window with a pane open; `SILL_CHECK_SHOTS=<folder>` saves the README's pictures from the run and looked checks. `mise run bench` measures the Metal grid at 4K on a
 release build. `SILL_FONTS=<dir>` uses the fonts in a directory without installing them (JetBrains Mono, say).
 
-The checks need the .NET 10 runtime on the dotnet they find (the sidecar's and the fixtures' target); `mise run verify` runs every one of them, lint and the tests first.
+The checks need the .NET 11 runtime on the dotnet they find (the sidecar's and the fixtures' target), through the
+login shell in `$SHELL` (sill reads its environment, as it does from the Dock: set `SHELL` to your own shell); `mise run verify` runs every one of them, lint and the tests first.
 
 ## Layout
 

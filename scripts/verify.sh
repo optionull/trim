@@ -52,9 +52,10 @@ fi
 rm -rf /tmp/sill-m6 && cp -R $REPO/Tests/SillSidecarTests/Fixtures/Sample /tmp/sill-m6
 cd /tmp/sill-m6
 run m6 SILL_OFFSCREEN=1 SILL_CHECK=m6 SILL_CWD=/tmp/sill-m6 SILL_AGENT=echo HEED_CONTROL=/tmp/no-heed.sock SILL_CHECK_SHOT=/tmp/sill-m6.png
-$F/razor-fixture.sh /tmp/sill-razor
-cd /tmp/sill-razor
-run razor SILL_OFFSCREEN=1 SILL_CHECK=razor SILL_CWD=/tmp/sill-razor HEED_CONTROL=/tmp/no-heed.sock
+# The real path, not /tmp: .NET 11's Razor build finds no components through a symlinked folder.
+$F/razor-fixture.sh /private/tmp/sill-razor
+cd /private/tmp/sill-razor
+run razor SILL_OFFSCREEN=1 SILL_CHECK=razor SILL_CWD=/private/tmp/sill-razor HEED_CONTROL=/tmp/no-heed.sock
 rm -rf /tmp/sill-solution && cp -R $REPO/Tests/SillCoreTests/Fixtures/Solution /tmp/sill-solution
 (cd /tmp/sill-solution && git init -q && git add -A && git -c user.email=a@b -c user.name=sill commit -qm fixture)
 cd /tmp/sill-solution

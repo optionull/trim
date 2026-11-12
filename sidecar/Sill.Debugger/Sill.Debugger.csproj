@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Vendored from Passenger (https://github.com/Zaneris/passenger at 7686138, MIT), ported to .NET 10; see
+  <!-- Vendored from Passenger (https://github.com/Zaneris/passenger at 7686138, MIT), on .NET 11 as it is; see
        THIRD_PARTY_NOTICES.md. -->
   <!-- The debugger's engine, run in the adapter's process: ICorDebug for processes, breakpoints, stepping, stacks
        and values, Roslyn's expression compiler for evaluation, ILSpy's decompiler for code without source. -->
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>

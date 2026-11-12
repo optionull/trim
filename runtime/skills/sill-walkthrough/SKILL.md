@@ -54,7 +54,7 @@ repository's `.sill` folder: a throwaway, never committed) and its `examples` fo
 - **`@diff <path>`** (from the repository's root) shows that file's change under the section about it.
 - **`@example examples/<file>`** embeds a usage example: an isolated script beside the walkthrough that exercises
   what changed and prints what it shows. The person runs it in place; `walkthrough_check` runs them all.
-  - C#: a .NET 10 file-based app, `examples/total.cs`:
+  - C#: a .NET file-based app, `examples/total.cs`:
     ```csharp
     #:project /Users/me/code/shop/src/Orders/Orders.csproj
     using Orders;

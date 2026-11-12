@@ -127,8 +127,8 @@ SOFTWARE.
 https://github.com/Zaneris/passenger at 7686138 (MIT, the licence above). The debug adapter (`sidecar/Sill.Dap`,
 `sidecar/Sill.Debugger`, `sidecar/Sill.Debugger.Interop`, `sidecar/Sill.DebugAdapter`) is Passenger's
 `src/Passenger.Dap`, `Passenger.Debugger`, `Passenger.Debugger.Interop` and `Passenger.DebugAdapter`, with its namespaces
-renamed, ported from .NET 11 to .NET 10 (its Windows start, which uses .NET 11's suspended process start, left out:
-sill is macOS's), Passenger.Core's `PathNames` carried along, and dbgshim loaded from where sill downloads it.
+renamed, on .NET 11 as Passenger is (its Windows start, which uses .NET 11's suspended process start, left out: sill
+is macOS's), Passenger.Core's `PathNames` carried along, and dbgshim loaded from where sill downloads it.
 
 ## The debugger: SharpDbg and ICorDebugSharp (by way of Passenger)
 

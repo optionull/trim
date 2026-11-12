@@ -1,6 +1,6 @@
 import Foundation
 
-/// How an example script runs, by its language: a .NET 10 file-based app (`dotnet run file.cs`, `#:project` and
+/// How an example script runs, by its language: a .NET file-based app (`dotnet run file.cs`, `#:project` and
 /// `#:package` in it), TypeScript and JavaScript on node (which strips types itself), Python with uv (its PEP 723
 /// inline metadata) or python3, Swift as a script, Rust as cargo's script format (a `---cargo` manifest at its top)
 /// run on stable through a scratch package, shell with bash. Each runs in its own folder.

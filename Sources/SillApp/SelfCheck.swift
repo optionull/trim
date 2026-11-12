@@ -967,7 +967,7 @@ final class SelfCheck {
         _ = try await waitFor("the session over", timeout: .seconds(20)) { debugger.state == .idle ? true : nil }
 
         // Attaching: the program as built, running on its own.
-        let dll = (app.workingDirectory as NSString).appendingPathComponent("bin/Debug/net10.0/Debuggee.dll")
+        let dll = (app.workingDirectory as NSString).appendingPathComponent("bin/Debug/net11.0/Debuggee.dll")
         let running = Process()
         running.executableURL = try Sidecar.findDotnet()
         running.arguments = [dll, "--wait"]
@@ -2856,7 +2856,7 @@ final class SelfCheck {
         _ = try await waitFor("the sidecar", timeout: .seconds(20)) { app.sidecar }
         let shop = Process()
         shop.executableURL = try Sidecar.findDotnet()
-        shop.arguments = [app.workingDirectory + "/bin/Debug/net10.0/Shop.dll", "http://127.0.0.1:5297"]
+        shop.arguments = [app.workingDirectory + "/bin/Debug/net11.0/Shop.dll", "http://127.0.0.1:5297"]
         shop.standardOutput = FileHandle.nullDevice
         shop.standardError = FileHandle.nullDevice
         try shop.run()
@@ -2925,7 +2925,7 @@ final class SelfCheck {
 
     /// A review walkthrough (`SILL_CHECK=reviewwalk`, in a git copy of Tests/SillSidecarTests/Fixtures/Orders,
     /// SILL_AGENT=echo): the agent's change reviewed, a walkthrough of it asked for (a throwaway inside .git), written
-    /// as the agent would (a diff, a symbol, a .NET 10 script using the changed library), checked through MCP (its
+    /// as the agent would (a diff, a symbol, a .NET script using the changed library), checked through MCP (its
     /// example run), and read as a notebook: one scroll, an outline, the example run in place.
     private func reviewWalkSteps() async throws {
         let app = try require(app, "the app")

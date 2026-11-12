@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Vendored from Passenger (https://github.com/Zaneris/passenger at 7686138, MIT), ported to .NET 10; see
+  <!-- Vendored from Passenger (https://github.com/Zaneris/passenger at 7686138, MIT), on .NET 11 as it is; see
        THIRD_PARTY_NOTICES.md. -->
   <!-- The debug adapter: the debugger's engine behind the Debug Adapter Protocol, in a process of its own (a
        debugger's native side failing takes this process down, not the IDE). The app carries it under debugger/. -->
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>

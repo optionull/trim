@@ -1104,7 +1104,7 @@ enum SidecarFiles {
         }
         return URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("sidecar/Sill.Sidecar/bin/Release/net10.0/Sill.Sidecar.dll")
+            .appendingPathComponent("sidecar/Sill.Sidecar/bin/Release/net11.0/Sill.Sidecar.dll")
     }
 }
 

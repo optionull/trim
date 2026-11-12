@@ -47,7 +47,7 @@ struct ProfilerTests {
         #expect(profile.samples > 100)
         #expect(!profile.exited)
         let hot = try #require(profile.hotSpots.first)
-        #expect(hot.name.hasPrefix("Pricing.Total"))
+        #expect(hot.name.hasPrefix("Pricing.Total"), "the hot spots: \(profile.hotSpots.prefix(5).map(\.name))")
         #expect(hot.file?.hasSuffix("Program.cs") == true)
         #expect(hot.line != nil)
         let frames = profile.preorder

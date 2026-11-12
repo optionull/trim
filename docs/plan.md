@@ -1184,6 +1184,16 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   reads, once the day's commits came from the `git log` already asked for the last commit (a separate
   `--since=24.hours` call had added 0.7 s). Checked: `AgentWaitingTests`, `PullRequestTests` and `SILL_CHECK=home`
   (feature's PR from a stand-in gh, a question asked making it wait; an answer clearing it fails without the guard).
+- Everything on .NET 11 (2026-11-12, owner: "Move everything to net11"). The sidecar, the profiler, the debug
+  adapter (Passenger's own target again; its Windows start still left out) and every fixture target `net11.0`; doctor
+  asks for an 11 runtime. Roslyn's language server (`rollForward: Major`) and fsautocomplete (`LatestMajor`) run on
+  11 as they are. Found on the way: .NET 11's JIT inlines `Pricing.Total`'s loop into `Main`, so the profiler's
+  sample marks it `NoInlining` to keep its own frame; and .NET 11's Razor build finds no components when the project
+  is reached through a symlinked folder (`/tmp`, which is `/private/tmp`), so the Razor check runs from
+  `/private/tmp/sill-razor`; a person opening a Razor project through a symlink would see the same. The checks read
+  the login shell's environment from `$SHELL`: run them with the shell sill gets from the Dock (here fish, whose mise
+  gives .NET 11), not one without mise. Checked: `mise run verify` with `SHELL` set to fish, on a machine with only
+  the .NET 11 runtime on mise's dotnet.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

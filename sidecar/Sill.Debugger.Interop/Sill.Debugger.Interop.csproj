@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Vendored from Passenger (https://github.com/Zaneris/passenger at 7686138, MIT), ported to .NET 10; see
+  <!-- Vendored from Passenger (https://github.com/Zaneris/passenger at 7686138, MIT), on .NET 11 as it is; see
        THIRD_PARTY_NOTICES.md. -->
   <!-- ICorDebug, IMetaDataImport and dbgshim, declared for the COM and P/Invoke source generators, which write
        the marshalling at build. Recovered from ICorDebugSharp 0.1.8 (THIRD_PARTY_NOTICES.md) and cut to what the engine
@@ -7,7 +7,7 @@
        declaration the engine comes to need is restored from git history, as it was before the cut. The .editorconfig
        marks these files generated code, so each opens with #nullable enable. -->
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>

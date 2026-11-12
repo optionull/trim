@@ -41,7 +41,7 @@ public struct Walkthrough: Equatable, Sendable {
         case ask(String, answer: String?, line: Int)
         /// A file's change against the walkthrough's `base` (a review's).
         case diff(String, line: Int)
-        /// An example: an isolated script (a .NET 10 file-based app, a TypeScript, Python, Swift or Rust script)
+        /// An example: an isolated script (a .NET file-based app, a TypeScript, Python, Swift or Rust script)
         /// beside the walkthrough, shown and run in place.
         case example(String, line: Int)
         /// A symbol's call tree (`@trace Tax.Of callers 3`): who calls it, or what it calls, so many levels deep.

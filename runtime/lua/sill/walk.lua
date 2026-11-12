@@ -11,7 +11,7 @@ local function matches(symbol, wanted)
   if name ~= parts[#parts] then return false end
   if #parts == 1 then return true end
   local container = table.concat(parts, '.', 1, #parts - 1)
-  -- Roslyn says `in Pricing (project Debuggee (net10.0))`; others say `Orders.Pricing`.
+  -- Roslyn says `in Pricing (project Debuggee (net11.0))`; others say `Orders.Pricing`.
   local have = (symbol.containerName or ''):gsub('^in ', ''):gsub('%s*%(project .*$', '')
   return have == container or have:sub(-#container - 1) == '.' .. container
 end

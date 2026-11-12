@@ -70,10 +70,10 @@ struct PackagesTests {
     @Test("how a transitive package got here: the shortest chain from the project's own")
     func path() throws {
         let assets = """
-        {"targets": {"net10.0": {
+        {"targets": {"net11.0": {
           "Npgsql.EntityFrameworkCore.PostgreSQL/8.0.4": {"type": "package", "dependencies": {"Npgsql": "8.0.2"}},
           "Npgsql/8.0.2": {"type": "package"}, "Polly/8.2.0": {"type": "package"}}},
-         "project": {"frameworks": {"net10.0": {"dependencies": {
+         "project": {"frameworks": {"net11.0": {"dependencies": {
           "Npgsql.EntityFrameworkCore.PostgreSQL": {}, "Polly": {}}}}}}
         """
         #expect(PackageGraph.path(to: "npgsql", assets: Data(assets.utf8)) ==
