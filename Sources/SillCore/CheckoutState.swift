@@ -12,6 +12,8 @@ public struct CheckoutState: Equatable, Sendable, Codable {
     public var lastEdit: Date?
     public var agent: AgentActivity?
     public var walkthroughs: [Prepared]
+    /// The day's commits on the branch (their times), for Home's line of what happened when.
+    public var commits: [Date]?
 
     public init(
         branch: String,
@@ -54,9 +56,11 @@ public struct CheckoutState: Equatable, Sendable, Codable {
         func git(_ arguments: [String]) -> String? { Review.git(arguments, in: path) }
         var state = CheckoutState(branch: git(["branch", "--show-current"])?.trimmed ?? "")
         if state.branch.isEmpty { state.branch = git(["rev-parse", "--short", "HEAD"])?.trimmed ?? "" }
-        if let seconds = git(["log", "-1", "--format=%ct"])?.trimmed, let value = Double(seconds) {
-            state.lastCommit = Date(timeIntervalSince1970: value)
-        }
+        // The last commits' times, in one call: the newest is the last commit, those of the last day the day's line.
+        let times = (git(["log", "-50", "--format=%ct"]) ?? "").split(separator: "\n")
+            .compactMap { Double($0.trimmingCharacters(in: .whitespaces)).map { Date(timeIntervalSince1970: $0) } }
+        state.lastCommit = times.first
+        state.commits = times.filter { now.timeIntervalSince($0) < 86400 }
         // The changed files and when they were last written (at most 200 looked at: enough to say when).
         // Without the index's lock: an agent working in it must never find git busy because sill looked.
         let changed = (git(["--no-optional-locks", "status", "--porcelain", "--untracked-files=normal"]) ?? "")
@@ -117,6 +121,11 @@ public struct AgentActivity: Equatable, Sendable, Codable {
     public var working: Bool
     public var last: Date
     public var prompt: String?
+    /// When the person prompted in the last day (in the session's last 256 KB).
+    public var prompts: [Date]?
+    /// What the agent waits on you for: a question it asked (AskUserQuestion), or its plan to approve. A permission
+    /// prompt is not told apart from a tool that runs long, so it is not said.
+    public var waiting: String?
 
     /// A turn not ended but not written to for this long is no longer worked on (the session was closed).
     static let stale: TimeInterval = 600
@@ -136,8 +145,57 @@ public struct AgentActivity: Equatable, Sendable, Codable {
             }
         }.max { $0.1 < $1.1 }
         guard let (path, last) = newest else { return nil }
-        let (ended, prompt) = turn(in: tail(of: path))
-        return AgentActivity(working: !ended && now.timeIntervalSince(last) < stale, last: last, prompt: prompt)
+        let lines = tail(of: path)
+        let (ended, prompt) = turn(in: lines)
+        let working = !ended && now.timeIntervalSince(last) < stale
+        return AgentActivity(
+            working: working, last: last, prompt: prompt,
+            prompts: promptTimes(in: lines, since: now.addingTimeInterval(-86400)),
+            waiting: working ? asking(in: lines) : nil
+        )
+    }
+
+    /// When the person's prompts were (user messages of text, not tools' results), after `since`. By the text of each
+    /// line, not its JSON: a transcript's tail is mostly tools' traffic, and Home reads every checkout's.
+    static func promptTimes(in lines: [String], since: Date) -> [Date] {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let key = "\"timestamp\":\""
+        return lines.compactMap { line -> Date? in
+            guard line.contains("\"type\":\"user\""),
+                  !line.contains("\"tool_result\""), let start = line.range(of: key),
+                  let end = line[start.upperBound...].firstIndex(of: "\""),
+                  let at = iso.date(from: String(line[start.upperBound ..< end])), at > since
+            else { return nil }
+            return at
+        }
+    }
+
+    /// The question the agent's last message asks you (AskUserQuestion), or "Approve the plan" (ExitPlanMode), while
+    /// nothing has answered it.
+    static func asking(in lines: [String]) -> String? {
+        for line in lines.reversed() where !line.isEmpty {
+            guard let entry = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  let type = entry["type"] as? String, type == "user" || type == "assistant",
+                  let message = entry["message"] as? [String: Any]
+            else { continue }
+            // The newest message: an answer (or anything the person said) means nothing waits.
+            guard type == "assistant", let parts = message["content"] as? [[String: Any]] else { return nil }
+            for part in parts where part["type"] as? String == "tool_use" {
+                let input = part["input"] as? [String: Any] ?? [:]
+                switch part["name"] as? String {
+                case "AskUserQuestion":
+                    let questions = input["questions"] as? [[String: Any]] ?? []
+                    return (questions.first?["question"] as? String).map {
+                        $0.replacingOccurrences(of: "\n", with: " ").trimmed
+                    } ?? "A question"
+                case "ExitPlanMode": return "Approve the plan"
+                default: continue
+                }
+            }
+            return nil
+        }
+        return nil
     }
 
     /// The end of a transcript, as lines (the last 256 KB: a turn's end and its prompt are there).

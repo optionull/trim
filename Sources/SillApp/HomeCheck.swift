@@ -50,6 +50,10 @@ struct HomeCheck {
         let started = Date()
         let cached = model.rows.count
         await until("the read", seconds: 120) { model.readAt != nil }
+        // With a stand-in gh, its pull requests too.
+        if ProcessInfo.processInfo.environment["SILL_GH"] != nil {
+            await until("the pull requests", seconds: 20) { !model.pullRequests.isEmpty }
+        }
         print("probe: \(cached) checkouts from the cache at once; \(model.rows.count) read in " +
             String(format: "%.2f s", Date().timeIntervalSince(started)))
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -91,8 +95,31 @@ struct HomeCheck {
                 "a handoff); new from agents: The tax, once, then A review"
         )
 
-        // The file system followed: the turn ends, beta is edited, the review is seen.
+        // Its pull request, one gh call for alpha's repository: open, a check failing.
+        await until("feature's pull request", seconds: 20) { model.pullRequests[feature]?.number == 7 }
+        if let pr = model.pullRequests[feature], HomeList.pullRequest(pr).level != .attention {
+            fail("the pull request's line: \(HomeList.pullRequest(pr))")
+        }
+        if model.pullRequests[alpha] != nil || model.pullRequests[beta] != nil { fail("main has no pull request") }
+        step(
+            "alpha-feature's pull request, from one gh call for its repository: \(HomeList.pullRequest(model.pullRequests[feature]!).text)"
+        )
+
+        // The agent asks a question: waiting for you, Home's loudest.
         let transcript = AgentActivity.folder(for: feature, in: HomeModel.transcripts) + "/session.jsonl"
+        let asks = #"{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"AskUserQuestion","input":{"questions":[{"question":"Keep the v1 route?"}]}}]}}"#
+        let asking = FileHandle(forWritingAtPath: transcript)
+        asking?.seekToEndOfFile()
+        asking?.write(Data(("\n" + asks + "\n").utf8))
+        try? asking?.close()
+        await until("waiting for you", seconds: 20) {
+            model.rows.first { $0.checkout.path == feature }.map { HomeList.reason($0.state) } ==
+                .waiting("Keep the v1 route?")
+        }
+        home.view.display()
+        step("the agent asks Keep the v1 route?: alpha-feature waits for you, its reason before what is new")
+
+        // The file system followed: the turn ends, beta is edited, the review is seen.
         let ended = #"{"type":"assistant","message":{"stop_reason":"end_turn","content":[]}}"#
         let handle = FileHandle(forWritingAtPath: transcript)
         handle?.seekToEndOfFile()

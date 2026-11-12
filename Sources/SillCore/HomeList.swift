@@ -6,6 +6,8 @@ import Foundation
 public enum HomeList {
     /// Why a checkout is on Home, in the order a person would want to know it.
     public enum Reason: Equatable, Sendable {
+        /// An agent waits on you: the question it asked, or its plan to approve.
+        case waiting(String)
         /// Walkthroughs an agent prepared that you have not read: the newest's title.
         case new(String, count: Int)
         /// An agent works there now: what it was asked.
@@ -19,6 +21,7 @@ public enum HomeList {
         /// The line under the checkout's name.
         public var line: String {
             switch self {
+            case let .waiting(what): "Waiting for you · “\(what)”"
             case let .new(title, count): count > 1 ? "New: \(title), and \(count - 1) more" : "New: \(title)"
             case let .working(prompt): prompt.map { "Working · “\($0)”" } ?? "Working"
             case let .idle(prompt): prompt.map { "Done · asked “\($0)”" } ?? "Done"
@@ -29,6 +32,7 @@ public enum HomeList {
     }
 
     public static func reason(_ state: CheckoutState) -> Reason {
+        if let waiting = state.agent?.waiting { return .waiting(waiting) }
         if let newest = state.unseen.max(by: { $0.at < $1.at }) { return .new(newest.title, count: state.unseen.count) }
         if let agent = state.agent { return agent.working ? .working(agent.prompt) : .idle(agent.prompt) }
         return state.touched > 0 ? .changed(state.touched) : .nothing
@@ -64,6 +68,33 @@ public enum HomeList {
             byRepository[repository, default: []].append(index)
         }
         return (order.map { Group(repository: $0, rows: byRepository[$0] ?? []) }, quiet)
+    }
+
+    /// A checkout's pull request in a few words, and how loud: the most pressing of what it needs (checks failing,
+    /// changes asked for, a conflict), else that it is open.
+    public static func pullRequest(_ pr: PullRequest) -> (text: String, level: PullRequest.Insight.Level) {
+        // As the status bar says it ("#12 · 2 checks failing").
+        ("PR " + pr.label(nil), pr.insights(nil).first?.level ?? .fine)
+    }
+
+    /// The last day in `buckets` hours, oldest first: how many prompts and commits each held.
+    public static func activity(_ state: CheckoutState, now: Date = Date(), buckets: Int = 24)
+        -> [(prompts: Int, commits: Int)]
+    {
+        var line = Array(repeating: (prompts: 0, commits: 0), count: buckets)
+        let span = 86400.0 / Double(buckets)
+        func bucket(_ date: Date) -> Int? {
+            let age = now.timeIntervalSince(date)
+            guard age >= 0, age < 86400 else { return nil }
+            return buckets - 1 - Int(age / span)
+        }
+        for date in state.agent?.prompts ?? [] {
+            if let index = bucket(date) { line[index].prompts += 1 }
+        }
+        for date in state.commits ?? [] {
+            if let index = bucket(date) { line[index].commits += 1 }
+        }
+        return line
     }
 
     /// When, as Home says it: "now", "12 min", "3 h" today, then the day ("Nov 3"), and the year when it is not this

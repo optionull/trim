@@ -34,6 +34,8 @@ public struct PullRequest: Equatable, Sendable {
     /// Reviews and comments, oldest first.
     public var remarks: [Remark]
     public var updated: Date?
+    /// The branch it is from (`headRefName`), when gh was asked for it: how Home finds a checkout's.
+    public var head = ""
 
     /// The pull requests in `gh pr list`'s JSON, newest first; nothing for anything else.
     public static func parse(_ json: Data) -> [PullRequest] {
@@ -77,7 +79,7 @@ public struct PullRequest: Equatable, Sendable {
                     at: ($0["createdAt"] as? String).flatMap(dates.date(from:))
                 )
             }
-            return PullRequest(
+            var parsed = PullRequest(
                 number: number, title: pr["title"] as? String ?? "", url: pr["url"] as? String ?? "",
                 state: pr["state"] as? String ?? "OPEN", draft: pr["isDraft"] as? Bool ?? false,
                 base: pr["baseRefName"] as? String ?? "", mergeable: pr["mergeable"] as? String ?? "UNKNOWN",
@@ -85,6 +87,8 @@ public struct PullRequest: Equatable, Sendable {
                 remarks: (reviews + comments).sorted { ($0.at ?? .distantPast) < ($1.at ?? .distantPast) },
                 updated: (pr["updatedAt"] as? String).flatMap(dates.date(from:))
             )
+            parsed.head = pr["headRefName"] as? String ?? ""
+            return parsed
         }.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
     }
 

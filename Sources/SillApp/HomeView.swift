@@ -113,7 +113,7 @@ final class HomeView: NSView, ToolContent {
     /// The answer in a line: how many checkouts have something new from an agent, how many agents work.
     private func drawHeadline() {
         let top = PaneBar.height
-        let waiting = model.rows.count(where: { !$0.state.unseen.isEmpty })
+        let waiting = model.rows.count(where: { !$0.state.unseen.isEmpty || $0.state.agent?.waiting != nil })
         let working = model.working
         let line = NSMutableAttributedString()
         if waiting > 0 {
@@ -131,7 +131,9 @@ final class HomeView: NSView, ToolContent {
         }
         line.drawLine(in: NSRect(x: 24, y: top + 14, width: bounds.width - 48, height: 28))
         let newest = model.unseen.first
-        let sub = newest
+        let asking = model.rows.first { $0.state.agent?.waiting != nil }
+        let sub = asking
+            .map { "Waiting for you in \(Self.name($0.checkout)): “\($0.state.agent?.waiting ?? "")”" } ?? newest
             .map { "Newest: \($0.prepared.title), in \(Self.name($0.checkout)), \(Self.ago($0.prepared.at))" }
             ?? (working > 0 ? "Agents are at work; what they hand off shows here." :
                 "When an agent hands off a walkthrough, it shows here.")
@@ -175,8 +177,8 @@ final class HomeView: NSView, ToolContent {
             }
             let reason = HomeList.reason(state)
             let working = state.agent?.working == true
-            // An agent at work shows, whatever else the row says.
-            drawDot(working ? .working(nil) : reason, at: NSPoint(x: left, y: y + 12))
+            // An agent at work shows, whatever else the row says (waiting is the louder of the two).
+            drawDot(working && !Self.isWaiting(reason) ? .working(nil) : reason, at: NSPoint(x: left, y: y + 12))
             let name = NSMutableAttributedString(attributedString: text(
                 checkout.isWorktree ? checkout.name : checkout.repositoryName,
                 14,
@@ -186,9 +188,20 @@ final class HomeView: NSView, ToolContent {
             name.drawLine(in: NSRect(x: left + 22, y: y + 7, width: width - left - 110, height: 20))
             let line = NSMutableAttributedString(attributedString: text(reason.line, 12, Self.colour(reason)))
             if working, case .new = reason { line.append(text(" · an agent works here", 12, Design.insert)) }
-            line.drawLine(in: NSRect(x: left + 22, y: y + 28, width: width - left - 60, height: 18))
+            // Its pull request, when it has one, in the colour of what it needs.
+            if let pr = model.pullRequests[checkout.path] {
+                let (said, level) = HomeList.pullRequest(pr)
+                line.append(text(
+                    (line.length > 0 ? " · " : "") + said,
+                    12,
+                    level == .attention ? Design.error : level == .waiting ? Design.textMuted : Design.textFaint
+                ))
+            }
+            // Short of the day's line at the right.
+            line.drawLine(in: NSRect(x: left + 22, y: y + 28, width: width - left - 22 - 130, height: 18))
             let when = text(Self.ago(state.active), 12, Design.textFaint)
             when.draw(at: NSPoint(x: width - 20 - when.size().width, y: y + 9))
+            if width >= 380 { drawActivity(state, right: width - 20, top: y + 30) }
         }
         NSGraphicsContext.restoreGraphicsState()
         if bounds.width >= 880 {
@@ -197,10 +210,53 @@ final class HomeView: NSView, ToolContent {
         }
     }
 
-    /// One mark per reason: new is the accent, filled; working is blue with a halo; done is a ring.
+    /// What the agent does there, in a line: waiting for you, working on a prompt, or done after one.
+    static func agentLine(_ agent: AgentActivity) -> String {
+        if let waiting = agent.waiting { return "The agent waits for you: “\(waiting)”" }
+        let prompt = agent.prompt ?? ""
+        if agent.working { return "An agent is working" + (prompt.isEmpty ? "" : " on “\(prompt)”") }
+        return "The agent finished \(ago(agent.last))" + (prompt.isEmpty ? "" : " after “\(prompt)”")
+    }
+
+    static func isWaiting(_ reason: HomeList.Reason) -> Bool {
+        if case .waiting = reason { true } else { false }
+    }
+
+    /// The last day as a line under the time: an hour a bar, prompts blue under commits in the accent; an hour with
+    /// neither a faint dash. Busy, done or stale reads at a glance.
+    private func drawActivity(_ state: CheckoutState, right: CGFloat, top: CGFloat) {
+        let line = HomeList.activity(state)
+        guard line.contains(where: { $0.prompts + $0.commits > 0 }) else { return }
+        let most = CGFloat(max(line.map { $0.prompts + $0.commits }.max() ?? 1, 1))
+        let bar: CGFloat = 3, gap: CGFloat = 1, height: CGFloat = 14
+        var x = right - CGFloat(line.count) * (bar + gap)
+        for hour in line {
+            let total = CGFloat(hour.prompts + hour.commits)
+            if total == 0 {
+                Design.border.setFill()
+                NSRect(x: x, y: top + height - 1, width: bar, height: 1).fill()
+            } else {
+                let full = max(total / most * height, 2)
+                let prompts = full * CGFloat(hour.prompts) / total
+                Design.insert.setFill()
+                NSRect(x: x, y: top + height - prompts, width: bar, height: prompts).fill()
+                Design.accent.setFill()
+                NSRect(x: x, y: top + height - full, width: bar, height: full - prompts).fill()
+            }
+            x += bar + gap
+        }
+    }
+
+    /// One mark per reason: waiting for you is amber with a halo; new is the accent, filled; working is blue with a
+    /// halo; done is a ring.
     private func drawDot(_ reason: HomeList.Reason, at origin: NSPoint) {
         let dot = NSRect(x: origin.x, y: origin.y, width: 10, height: 10)
         switch reason {
+        case .waiting:
+            Design.modified.withAlphaComponent(0.25).setFill()
+            NSBezierPath(ovalIn: dot.insetBy(dx: -4, dy: -4)).fill()
+            Design.modified.setFill()
+            NSBezierPath(ovalIn: dot).fill()
         case .new:
             Design.accent.setFill()
             NSBezierPath(ovalIn: dot).fill()
@@ -221,6 +277,7 @@ final class HomeView: NSView, ToolContent {
 
     static func colour(_ reason: HomeList.Reason) -> NSColor {
         switch reason {
+        case .waiting: Design.modified
         case .new: Design.accent
         case .working: Design.text
         case .changed: Design.modified
@@ -240,11 +297,9 @@ final class HomeView: NSView, ToolContent {
         title.append(text("   " + state.branch, 13, Design.textMuted, mono: true))
         title.drawLine(in: NSRect(x: left, y: y, width: width, height: 24))
         y += 28
-        let agentLine = state.agent.map { agent in
-            agent.working ? "An agent is working" + (agent.prompt.map { " on “\($0)”" } ?? "") :
-                "The agent finished \(Self.ago(agent.last))" + (agent.prompt.map { " after “\($0)”" } ?? "")
-        } ?? "No agent session here"
-        text(agentLine, 12.5, Design.textMuted).drawLine(in: NSRect(x: left, y: y, width: width, height: 18))
+        let agentLine = state.agent.map(Self.agentLine) ?? "No agent session here"
+        text(agentLine, 12.5, state.agent?.waiting != nil ? Design.modified : Design.textMuted)
+            .drawLine(in: NSRect(x: left, y: y, width: width, height: 18))
         y += 34
 
         // The walkthroughs not read, newest first, each in its agent's words; else the last one, read.
@@ -283,15 +338,25 @@ final class HomeView: NSView, ToolContent {
         y += 6
 
         // What it holds.
-        var chips: [String] = []
-        if state.touched > 0 { chips.append("\(state.touched) file\(state.touched == 1 ? "" : "s") changed") }
-        if let commit = state.lastCommit { chips.append("last commit \(Self.ago(commit))") }
+        var chips: [(String, NSColor)] = []
+        // Its pull request first, in the colour of what it needs.
+        if let pr = model.pullRequests[checkout.path] {
+            let (said, level) = HomeList.pullRequest(pr)
+            chips.append((said, level == .attention ? Design.error : level == .waiting ? Design.text : Design.accent))
+        }
+        if state.touched > 0 {
+            chips.append(("\(state.touched) file\(state.touched == 1 ? "" : "s") changed", Design.textMuted))
+        }
+        if let commit = state.lastCommit { chips.append(("last commit \(Self.ago(commit))", Design.textMuted)) }
         if !state.walkthroughs.isEmpty {
-            chips.append("\(state.walkthroughs.count) walkthrough\(state.walkthroughs.count == 1 ? "" : "s")")
+            chips.append((
+                "\(state.walkthroughs.count) walkthrough\(state.walkthroughs.count == 1 ? "" : "s")",
+                Design.textMuted
+            ))
         }
         var x = left
-        for chip in chips {
-            let label = text(chip, 12, Design.textMuted)
+        for (chip, colour) in chips {
+            let label = text(chip, 12, colour)
             let rect = NSRect(x: x, y: y, width: label.size().width + 20, height: 26)
             guard rect.maxX < area.maxX - 20 else { break }
             Design.chrome.setFill()

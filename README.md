@@ -9,7 +9,10 @@ answers in a line ("2 to look at · 3 agents working", and the newest walkthroug
 checkout in the folders you watch (asked for the first time; any number of them, and a folder that is itself a
 checkout asks whether its parent is meant), each worktree included wherever it is, by repository, the one last active
 first. Each checkout says the one reason it is worth a look, in its colour: new from an agent (the walkthrough's
-title), an agent working (what it was asked, read from Claude Code's own session record), done, or files changed.
+title), an agent waiting for you (the question it asked, or its plan to approve), an agent working (what it was asked,
+read from Claude Code's own session record), done, or files changed; its pull request, when its branch has one open
+(`gh`, one call a repository, every five minutes), in the colour of what it needs; and the last day as a line of
+bars, an hour each, prompts blue and commits mint.
 What has been quiet for a week folds away (`z` shows it). At the right, the selected checkout before you go in: its
 new walkthroughs in their agents' own words, what it holds, and what ↵ does: it opens the checkout on its newest
 walkthrough, `o` on the checkout alone, `m` marks its walkthroughs read without opening them, `n` goes to the newest

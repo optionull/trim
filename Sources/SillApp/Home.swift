@@ -63,6 +63,49 @@ final class HomeModel {
             watch()
             save()
             onChange?()
+            readPullRequests()
+        }
+    }
+
+    // MARK: Pull requests
+
+    /// Each checkout's open pull request, by its path: what its branch has open on GitHub.
+    private(set) var pullRequests: [String: PullRequest] = [:]
+    private var pullsTimer: Timer?
+
+    /// The pull requests of every repository with a checkout on a branch of its own (not main or master), one
+    /// `gh pr list` a repository, off the main thread; again every five minutes. The checks ask GitHub nothing unless
+    /// given a stand-in gh (SILL_GH).
+    func readPullRequests() {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["SILL_CHECK"] == nil || environment["SILL_GH"] != nil else { return }
+        if pullsTimer == nil {
+            pullsTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.readPullRequests() }
+            }
+        }
+        let wanted = rows.filter { !["", "main", "master", "HEAD"].contains($0.state.branch) }
+        let byRepository = Dictionary(grouping: wanted) { $0.checkout.repository }
+            .mapValues { $0.map { (path: $0.checkout.path, branch: $0.state.branch) } }
+        Task {
+            let found = await Task.detached { () -> [String: PullRequest] in
+                var found: [String: PullRequest] = [:]
+                for (repository, checkouts) in byRepository {
+                    let (status, output) = PullRequests.gh([
+                        "pr", "list", "--state", "open", "--limit", "100", "--json",
+                        "number,title,url,state,isDraft,baseRefName,headRefName,mergeable,reviewDecision," +
+                            "statusCheckRollup,updatedAt",
+                    ], in: repository)
+                    guard status == 0 else { continue }
+                    let open = PullRequest.parse(output)
+                    for checkout in checkouts {
+                        if let pr = open.first(where: { $0.head == checkout.branch }) { found[checkout.path] = pr }
+                    }
+                }
+                return found
+            }.value
+            pullRequests = found
+            onChange?()
         }
     }
 

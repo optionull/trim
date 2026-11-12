@@ -81,7 +81,7 @@ $F/compat-fixture.sh /tmp/sill-compat-xdg
 $F/run-fixture.sh /tmp/sill-run
 (cd /tmp/sill-run && run run SILL_CHECK=run SILL_CWD=/tmp/sill-run HEED_CONTROL=/tmp/no-heed.sock)
 $F/home-fixture.sh /tmp/sill-home
-(cd /tmp && run home SILL_HOME=1 SILL_CHECK=home SILL_OFFSCREEN=1 SILL_ROOTS=/tmp/sill-home/roots SILL_TRANSCRIPTS=/tmp/sill-home/transcripts HEED_CONTROL=/tmp/no-heed.sock)
+(cd /tmp && run home SILL_HOME=1 SILL_CHECK=home SILL_OFFSCREEN=1 SILL_ROOTS=/tmp/sill-home/roots SILL_TRANSCRIPTS=/tmp/sill-home/transcripts SILL_GH=/tmp/sill-home/gh HEED_CONTROL=/tmp/no-heed.sock)
 $F/looked-fixture.sh /tmp/sill-looked
 (cd /tmp/sill-looked && run looked SILL_OFFSCREEN=1 SILL_CHECK=looked SILL_CWD=/tmp/sill-looked HEED_CONTROL=/tmp/no-heed.sock)
 $F/pr-fixture.sh /tmp/sill-pr

@@ -5,6 +5,7 @@ import Testing
 @Suite struct PullRequestTests {
     let json = """
     [{"number": 12, "title": "Round the tax once", "url": "https://example.test/pr/12", "state": "OPEN",
+      "headRefName": "round-tax-once",
       "isDraft": false, "baseRefName": "main", "mergeable": "CONFLICTING", "reviewDecision": "CHANGES_REQUESTED",
       "updatedAt": "2026-10-25T12:00:00Z",
       "statusCheckRollup": [
@@ -48,6 +49,15 @@ import Testing
         let text = pr.text(nil)
         #expect(text.contains("Failing: build https://example.test/run/1"))
         #expect(text.contains("- ana (changes requested): Round in one place."))
+    }
+
+    /// Home: each PR's branch, to find its checkout by; the PR in a few words, as loud as its worst.
+    @Test func forHome() throws {
+        let prs = PullRequest.parse(Data(json.utf8))
+        #expect(prs.map(\.head) == ["round-tax-once", ""])
+        let (said, level) = HomeList.pullRequest(prs[0])
+        #expect(said.hasPrefix("PR #12 · 2 checks failing") && level == .attention)
+        #expect(HomeList.pullRequest(prs[1]).level == .fine)
     }
 
     @Test func mergedSaysSo() throws {

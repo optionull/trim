@@ -20,3 +20,9 @@ T="$D/transcripts/$(printf '%s' "$F" | sed 's/[^A-Za-z0-9]/-/g')"
 mkdir -p "$T"
 printf '%s\n%s\n' '{"type":"user","message":{"role":"user","content":"Round the tax once"}}' \
   '{"type":"assistant","message":{"stop_reason":"tool_use","content":[]}}' > "$T/session.jsonl"
+# A stand-in gh: alpha's open pull requests, feature's with a check failing (Home's line for it).
+cat > "$D/gh" <<'GH'
+#!/bin/sh
+echo '[{"number":7,"title":"Round the tax once","url":"https://example.test/pr/7","state":"OPEN","isDraft":false,"baseRefName":"main","headRefName":"feature","mergeable":"MERGEABLE","reviewDecision":"","updatedAt":"2026-11-12T10:00:00Z","statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE"}]}]'
+GH
+chmod +x "$D/gh"
