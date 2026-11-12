@@ -173,9 +173,7 @@ final class Workspace: NSObject, NSWindowDelegate {
             view.onReview = { [weak self] in self?.reviewBranch() }
             view.onReviewSince = { [weak self] in self?.reviewSince() }
             view.onRun = { [weak self] run in self?.runner.run(name: run.name, command: run.command, directory: "") }
-            view.lastRun = { [weak self] name in
-                self?.runner.configurations.configurations.first { $0.name == name }?.lastRun
-            }
+            view.lastResult = { [weak self] name in self?.runner.result(name) }
             view.onFile = { [weak self] path in
                 guard let self else { return }
                 Nvim.lua(session.channel, "require'sill'.open_beside(...)", [.string(workingDirectory + "/" + path)])

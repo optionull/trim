@@ -36,14 +36,19 @@ final class Runner {
                 let file = SillFolder.path(for: directory) + "/run.json"
                 return (Runnables.find(in: directory), RunConfigurations.load(file), file)
             }.value
-            (runnables, configurations, self.file) = (found, saved, file)
+            // A run started while the file was read is newer than the file: kept.
+            (runnables, configurations, self.file) = (found, saved.merged(with: configurations), file)
             reading = false
             onChange?()
+            readResults()
         }
     }
 
     /// What the newest handoff offers to run.
     var fromAgent: [HandoffFile.Run] { app?.stories?.handoffRuns ?? [] }
+
+    /// The title of the newest handoff, whose runs those are.
+    var handoffTitle: String? { app?.stories?.walkthroughs.first { $0.kind == "handoff" }?.title }
 
     /// The runnables the branch's touched files are in.
     var touched: [Runnable] {
@@ -54,14 +59,101 @@ final class Runner {
 
     // MARK: Running
 
-    /// Runs a configuration in a terminal at the bottom, and keeps it as the last run.
+    /// Runs a configuration in a terminal at the bottom, and keeps it as the last run. It runs through a script in
+    /// `.sill/runs` that writes how it ended (`RunScript`), which the Run pane and the summary show.
     func run(name: String, command: String, directory folder: String) {
         configurations.ran(.init(name: name, command: command, directory: folder))
         let saved = configurations, directory = directory, known = file
-        Task.detached { saved.save(known ?? SillFolder.path(for: directory) + "/run.json") }
+        running[Self.key(name, folder)] = (name, folder)
+        results[Self.key(name, folder)] = nil
         onChange?()
-        let line = folder.isEmpty ? command : "cd \(Runnables.quoted(folder)) && \(command)"
-        app?.run(command: line)
+        Task {
+            let line = await Task.detached { () -> String in
+                let file = known ?? SillFolder.path(for: directory) + "/run.json"
+                saved.save(file)
+                let runs = (file as NSString).deletingLastPathComponent + "/runs"
+                try? FileManager.default.createDirectory(atPath: runs, withIntermediateDirectories: true)
+                let (script, result) = RunScript.paths(name: name, directory: folder, in: runs)
+                try? FileManager.default.removeItem(atPath: result)
+                let text = RunScript.script(command: command, folder: folder, result: result)
+                guard (try? text.write(toFile: script, atomically: true, encoding: .utf8)) != nil else {
+                    return folder.isEmpty ? command : "cd \(Runnables.quoted(folder)) && \(command)"
+                }
+                return RunScript.line(script: script)
+            }.value
+            app?.run(command: line)
+            watch()
+        }
+    }
+
+    // MARK: How runs ended
+
+    /// How each run last ended, by name and folder.
+    private(set) var results: [String: RunScript.Result] = [:]
+    /// The runs started and not ended yet, by key: their name and folder.
+    private(set) var running: [String: (name: String, folder: String)] = [:]
+    private var watching: Task<Void, Never>?
+
+    nonisolated static func key(_ name: String, _ folder: String) -> String { name + "|" + folder }
+
+    /// How a run of this name and folder last ended, if sill saw it end.
+    func result(_ name: String, _ folder: String = "") -> RunScript.Result? { results[Self.key(name, folder)] }
+
+    func isRunning(_ name: String, _ folder: String = "") -> Bool { running[Self.key(name, folder)] != nil }
+
+    /// Reads every kept configuration's result, off the main thread.
+    func readResults() {
+        // The kept ones, and those running (a run is looked for whatever the configurations say).
+        var seen: Set<String> = []
+        let names = (configurations.configurations.map { ($0.name, $0.directory) } + running.values.map { (
+            $0.name,
+            $0.folder
+        ) })
+        .filter {
+            seen
+                .insert(Self
+                    .key(
+                        $0.0,
+                        $0.1
+                    )).inserted
+        }
+        let directory = directory, known = file
+        Task {
+            let read = await Task.detached { () -> [String: RunScript.Result] in
+                let runs = ((known ?? SillFolder.path(for: directory) + "/run.json") as NSString)
+                    .deletingLastPathComponent + "/runs"
+                var read: [String: RunScript.Result] = [:]
+                for (name, folder) in names {
+                    if let result = RunScript.result(RunScript.paths(name: name, directory: folder, in: runs).result) {
+                        read[Self.key(name, folder)] = result
+                    }
+                }
+                return read
+            }.value
+            var changed = false
+            for (key, result) in read where results[key] != result {
+                results[key] = result
+                running[key] = nil
+                changed = true
+            }
+            if changed { onChange?() }
+        }
+    }
+
+    /// While something runs: its result looked for every two seconds (a small file each), until none is left, or for
+    /// two hours (a run stopped with ⌃C writes nothing; it is then no longer shown as running).
+    private func watch() {
+        guard watching == nil else { return }
+        watching = Task { [weak self] in
+            for _ in 0 ..< 3600 {
+                guard let self, !self.running.isEmpty, !Task.isCancelled else { break }
+                try? await Task.sleep(for: .seconds(2))
+                readResults()
+            }
+            self?.running = [:]
+            self?.watching = nil
+            self?.onChange?()
+        }
     }
 
     func run(_ runnable: Runnable) { run(name: runnable.name, command: runnable.command, directory: runnable.directory)

@@ -1903,6 +1903,12 @@ final class SelfCheck {
         try expect(overlay(in: runView) == nil, "the labels go once one is typed")
         try await shown("sill-run-hello")
         step("f: labels on what can be clicked; hello's Run, typed by its label, runs hello")
+        // How it ended, from the script it ran through: passed, and the Run pane says so.
+        let ended = try await waitFor("hello's result", timeout: .seconds(60)) { runner.result("hello") }
+        try expect(ended.passed && !runner.isRunning("hello"), "hello's result: \(ended)")
+        step("hello ran through .sill/runs: exit 0 after \(ended.seconds) s, shown as passed")
+        runView.display()
+        try picture("run")
         let file = app.workingDirectory + "/.sill/run.json"
         _ = try await waitFor("run.json") { FileManager.default.fileExists(atPath: file) ? true : nil }
         try expect(
@@ -1971,7 +1977,8 @@ final class SelfCheck {
         )
         _ = try await waitFor("its run offered first") {
             (app.tools.run?.items.first)
-                .map { $0.section == "From the agent's handoff" && $0.runnable.name == "Hello greets" } == true ? true :
+                .map { $0.section.hasPrefix("The agent says to run") && $0.runnable.name == "Hello greets" } == true ?
+                true :
                 nil
         }
         step(
@@ -2087,6 +2094,7 @@ final class SelfCheck {
         }
         try expect(Looked.point(sill, checkout: root)?.tree == since.point.tree, "the point moved on a glance")
         step("away and back at once: the point stays an hour ago")
+
     }
 
     /// A hook command run as an agent runs it: `input` on stdin; its status and what it printed.

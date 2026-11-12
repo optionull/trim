@@ -52,7 +52,9 @@ launch profile) and test projects, Swift executables and test targets, Cargo bin
 what the branch touched first, then what was run before, then the rest; a row runs (↵), runs with its command line
 changed first (`e`), debugs (`d`, .NET) or profiles (`p`, .NET, Cargo, Swift). ⌘R runs the last again; ⇧⌘R picks
 one and asks for its command line, to change before it runs (`:SillRun`). What was run, as it was changed, is kept in
-the repository's `.sill/run.json`; it runs in a terminal at the bottom.
+the repository's `.sill/run.json`; it runs in a terminal at the bottom, through a small script in `.sill/runs` that
+shows the command and notes how it ended, so each row says it: passed, or the exit code, how long it took, and when
+(running… while it does). What the agent's handoff says to run comes first, under the handoff's title.
 
 ![The Run pane: the .NET program the branch touched, with Debug, Profile and Run](docs/showcase-run-2026-11-02.png)
 

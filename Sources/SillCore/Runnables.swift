@@ -247,6 +247,18 @@ public struct RunConfigurations: Codable, Equatable, Sendable {
     /// The last run.
     public var last: Configuration? { configurations.max { $0.lastRun < $1.lastRun } }
 
+    /// These, read from the file, with what `memory` holds that is newer (a run started while the file was being read):
+    /// one per name and folder, the newer of the two, the newest first.
+    public func merged(with memory: RunConfigurations) -> RunConfigurations {
+        var byKey: [String: Configuration] = [:]
+        for configuration in configurations + memory.configurations {
+            let key = configuration.name + "|" + configuration.directory
+            if let kept = byKey[key], kept.lastRun >= configuration.lastRun { continue }
+            byKey[key] = configuration
+        }
+        return RunConfigurations(configurations: byKey.values.sorted { $0.lastRun > $1.lastRun })
+    }
+
     /// Ran now: kept (one per name and folder, its command as last run), the newest first.
     public mutating func ran(_ configuration: Configuration) {
         configurations.removeAll { $0.name == configuration.name && $0.directory == configuration.directory }

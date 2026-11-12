@@ -54,7 +54,7 @@ final class RunView: NSView, ToolContent {
         for run in runner.fromAgent {
             let runnable = Runnable(name: run.name, kind: .script, tool: "", command: run.command)
             if seen.insert(key(runnable)).inserted { list.append(Item(
-                section: "From the agent's handoff",
+                section: runner.handoffTitle.map { "The agent says to run · \($0)" } ?? "The agent says to run",
                 runnable: runnable
             )) }
         }
@@ -130,6 +130,17 @@ final class RunView: NSView, ToolContent {
             let runnable = item.runnable
             let name = NSMutableAttributedString(attributedString: text(runnable.name, 14, weight: .semibold))
             if !runnable.tool.isEmpty { name.append(text("  " + runnable.tool, 11, Design.textFaint)) }
+            // How it last ended, as sill saw it: passed, failed with its code, or still running.
+            if runner.isRunning(runnable.name, runnable.directory) {
+                name.append(text("   running…", 12, Design.insert))
+            } else if let result = runner.result(runnable.name, runnable.directory) {
+                name.append(text(
+                    "   " + (result.passed ? "✓ passed" : "✗ exit \(result.code)") +
+                        " · \(Self.duration(result.seconds)) · \(HomeView.ago(result.at))",
+                    12,
+                    result.passed ? Design.accent : Design.error
+                ))
+            }
             name.drawLine(in: NSRect(x: left, y: y + 5, width: width - 260, height: 20))
             let line = (runnable.directory.isEmpty ? "" : runnable.directory + " $ ") + runnable.command
             text(line, 12, Design.textMuted, mono: true).drawLine(in: NSRect(
@@ -171,6 +182,13 @@ final class RunView: NSView, ToolContent {
             }
         }
         PaneBar.drawKeys("run", note: "⌘R run again · ⇧⌘R choose", in: bounds)
+    }
+
+    /// How long a run took: "4 s", "2 min 5 s", "1 h 3 min".
+    static func duration(_ seconds: Int) -> String {
+        if seconds < 60 { return "\(seconds) s" }
+        if seconds < 3600 { return "\(seconds / 60) min \(seconds % 60) s" }
+        return "\(seconds / 3600) h \(seconds % 3600 / 60) min"
     }
 
     // MARK: Input

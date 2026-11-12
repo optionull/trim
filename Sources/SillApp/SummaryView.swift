@@ -1,6 +1,7 @@
 import AppKit
 import SillCore
 import SillEditor
+import SillInput
 
 /// The checkout's summary, what a workspace opens on when no walkthrough is new: what the agent does or did, the
 /// walkthroughs agents prepared (the new ones first), what was asked, the commits since the branch left its base, and
@@ -17,8 +18,8 @@ final class SummaryView: NSView, ToolContent {
     var onFile: ((String) -> Void)?
     /// Runs one of the handoff's runs.
     var onRun: ((HandoffFile.Run) -> Void)?
-    /// When a run of that name last ran, if it did.
-    var lastRun: ((String) -> Date?)?
+    /// How a run of that name last ended, if sill saw it end.
+    var lastResult: ((String) -> RunScript.Result?)?
     private var runFrames: [(NSRect, HandoffFile.Run)] = []
 
     init(stories: Stories) {
@@ -130,7 +131,10 @@ final class SummaryView: NSView, ToolContent {
         y = drawMain(left: left, top: columnTop, width: mainWidth)
         let sideLeft = wide ? left + mainWidth + 32 : left
         drawSide(left: sideLeft, top: wide ? columnTop : y + 12, width: sideWidth)
-        PaneBar.drawKeys("summary", note: "a click opens what it names", in: bounds)
+        // R only when the agent said what to run.
+        let keys = Set(Keymaps.summary.own.map(\.name))
+            .subtracting(stories.handoffRuns.isEmpty ? ["summary.examples"] : [])
+        PaneBar.drawKeys("summary", note: "a click opens what it names", only: keys, in: bounds)
     }
 
     /// The walkthrough to read, the other ones, and the session's line. Returns where it ends.
@@ -288,8 +292,12 @@ final class SummaryView: NSView, ToolContent {
                 NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
                 text("▷", 14, Design.accent).draw(at: NSPoint(x: rect.minX + 12, y: rect.minY + 14))
                 let name = NSMutableAttributedString(attributedString: text(run.name, 13, weight: .semibold))
-                if let last = lastRun?(run.name) {
-                    name.append(text("   ran \(HomeView.ago(last))", 11, Design.textFaint))
+                if let result = lastResult?(run.name) {
+                    name.append(text(
+                        "   " + (result.passed ? "✓ passed" : "✗ exit \(result.code)") + " \(HomeView.ago(result.at))",
+                        11,
+                        result.passed ? Design.accent : Design.error
+                    ))
                 }
                 name.drawLine(in: NSRect(x: rect.minX + 34, y: rect.minY + 7, width: width - 44, height: 18))
                 text(run.command, 11.5, Design.textMuted, mono: true)

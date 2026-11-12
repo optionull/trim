@@ -104,4 +104,19 @@ import Testing
         #expect(RunConfigurations.load(file) == configurations)
         #expect(Runnables.quoted("it's here") == "'it'\\''s here'" && Runnables.quoted("a/b.csproj") == "a/b.csproj")
     }
+
+    /// The file read while a run started: the run, newer, is kept; what the file has newer wins; one of each.
+    @Test func configurationsMerged() {
+        let file = RunConfigurations(configurations: [
+            .init(name: "Shop", command: "dotnet run", directory: "", lastRun: Date(timeIntervalSince1970: 5)),
+            .init(name: "dev", command: "pnpm dev", directory: "web", lastRun: Date(timeIntervalSince1970: 2)),
+        ])
+        let memory = RunConfigurations(configurations: [
+            .init(name: "hello", command: "swift run hello", directory: "", lastRun: Date(timeIntervalSince1970: 9)),
+            .init(name: "Shop", command: "dotnet run -- old", directory: "", lastRun: Date(timeIntervalSince1970: 1)),
+        ])
+        let merged = file.merged(with: memory)
+        #expect(merged.configurations.map(\.command) == ["swift run hello", "dotnet run", "pnpm dev"])
+        #expect(RunConfigurations().merged(with: memory).configurations.count == 2)
+    }
 }

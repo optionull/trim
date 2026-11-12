@@ -1160,6 +1160,14 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
 - Seen marks saved in order (2026-11-12). Each mark saved `.sill/seen-files.json` off the main thread by reading
   it whole and writing it back, so `m` then `M` at once could lose one's marks (`SILL_CHECK=looked` timed out on
   "kept" about one run in four). Each save now waits for the one before. Checked: `SILL_CHECK=looked` six runs.
+- How a run ended (2026-11-12, the clarity review's Run pane). A run goes through `.sill/runs/<key>.sh`
+  (`RunScript`, POSIX sh whatever the person's shell is), which shows the command, runs it and writes its exit code,
+  seconds and end beside itself; `Runner` looks for that every 2 s while something runs (two hours at most: a run
+  stopped with ⌃C writes nothing) and the Run pane and the summary show passed, the exit code, or running. The
+  handoff's runs are under its title. Found on the way: `refresh()` replaced the configurations with the file it had
+  read, which could predate a run just started, so the run vanished until the next refresh; it now keeps the newer
+  of each (`RunConfigurations.merged`). Checked: `RunScriptTests` (run by sh: shown, exit 0 and 3, a folder with a
+  space), `RunnablesTests` and `SILL_CHECK=run` (hello's result comes back as passed; it timed out before the merge).
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
