@@ -546,6 +546,40 @@ function M.toggle(kind)
   report()
 end
 
+-- The bottom panel, hidden by sill while a story pane (the summary, a walkthrough, the review, Run) shows and it has
+-- nothing to say; back, where the person left it, when they go to the code or a problem comes.
+local panel_hidden_for_story = false
+
+--- `story`: a story pane is current; `empty`: the panel has nothing to show. Only a panel sill hid comes back, and
+--- coming back does not take the cursor from the pane.
+function M.story_panel(story, empty)
+  local win = M.pane_window('panel')
+  if story and empty and win and not panel_hidden_for_story then
+    vim.api.nvim_win_hide(win)
+    panel_hidden_for_story = true
+    report()
+  elseif (not story or not empty) and panel_hidden_for_story then
+    panel_hidden_for_story = false
+    if not win then M.restore_panel() end
+  end
+end
+
+--- The panel back, in normal mode only: opening a window moves the cursor through it, which would end a selection
+--- being made (or an insert); in another mode it waits for normal mode.
+function M.restore_panel()
+  if M.pane_window('panel') then return end
+  if vim.fn.mode() ~= 'n' then
+    vim.api.nvim_create_autocmd('ModeChanged', {
+      pattern = '*:n', once = true, callback = function() vim.schedule(M.restore_panel) end,
+    })
+    return
+  end
+  local current = vim.api.nvim_get_current_win()
+  M.toggle('panel')
+  if vim.api.nvim_win_is_valid(current) then vim.api.nvim_set_current_win(current) end
+  report()
+end
+
 -- The panes zen closed, to open again when it ends.
 local zen_closed
 

@@ -2037,6 +2037,8 @@ final class SelfCheck {
         }
         try expect(baseline.tree == since.point.tree && baseline.lasting, "the baseline: \(baseline)")
         step("opened an hour after it was left: the summary says 23 files changed since; the review has that baseline")
+        // The panel, with no problems, out of the summary's way.
+        try await wait("the empty panel hidden on the summary") { !$0.paneRects.contains { $0.kind == "panel" } }
         if let folder = ProcessInfo.processInfo.environment["SILL_CHECK_SHOTS"] {
             app.tools.summary?.display()
             try shot(to: folder + "/summary-since.png")
@@ -2095,6 +2097,12 @@ final class SelfCheck {
         try expect(Looked.point(sill, checkout: root)?.tree == since.point.tree, "the point moved on a glance")
         step("away and back at once: the point stays an hour ago")
 
+        // Back to the code: the panel sill hid is back, and the cursor stays in the code.
+        _ = try await session.channel.lua("require'sill'.open(...)", args: [.string(root + "/README.md")])
+        try await wait("the panel back with the code") { screen in
+            screen.paneRects.contains { $0.kind == "panel" } && screen.currentPaneKind == nil
+        }
+        step("the empty panel hidden while the summary showed; back, the cursor still in the code, when the code is")
     }
 
     /// A hook command run as an agent runs it: `input` on stdin; its status and what it printed.

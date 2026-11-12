@@ -514,6 +514,7 @@ final class Workspace: NSObject, NSWindowDelegate {
         }
         hooks.update(screen)
         baskets.update(screen)
+        storyPanel(screen)
         for name in screen.keyAsks.dropFirst(keyAsksSeen) where !tools.keyboard.run(name, in: tools.current) {
             Nvim.lua(session.channel, "vim.notify(..., vim.log.levels.WARN)", [
                 .string("sill: \(name) is not a command of this pane (? in a pane lists them)"),
@@ -664,6 +665,18 @@ final class Workspace: NSObject, NSWindowDelegate {
         }
         tools.panel.onSendToAgent = { [weak self] problems in self?.agents.send(problems) }
         tools.sidebar.agents.onOpen = { [weak self] session in self?.agents.open(session) }
+    }
+
+    /// The bottom panel out of the way of a story pane while it has nothing to say (no problems, on its Problems tab),
+    /// and back when the code or a problem is: told to nvim only when that changes.
+    private var storyPanelState: (story: Bool, empty: Bool)?
+    private func storyPanel(_ screen: Screen) {
+        guard chrome, !screen.zen else { return }
+        let story = ["summary", "walk", "review", "run", "pr"].contains(screen.currentPaneKind)
+        let empty = tools.panel.problems.isEmpty && tools.panel.tab == .problems
+        guard storyPanelState.map({ $0.story != story || $0.empty != empty }) ?? true else { return }
+        storyPanelState = (story, empty)
+        Nvim.lua(session.channel, "require'sill'.story_panel(...)", [.bool(story), .bool(empty)])
     }
 
     /// Where `g…` goes (`go.review`, …): what the rail's icon opens; the sidebar's views shown and focused, not

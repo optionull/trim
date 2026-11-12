@@ -37,6 +37,9 @@ Files | Solution, `⇥` for the next). The rail has the story on top (summary, w
 under a rule (explorer, changes, agents, map, baskets). Closing a checkout's window, or `:qa` in it, ends that
 checkout alone; Home stays.
 
+While the summary, a walkthrough, the review or Run shows and the Problems panel has nothing to say, the panel
+steps out of the way; it comes back when you go to the code or a problem comes.
+
 Since you last looked: leaving sill (another app in front, or the checkout's window closed) notes the worktree as it
 is; coming back after five minutes or more makes that the point the summary starts from ("Since you last looked, 2 h
 ago: 3 prompts · 1 commit · 7 files changed") and the review has it as a baseline (`V` in the summary). A glance at a

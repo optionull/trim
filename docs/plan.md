@@ -1157,9 +1157,6 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   weekly check are gone: the parsers move with sill's releases. The app grows by 59 MB. Checked:
   `SILL_CHECK=config` (25 parsers in the bundle, Pricing.cs highlighted; without the runtimepath line it fails) and
   `TreesitterBuildTests` (the plan from a cut-down parsers.lua).
-- Seen marks saved in order (2026-11-12). Each mark saved `.sill/seen-files.json` off the main thread by reading
-  it whole and writing it back, so `m` then `M` at once could lose one's marks (`SILL_CHECK=looked` timed out on
-  "kept" about one run in four). Each save now waits for the one before. Checked: `SILL_CHECK=looked` six runs.
 - How a run ended (2026-11-12, the clarity review's Run pane). A run goes through `.sill/runs/<key>.sh`
   (`RunScript`, POSIX sh whatever the person's shell is), which shows the command, runs it and writes its exit code,
   seconds and end beside itself; `Runner` looks for that every 2 s while something runs (two hours at most: a run
@@ -1168,6 +1165,14 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   read, which could predate a run just started, so the run vanished until the next refresh; it now keeps the newer
   of each (`RunConfigurations.merged`). Checked: `RunScriptTests` (run by sh: shown, exit 0 and 3, a folder with a
   space), `RunnablesTests` and `SILL_CHECK=run` (hello's result comes back as passed; it timed out before the merge).
+- The empty panel out of a story pane's way (2026-11-12). While the summary, a walkthrough, the review, Run or the
+  pull request is current and the Problems panel has no problems (on its Problems tab), `story_panel` hides it;
+  going to the code, or a problem coming, brings it back without taking the cursor, and only in normal mode (opening
+  a window ended a selection being made: `SILL_CHECK=hooks` caught it). Only a panel sill hid comes back. Checked: `SILL_CHECK=looked` (hidden on the summary, back with README.md open; with `story_panel` doing
+  nothing it fails).
+- Seen marks saved in order (2026-11-12). Each mark saved `.sill/seen-files.json` off the main thread by reading
+  it whole and writing it back, so `m` then `M` at once could lose one's marks (`SILL_CHECK=looked` timed out on
+  "kept" about one run in four). Each save now waits for the one before. Checked: `SILL_CHECK=looked` six runs.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 
