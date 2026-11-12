@@ -146,9 +146,30 @@ final class Baskets {
         return piece
     }
 
+    /// The repository's `.sill`: found once (git, four times or more), not at every read of a basket; a prompt's
+    /// hook asks for the current one and has 1.5 s for its answer.
+    private var sillFolder: String {
+        if let found { return found }
+        let path = SillFolder.path(for: directory)
+        found = path
+        return path
+    }
+
+    private var found: String?
+
+    /// Finds `.sill` off the main thread ahead of the first basket read (the workspace starts it).
+    func warm() {
+        guard found == nil else { return }
+        let directory = directory
+        Task {
+            let path = await Task.detached { SillFolder.path(for: directory) }.value
+            if found == nil { found = path }
+        }
+    }
+
     /// `.sill/baskets`, made when first asked for.
     var folder: String {
-        let folder = SillFolder.path(for: directory) + "/baskets"
+        let folder = sillFolder + "/baskets"
         try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         return folder
     }

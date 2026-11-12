@@ -46,9 +46,20 @@ public enum SillFolder {
     /// `path` from the root of the worktree it is in, when that is a worktree of `directory`'s repository (the one
     /// sill is open on first); else as it is.
     public static func relative(_ path: String, in directory: String) -> String {
+        relative(path, roots: roots(for: directory))
+    }
+
+    /// The roots `relative` measures from: `directory`'s worktree and every worktree of its repository. Asks git,
+    /// twice: find them once where that matters (a hook's answer), and use `relative(_:roots:)`.
+    public static func roots(for directory: String) -> [String] {
         var roots = worktreeRoot(for: directory).map { [$0] } ?? []
         let listed = git(["worktree", "list", "--porcelain"], directory) ?? ""
         roots += listed.split(separator: "\n").filter { $0.hasPrefix("worktree ") }.map { String($0.dropFirst(9)) }
+        return roots
+    }
+
+    /// `path` from the deepest of `roots` it is in; else as it is. No git: strings only.
+    public static func relative(_ path: String, roots: [String]) -> String {
         for root in roots.sorted(by: { $0.count > $1.count }) where path.hasPrefix(root + "/") {
             return String(path.dropFirst(root.count + 1))
         }

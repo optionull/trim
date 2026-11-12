@@ -33,7 +33,8 @@ final class Hooks {
         self.directory = directory
     }
 
-    private var root: String { SillFolder.worktreeRoot(for: directory) ?? directory }
+    /// This worktree's root: asked of git once (the socket's name needs it at the start), not at every hook.
+    private lazy var root: String = SillFolder.worktreeRoot(for: directory) ?? directory
 
     /// This worktree's socket: the same for every sill opened on it, so installed hooks find it.
     var socketPath: String {
@@ -54,6 +55,7 @@ final class Hooks {
             await self?.handle(data) ?? Data()
         }
         _ = handoffInstruction
+        _ = worktreeRoots
         do {
             try server.start()
             self.server = server
@@ -130,6 +132,10 @@ final class Hooks {
         )
     }
 
+    /// The roots of this repository's worktrees, for the editor context's paths: found once, off the main thread
+    /// (git, twice), from the start.
+    private lazy var worktreeRoots = Task.detached { [directory] in SillFolder.roots(for: directory) }
+
     /// A selection older than this is not what a prompt is about.
     static let selectionAge = 600
 
@@ -137,7 +143,9 @@ final class Hooks {
     private func editorContext(session: String) async -> String? {
         // Nothing open is an empty table, which comes as an array: the basket and the pull request are still told.
         let map = await (try? channel.lua("return require'sill'.editor_context()"))?.dictionaryValue ?? [:]
-        func relative(_ path: String?) -> String? { path.map { SillFolder.relative($0, in: root) } }
+        // The worktrees' roots, found once off the main thread: asking git here took most of the hook's 1.5 s.
+        let roots = await worktreeRoots.value
+        func relative(_ path: String?) -> String? { path.map { SillFolder.relative($0, roots: roots) } }
         var context = EditorContext(
             path: relative(map[.string("path")]?.stringValue),
             line: map[.string("line")]?.integerValue.map { Int($0) },

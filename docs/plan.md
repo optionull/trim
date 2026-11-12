@@ -1140,6 +1140,15 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   Checked: `HunkContextTests` and `SILL_CHECK=looked` (its picture, in `SILL_CHECK_SHOTS`, after the tests' area is
   marked seen). Not done: changes of the same shape folded into one row ("9 alike"), and the handoff's note on a file
   above its diff.
+- A prompt's hook within its budget (2026-11-12). The hook server gives an answer 1.5 s; the editor context took
+  0.8 to 1.4 s, so `SILL_CHECK=hooks` failed about one run in three (on 9112809 too, before the clarity work), and
+  each prompt held the main thread that long. Not nvim (a round trip is under a millisecond): git, on the main
+  thread. `SillFolder.relative` asked git for the worktrees twice for each path, and `Baskets.folder` found `.sill`
+  (git four times or more) at every read of the current basket. Now the worktrees' roots are found once off the main
+  thread when the hooks start (`SillFolder.roots`, then `relative(_:roots:)`, strings only), `Hooks.root` once, and
+  `.sill` once, warmed off the main thread when the workspace starts. The context takes under a millisecond (0.3 to
+  0.4 s on the one prompt that follows a basket edit, nvim still busy). Checked: `SILL_CHECK=hooks` passing in a
+  whole verify run and six runs alone. Not done: Baskets' own `relative` calls still ask git, off the hook path.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

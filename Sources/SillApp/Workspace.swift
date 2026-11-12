@@ -197,6 +197,7 @@ final class Workspace: NSObject, NSWindowDelegate {
             return view
         }
         baskets = Baskets(app: self, channel: session.channel, directory: workingDirectory)
+        baskets.warm()
         tools.makeBasket = { [weak self] in
             guard let self else { fatalError("the app is gone") }
             let view = WalkView(walker: baskets.walker, basket: true)
