@@ -1157,6 +1157,9 @@ Days 1 and 2 left these behind, for later days to pick up or keep:
   weekly check are gone: the parsers move with sill's releases. The app grows by 59 MB. Checked:
   `SILL_CHECK=config` (25 parsers in the bundle, Pricing.cs highlighted; without the runtimepath line it fails) and
   `TreesitterBuildTests` (the plan from a cut-down parsers.lua).
+- Seen marks saved in order (2026-11-12). Each mark saved `.sill/seen-files.json` off the main thread by reading
+  it whole and writing it back, so `m` then `M` at once could lose one's marks (`SILL_CHECK=looked` timed out on
+  "kept" about one run in four). Each save now waits for the one before. Checked: `SILL_CHECK=looked` six runs.
 - No CI until sill has shown it has legs (owner's call, 2026-10-22): macOS runner minutes cost on a private repo.
   Until then `mise run lint test` and `SILL_CHECK=1` run locally.
 

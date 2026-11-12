@@ -211,12 +211,17 @@ final class Reviewer {
             marks[path] = seen ? contents[path] : String?.none
             seenFiles[path] = seen ? contents[path] : nil
         }
-        let directory = directory
-        Task.detached {
+        let directory = directory, previous = saving
+        // In order: each save reads the file and writes it whole, so two at once lost one's marks (m, then M).
+        saving = Task.detached {
+            await previous?.value
             SeenFiles.mark(marks, in: SillFolder.path(for: directory), checkout: Self.checkout(directory))
         }
         changed()
     }
+
+    /// The last save of seen marks, which the next one waits for.
+    private var saving: Task<Void, Never>?
 
     /// The selected file seen (or no longer), then the next not seen.
     func toggleSeen() {
