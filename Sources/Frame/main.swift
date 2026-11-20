@@ -26,22 +26,111 @@ enum FrameRuntime {
     }
 }
 
-/// The window's content: the grid inset by a margin the window moves by, and the native overlays over it.
+/// How the window's panes are laid out, remembered between starts and across a switch of config.
+enum PaneLayout {
+    static let widthRange: ClosedRange<CGFloat> = 160 ... 520
+    static let defaultWidth: CGFloat = 240
+
+    static var sidebarWidth: CGFloat {
+        get {
+            let stored = UserDefaults.standard.double(forKey: "sidebarWidth")
+            return stored == 0 ? defaultWidth : min(max(stored, widthRange.lowerBound), widthRange.upperBound)
+        }
+        set { UserDefaults.standard.set(Double(newValue), forKey: "sidebarWidth") }
+    }
+
+    static var sidebarVisible: Bool {
+        get { UserDefaults.standard.object(forKey: "sidebarVisible") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "sidebarVisible") }
+    }
+}
+
+/// The column left of the grid. A placeholder island for now: the tree goes here.
+final class SidebarView: NSView {
+    override var isFlipped: Bool { true }
+
+    override func draw(_: NSRect) {
+        Design.chrome.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: Design.islandRadius, yRadius: Design.islandRadius).fill()
+    }
+}
+
+/// The strip between the sidebar and the grid: drag it to size the sidebar, double-click to size it back.
+final class DividerView: NSView {
+    weak var host: FrameView?
+    private var startWidth: CGFloat = 0
+    private var startX: CGFloat = 0
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let host else { return }
+        if event.clickCount == 2 {
+            host.sidebarWidth = PaneLayout.defaultWidth
+            return
+        }
+        startWidth = host.sidebarWidth
+        startX = event.locationInWindow.x
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        mouseDragged(from: startWidth, by: event.locationInWindow.x - startX)
+    }
+
+    /// The sidebar `distance` wider (or narrower) than `width`: what a drag from that width comes to.
+    func mouseDragged(from width: CGFloat, by distance: CGFloat) {
+        host?.sidebarWidth = width + distance
+    }
+}
+
+/// The window's content: the sidebar, then the grid, inset by a margin the window moves by, and the native overlays
+/// over the grid.
 final class FrameView: NSView {
     let editor: EditorView
     let overlay: NSView
+    let sidebar = SidebarView()
+    let divider = DividerView()
     /// Room for the title bar's buttons when it shows.
     var top: CGFloat = 0 {
         didSet { needsLayout = true }
     }
 
-    static let margin: CGFloat = 8
+    /// Whether changes to the layout are remembered (not in the self-check).
+    private let persisting: Bool
+    var sidebarVisible: Bool {
+        didSet {
+            needsLayout = true
+            if persisting { PaneLayout.sidebarVisible = sidebarVisible }
+        }
+    }
 
-    init(editor: EditorView, overlay: NSView) {
+    var sidebarWidth: CGFloat {
+        didSet {
+            sidebarWidth = min(max(sidebarWidth, PaneLayout.widthRange.lowerBound), PaneLayout.widthRange.upperBound)
+            needsLayout = true
+            if persisting { PaneLayout.sidebarWidth = sidebarWidth }
+        }
+    }
+
+    static let margin: CGFloat = 8
+    /// The gap between the sidebar and the grid, which is also what is grabbed to size it.
+    static let dividerWidth: CGFloat = 8
+
+    init(editor: EditorView, overlay: NSView, persisting: Bool) {
         self.editor = editor
         self.overlay = overlay
+        self.persisting = persisting
+        sidebarVisible = persisting ? PaneLayout.sidebarVisible : true
+        sidebarWidth = persisting ? PaneLayout.sidebarWidth : PaneLayout.defaultWidth
         super.init(frame: editor.frame)
         wantsLayer = true
+        divider.host = self
+        addSubview(sidebar)
+        addSubview(divider)
         addSubview(editor)
         addSubview(overlay)
     }
@@ -56,7 +145,19 @@ final class FrameView: NSView {
     override func layout() {
         super.layout()
         let frame = bounds.insetBy(dx: Self.margin, dy: Self.margin)
-        editor.frame = NSRect(x: frame.minX, y: frame.minY + top, width: frame.width, height: frame.height - top)
+        let y = frame.minY + top, height = frame.height - top
+        var x = frame.minX
+        sidebar.isHidden = !sidebarVisible
+        divider.isHidden = !sidebarVisible
+        if sidebarVisible {
+            // Never more than half the window, so the grid is not squeezed out.
+            let width = min(sidebarWidth, frame.width / 2)
+            sidebar.frame = NSRect(x: x, y: y, width: width, height: height)
+            divider.frame = NSRect(x: x + width, y: y, width: Self.dividerWidth, height: height)
+            window?.invalidateCursorRects(for: divider)
+            x += width + Self.dividerWidth
+        }
+        editor.frame = NSRect(x: x, y: y, width: frame.maxX - x, height: height)
         overlay.frame = editor.frame
     }
 
@@ -254,7 +355,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         session = EditorSession()
         editor = EditorView(channel: session.channel)
         externalUI = ExternalUI(editor: editor)
-        view = FrameView(editor: editor, overlay: externalUI.overlay)
+        view = FrameView(editor: editor, overlay: externalUI.overlay, persisting: !checking)
         window.contentView = view
         apply()
         let session = session
@@ -499,6 +600,8 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
 
     // MARK: Menu
 
+    @objc func toggleSidebar(_: Any?) { view.sidebarVisible.toggle() }
+
     @objc func bigger(_: Any?) { EditorFont.zoom(1) }
     @objc func smaller(_: Any?) { EditorFont.zoom(-1) }
     @objc func actual(_: Any?) { EditorFont.zoom(0) }
@@ -535,6 +638,8 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         let viewItem = NSMenuItem()
         menu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
+        viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(toggleSidebar(_:)), keyEquivalent: "b")
+        viewMenu.addItem(.separator())
         viewMenu.addItem(withTitle: "Bigger", action: #selector(bigger(_:)), keyEquivalent: "+")
         let bigger = viewMenu.addItem(withTitle: "Bigger", action: #selector(bigger(_:)), keyEquivalent: "=")
         bigger.isHidden = true

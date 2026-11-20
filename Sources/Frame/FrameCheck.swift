@@ -48,12 +48,13 @@ struct FrameCheck {
         guard hidden, window.styleMask.contains(.titled), window.titlebarAppearsTransparent,
               window.styleMask.contains(.fullSizeContentView)
         else { fail("no title bar, still a titled window: \(window.styleMask)") }
-        guard shell.view.mouseDownCanMoveWindow, editor.frame.minX == FrameView.margin,
+        guard shell.view.mouseDownCanMoveWindow, shell.view.sidebar.frame.minX == FrameView.margin,
               editor.frame.minY == FrameView.margin
-        else { fail("the grid inside its margin: \(editor.frame)") }
+        else { fail("the window's contents inside its margin: \(editor.frame)") }
         step(
             "no title bar or buttons; a titled window (rounded by macOS) that moves by its \(Int(FrameView.margin))-point margin"
         )
+        await layoutSteps()
         await switchSteps()
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             do {
@@ -66,6 +67,46 @@ struct FrameCheck {
         print("frame check: passed")
         fflush(stdout)
         exit(0)
+    }
+
+    /// The sidebar and the grid share the window: the grid takes what the sidebar leaves, nvim is told its new size
+    /// when the sidebar is hidden, shown or dragged, and the sidebar's width is kept within bounds.
+    private func layoutSteps() async {
+        guard let editor = shell.editor, let view = shell.view else { fail("no view") }
+        let margin = FrameView.margin, gap = FrameView.dividerWidth
+        func gridCols() -> Int? { editor.screen.grids[1]?.cols }
+        func settled(_ what: String) async {
+            view.layoutSubtreeIfNeeded()
+            await wait("nvim's grid to follow the layout (\(what))") { gridCols() == editor.gridSize.cols }
+        }
+        guard view.sidebarVisible, view.sidebar.frame.minX == margin, view.sidebar.frame.width == view.sidebarWidth,
+              view.divider.frame.minX == margin + view.sidebarWidth,
+              editor.frame.minX == margin + view.sidebarWidth + gap,
+              editor.frame.maxX == view.bounds.maxX - margin
+        else { fail("the sidebar then the grid: \(view.sidebar.frame) \(editor.frame) in \(view.bounds)") }
+        await settled("shown")
+        let withSidebar = editor.gridSize.cols
+        view.sidebarVisible = false
+        await settled("hidden")
+        guard editor.frame.minX == margin, view.sidebar.isHidden, editor.gridSize.cols > withSidebar else {
+            fail("hiding the sidebar: grid at \(editor.frame), \(editor.gridSize.cols) columns, was \(withSidebar)")
+        }
+        guard view.overlay.frame == editor.frame else { fail("the overlay does not follow the grid") }
+        view.sidebarVisible = true
+        view.divider.mouseDragged(from: view.sidebarWidth, by: 60)
+        view.layoutSubtreeIfNeeded()
+        guard view.sidebarWidth == PaneLayout.defaultWidth + 60,
+              editor.frame.minX == margin + PaneLayout.defaultWidth + 60 + gap
+        else { fail("dragging the divider: width \(view.sidebarWidth), grid at \(editor.frame.minX)") }
+        await settled("dragged")
+        guard editor.gridSize.cols < withSidebar else { fail("a wider sidebar left the grid as wide") }
+        view.divider.mouseDragged(from: view.sidebarWidth, by: 5000)
+        guard view.sidebarWidth == PaneLayout.widthRange.upperBound else { fail("the width is not kept in bounds") }
+        view.divider.mouseDragged(from: view.sidebarWidth, by: -5000)
+        guard view.sidebarWidth == PaneLayout.widthRange.lowerBound else { fail("the width is not kept in bounds") }
+        view.sidebarWidth = PaneLayout.defaultWidth
+        await settled("restored")
+        step("the sidebar and the grid share the window; nvim follows when it is hidden, shown or dragged")
     }
 
     /// Switching config, when `XDG_CONFIG_HOME` holds one to switch to (verify.sh makes it): nvim restarts in the same
@@ -206,6 +247,25 @@ struct FrameCheck {
             width: grid.width,
             height: grid.height
         ))
+        // The native panes are ordinary views, drawn as they are (the grid is Metal, so it is drawn above).
+        let sidebar = shell.view.sidebar
+        if !sidebar.isHidden, let pane = sidebar.bitmapImageRepForCachingDisplay(in: sidebar.bounds) {
+            // The view paints only its rounded island: what is behind it in the window is the window's own colour.
+            if let backing = NSGraphicsContext(bitmapImageRep: pane) {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = backing
+                NSColor(rgb: editor.screen.defaultBackground).setFill()
+                sidebar.bounds.fill()
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            sidebar.cacheDisplay(in: sidebar.bounds, to: pane)
+            pane.draw(in: NSRect(
+                x: pad + sidebar.frame.minX,
+                y: pad + size.height - sidebar.frame.maxY,
+                width: sidebar.frame.width,
+                height: sidebar.frame.height
+            ))
+        }
         NSGraphicsContext.restoreGraphicsState()
         guard let data = rep.representation(using: .png, properties: [:]) else { throw ShotFailure() }
         try data.write(to: URL(fileURLWithPath: path))
