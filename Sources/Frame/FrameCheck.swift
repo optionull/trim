@@ -181,6 +181,20 @@ struct FrameCheck {
               sidebar.look.palette.sidebar != 0x102030,
               cell(".gitignore")?.name.textColor == NSColor(frameRGB: 0xE0E0D0)
         else { fail("the sidebar's colours after the change: \(String(sidebar.look.palette.sidebar, radix: 16))") }
+        // A which-key.nvim window (its WhichKeyNormal group) is in the sidebar's colour, and stays so when the colour
+        // scheme
+        // is applied again, which resets the groups.
+        func windowColour() async -> Int64? {
+            await (try? channel.lua("return vim.api.nvim_get_hl(0, { name = 'WhichKeyNormal' }).bg"))?.integerValue
+        }
+        await waitAsync("which-key.nvim's window to take the sidebar's colour") {
+            await windowColour() == Int64(sidebar.look.palette.sidebar)
+        }
+        _ = try? await channel.command("highlight clear WhichKeyNormal")
+        _ = try? await channel.command("doautocmd ColorScheme")
+        await waitAsync("the colour to be put back when the colour scheme is applied") {
+            await windowColour() == Int64(sidebar.look.palette.sidebar)
+        }
         do {
             _ = try await channel.command(
                 "highlight Normal guibg=#\(String(format: "%06x", scheme.0)) guifg=#\(String(format: "%06x", scheme.1))"

@@ -522,7 +522,8 @@ Control chords such as `<C-w>l`) go to nvim whatever row is selected, and the se
 The filter (the funnel at the top right, `/`, ⌥⌘F) narrows the tree to the paths that hold what you type, live;
 Escape puts the tree as it was. The eye at its right (and `I`, `H`, ⌥⇧⌘. and ⇧⌘.) shows or hides what git ignores and
 the dotfiles. `open -n Frame.app --args ~/Projects/x` starts it
-in a folder. It has the shim's Config menu and `:FrameConfig`. `mise run fonts` downloads
+in a folder. A which-key.nvim window is drawn in the sidebar's colours (`vim.g.frame_style_whichkey = false` turns that off); which-key.nvim
+itself does the rest, in the grid. It has the shim's Config menu and `:FrameConfig`. `mise run fonts` downloads
 the icon font (`scripts/bundle.sh` does too); its licences are in `THIRD_PARTY_NOTICES.md`.
 
 ### As git's merge and diff tool

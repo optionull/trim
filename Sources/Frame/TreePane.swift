@@ -457,6 +457,8 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     var onEscape: (() -> Void)?
     /// A key that is nvim's: the editor takes the keyboard and the key.
     var onForward: ((NSEvent) -> Void)?
+    /// The editor's colours changed (or the first arrived).
+    var onPalette: ((TreePalette) -> Void)?
 
     /// The leader and local leader nvim has (its config's, known once it has started).
     var leaders: Set<String> {
@@ -512,6 +514,7 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         guard palette != look.palette else { return }
         look.palette = palette
         applyLook()
+        onPalette?(palette)
     }
 
     // MARK: The filter

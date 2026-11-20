@@ -305,6 +305,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         tree = TreeController(sidebar: sidebar, persisting: !checking)
         tree.onOpen = { [weak self] path, toEditor in self?.open(file: path, toEditor: toEditor) }
         tree.onEscape = { [weak self] in self?.focusEditor() }
+        tree.onPalette = { [weak self] palette in self?.styleWhichKey(palette) }
         tree.onForward = { [weak self] event in
             guard let self else { return }
             focusEditor()
@@ -429,6 +430,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             "return { vim.g.mapleader or '\\\\', vim.g.maplocalleader or '\\\\' }"
         ))?.arrayValue?.compactMap(\.stringValue)
         if let leaders { tree.leaders = Set(leaders.filter { $0.count == 1 }) }
+        styleWhichKey(tree.look.palette)
         let names = configs().map(\.appName)
         _ = try await session.channel.lua(
             Self.commandLua, args: [.array(names.map { .string($0) }), .string(startup.appName)]
@@ -596,6 +598,15 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     }
 
     func focusEditor() { window.makeFirstResponder(editor) }
+
+    /// A which-key.nvim window in the sidebar's colours: the colours go to nvim, which applies them whenever the colour
+    /// scheme does.
+    func styleWhichKey(_ palette: TreePalette) {
+        let colors = [palette.sidebar, palette.foreground, palette.muted].map(String.init).joined(separator: ", ")
+        Task { [weak self] in
+            _ = try? await self?.session.channel.lua("require('frame.whichkey').style(\(colors))")
+        }
+    }
 
     @objc func focusSidebar(_: Any?) {
         setSidebar(visible: true)
