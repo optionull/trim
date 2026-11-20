@@ -65,7 +65,18 @@ mkdir -p "$frame/Contents/MacOS" "$frame/Contents/Resources"
 cp "$products/Frame" "$frame/Contents/MacOS/Frame"
 rm -rf "$frame/Contents/Resources/runtime"
 cp -R "$root/runtime" "$frame/Contents/Resources/runtime"
+# The icon font the tree draws with, from Vendor/fonts (downloaded once, checksummed), licence files beside it.
+"$root/scripts/fonts.sh" >/dev/null
+rm -rf "$frame/Contents/Resources/fonts"
+mkdir -p "$frame/Contents/Resources/fonts"
+cp "$root"/Vendor/fonts/* "$frame/Contents/Resources/fonts/"
 sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
   "$root/Resources/Frame-Info.plist" >"$frame/Contents/Info.plist"
 codesign --force --sign - "$frame"
 echo "bundle: $frame"
+for wanted in fonts/SymbolsNerdFontMono-Regular.ttf fonts/LICENSE runtime/plugin/sill.lua; do
+  if [ ! -f "$frame/Contents/Resources/$wanted" ]; then
+    echo "bundle: $wanted is missing from Frame" >&2
+    exit 1
+  fi
+done
