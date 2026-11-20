@@ -514,10 +514,14 @@ at a time. So far a **sidebar** left of the grid: a native file tree (folders fi
 ignores left out, Nerd Font icons from a font the app carries, kept up to date as files change), sized by dragging its
 divider (⌘B hides it, ⇧⌘E goes into it; `j`/`k`/`h`/`l`, the arrows and Return move and open, Escape goes back to the
 editor, and `<C-w>h` from the leftmost window goes into it). Clicking a file opens it in nvim, and the tree follows
-the file nvim shows and the folder it is in. `:FrameTree [toggle|show|hide|focus]` shows, hides or enters the sidebar (⌘B hides or shows it, ⇧⌘E enters it);
+the file nvim shows and the folder it is in. `:FrameTree [toggle|show|hide|focus|filter|ignored|dotfiles]` shows, hides or enters the sidebar (⌘B hides or shows it, ⇧⌘E enters it);
 `<leader>e` toggles it and `<C-w>e` enters it, each only where your config has not bound the key, and
 `<Plug>(frame-tree-toggle)` and `<Plug>(frame-tree-focus)` are there to bind your own. The sidebar is in the editor's
-font and a shade of its background, and follows its colour scheme. `open -n Frame.app --args ~/Projects/x` starts it
+font and a shade of its background, and follows its colour scheme. In the tree, keys that are nvim's (the leader, `:`,
+Control chords such as `<C-w>l`) go to nvim whatever row is selected, and the sequence they start is finished there.
+The filter (the funnel at the top right, `/`, ⌥⌘F) narrows the tree to the paths that hold what you type, live;
+Escape puts the tree as it was. The eye at its right (and `I`, `H`, ⌥⇧⌘. and ⇧⌘.) shows or hides what git ignores and
+the dotfiles. `open -n Frame.app --args ~/Projects/x` starts it
 in a folder. It has the shim's Config menu and `:FrameConfig`. `mise run fonts` downloads
 the icon font (`scripts/bundle.sh` does too); its licences are in `THIRD_PARTY_NOTICES.md`.
 
