@@ -254,7 +254,7 @@ struct Place {
 }
 
 @MainActor
-final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
+final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate, NSMenuItemValidation {
     private(set) var session = EditorSession()
     private(set) var window: NSWindow!
     private(set) var editor: EditorView!
@@ -302,7 +302,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         window.isMovableByWindowBackground = false
         window.delegate = self
         window.setFrameAutosaveName("Frame")
-        tree = TreeController(sidebar: sidebar)
+        tree = TreeController(sidebar: sidebar, persisting: !checking)
         tree.onOpen = { [weak self] path, toEditor in self?.open(file: path, toEditor: toEditor) }
         tree.onEscape = { [weak self] in self?.focusEditor() }
         tree.onForward = { [weak self] event in
@@ -490,7 +490,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     tell('frame_cwd', vim.fn.getcwd())
     shown(vim.api.nvim_get_current_buf())
     -- :FrameTree shows, hides or goes into the sidebar; <Plug> mappings to bind your own keys to.
-    local actions = { 'toggle', 'show', 'hide', 'focus' }
+    local actions = { 'toggle', 'show', 'hide', 'focus', 'ignored', 'dotfiles' }
     vim.api.nvim_create_user_command('FrameTree', function(opts)
       local action = opts.args ~= '' and opts.args or 'toggle'
       if not vim.tbl_contains(actions, action) then
@@ -502,7 +502,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
       complete = function(lead)
         return vim.tbl_filter(function(name) return name:sub(1, #lead) == lead end, actions)
       end,
-      desc = 'Show, hide or go into the file tree',
+      desc = 'Show, hide or go into the file tree; ignored and dotfiles show or hide those files',
     })
     vim.keymap.set('n', '<Plug>(frame-tree-toggle)', function() tell('frame_tree', 'toggle') end, { desc = 'Show or hide the file tree' })
     vim.keymap.set('n', '<Plug>(frame-tree-focus)', function() tell('frame_tree', 'focus') end, { desc = 'Go into the file tree' })
@@ -553,6 +553,8 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             case "show": setSidebar(visible: true)
             case "hide": setSidebar(visible: false)
             case "focus": focusSidebar(nil)
+            case "ignored": tree.toggleIgnored()
+            case "dotfiles": tree.toggleDotfiles()
             default:
                 // Toggle: shown and entered, or hidden.
                 if view.sidebarVisible { setSidebar(visible: false) } else { focusSidebar(nil) }
@@ -728,6 +730,18 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     }
 
     @objc func toggleSidebar(_: Any?) { setSidebar(visible: !view.sidebarVisible) }
+    @objc func toggleIgnoredFiles(_: Any?) { tree.toggleIgnored() }
+    @objc func toggleDotfiles(_: Any?) { tree.toggleDotfiles() }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(toggleIgnoredFiles(_:)): item.state = tree.showIgnored ? .on : .off
+        case #selector(toggleDotfiles(_:)): item.state = tree.showDotfiles ? .on : .off
+        case #selector(toggleSidebar(_:)): item.state = view.sidebarVisible ? .on : .off
+        default: break
+        }
+        return true
+    }
 
     @objc func bigger(_: Any?) { EditorFont.zoom(1) }
     @objc func smaller(_: Any?) { EditorFont.zoom(-1) }
@@ -766,6 +780,12 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         menu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
         viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(toggleSidebar(_:)), keyEquivalent: "b")
+        let ignoredItem = viewMenu.addItem(
+            withTitle: "Show Ignored Files", action: #selector(toggleIgnoredFiles(_:)), keyEquivalent: "."
+        )
+        ignoredItem.keyEquivalentModifierMask = [.command, .shift, .option]
+        viewMenu.addItem(withTitle: "Show Dotfiles", action: #selector(toggleDotfiles(_:)), keyEquivalent: ".")
+            .keyEquivalentModifierMask = [.command, .shift]
         let focus = viewMenu.addItem(
             withTitle: "Focus Sidebar",
             action: #selector(focusSidebar(_:)),

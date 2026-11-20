@@ -45,6 +45,9 @@ final class SidebarView: NSView {
     let scroll = NSScrollView()
     private let title = NSTextField(labelWithString: "")
     private let branch = NSTextField(labelWithString: "")
+    /// At the top right: the filter, and what is shown (ignored files, dotfiles).
+    let filterButton = HeaderButton()
+    let visibilityButton = HeaderButton()
     /// The header: the name, and under it the branch, in the editor's font.
     var headerHeight: CGFloat { look.rowHeight + 18 }
 
@@ -60,7 +63,7 @@ final class SidebarView: NSView {
         scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = true
         scroll.scrollerStyle = .overlay
-        for view in [scroll, title, branch] {
+        for view in [scroll, title, branch, filterButton, visibilityButton] {
             addSubview(view)
         }
     }
@@ -76,6 +79,9 @@ final class SidebarView: NSView {
         title.textColor = look.text
         branch.font = look.smallFont
         branch.textColor = look.muted
+        for button in [filterButton, visibilityButton] {
+            button.look = look
+        }
         needsLayout = true
         needsDisplay = true
     }
@@ -92,9 +98,16 @@ final class SidebarView: NSView {
         let hasBranch = !branch.stringValue.isEmpty
         title.sizeToFit()
         branch.sizeToFit()
-        let width = bounds.width - 2 * inset
+        // The buttons right-aligned in the first line; the name takes what they leave.
+        let side = max(22, look.rowHeight)
+        let buttonY: CGFloat = hasBranch ? 6 : 8
+        visibilityButton.frame = NSRect(x: bounds.width - inset + 4 - side, y: buttonY, width: side, height: side)
+        filterButton.frame = NSRect(x: visibilityButton.frame.minX - side - 2, y: buttonY, width: side, height: side)
+        let width = max(0, filterButton.frame.minX - inset - 4)
         title.frame = NSRect(x: inset, y: hasBranch ? 8 : 12, width: width, height: title.frame.height)
-        branch.frame = NSRect(x: inset, y: title.frame.maxY + 1, width: width, height: branch.frame.height)
+        branch.frame = NSRect(
+            x: inset, y: title.frame.maxY + 1, width: bounds.width - 2 * inset, height: branch.frame.height
+        )
         branch.isHidden = !hasBranch
         let top = max(headerHeight, branch.frame.maxY + 6)
         scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top - 6))
@@ -111,6 +124,46 @@ final class SidebarView: NSView {
     }
 }
 
+/// A small icon at the sidebar's top: a Nerd Font glyph, in the quiet colour, in the accent while what it stands for is
+/// on.
+final class HeaderButton: NSButton {
+    var look = TreeLook() {
+        didSet { refresh() }
+    }
+
+    var glyph = "" {
+        didSet { refresh() }
+    }
+
+    var isOn = false {
+        didSet { refresh() }
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        isBordered = false
+        bezelStyle = .regularSquare
+        imagePosition = .noImage
+        focusRingType = .none
+        setButtonType(.momentaryChange)
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) { fatalError("not used") }
+
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
+    /// Clicking an icon does not take the keyboard from where it was.
+    override var acceptsFirstResponder: Bool { false }
+
+    func refresh() {
+        let font = NerdFont.font(size: look.iconSize) ?? look.font
+        attributedTitle = NSAttributedString(string: glyph, attributes: [
+            .font: font, .foregroundColor: isOn ? Design.accent : look.muted,
+        ])
+    }
+}
+
 /// The outline: vim's keys beside the arrows, and Escape (or Tab) back to the editor.
 final class TreeOutline: NSOutlineView {
     var onEscape: (() -> Void)?
@@ -118,6 +171,9 @@ final class TreeOutline: NSOutlineView {
     /// the
     /// key, so a sequence that starts here (`<leader>e`, `<C-w>l`, `:`) is finished there, whatever row is selected.
     var onForward: ((NSEvent) -> Void)?
+    /// `I` and `H`: show or hide ignored files, show or hide dotfiles.
+    var onToggleIgnored: (() -> Void)?
+    var onToggleDotfiles: (() -> Void)?
     /// The characters that are nvim's leader and local leader (Space for most configs).
     var leaders: Set<String> = [" "]
     /// A node entered; `toEditor` when the keyboard should go along to the editor.
@@ -167,6 +223,8 @@ final class TreeOutline: NSOutlineView {
         case "g":
             if wasG { select(row: 0) } else { pendingG = true }
         case "G": select(row: numberOfRows - 1)
+        case "I": onToggleIgnored?()
+        case "H": onToggleDotfiles?()
         case "l":
             if let node, node.isDirectory {
                 if isItemExpanded(node) { select(row: selectedRow + 1) } else { expandItem(node) }
@@ -309,6 +367,10 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     private var pending: DispatchWorkItem?
     /// The editor's colours and font as they are now.
     private(set) var look = TreeLook()
+    /// Ignored files and dotfiles: shown or not, remembered between starts.
+    private(set) var showIgnored: Bool
+    private(set) var showDotfiles: Bool
+    private let persisting: Bool
     /// A file is opened: the path, for the editor to show, and whether the keyboard goes to the editor with it.
     var onOpen: ((String, Bool) -> Void)?
     /// Back to the editor.
@@ -322,9 +384,19 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         set { outline.leaders = newValue }
     }
 
-    init(sidebar: SidebarView) {
+    init(sidebar: SidebarView, persisting: Bool = true) {
         self.sidebar = sidebar
+        self.persisting = persisting
+        let defaults = UserDefaults.standard
+        showIgnored = persisting ? defaults.bool(forKey: "treeShowIgnored") : false
+        showDotfiles = persisting ? defaults.object(forKey: "treeShowDotfiles") as? Bool ?? true : true
         super.init()
+        sidebar.visibilityButton.target = self
+        sidebar.visibilityButton.action = #selector(visibilityClicked(_:))
+        sidebar.filterButton.glyph = "\u{F0B0}"
+        outline.onToggleIgnored = { [weak self] in self?.toggleIgnored() }
+        outline.onToggleDotfiles = { [weak self] in self?.toggleDotfiles() }
+        refreshButtons()
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         column.resizingMask = .autoresizingMask
         outline.addTableColumn(column)
@@ -358,6 +430,58 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         applyLook()
     }
 
+    // MARK: What is shown
+
+    func toggleIgnored() { setVisibility(ignored: !showIgnored, dotfiles: nil) }
+    func toggleDotfiles() { setVisibility(ignored: nil, dotfiles: !showDotfiles) }
+
+    func setVisibility(ignored: Bool?, dotfiles: Bool?) {
+        if let ignored { showIgnored = ignored }
+        if let dotfiles { showDotfiles = dotfiles }
+        if persisting {
+            UserDefaults.standard.set(showIgnored, forKey: "treeShowIgnored")
+            UserDefaults.standard.set(showDotfiles, forKey: "treeShowDotfiles")
+        }
+        refreshButtons()
+        guard let tree else { return }
+        for node in tree.setVisibility(ignored: showIgnored, dotfiles: showDotfiles) {
+            show(node)
+        }
+    }
+
+    /// The eye is open while anything that is usually left out is shown.
+    private func refreshButtons() {
+        sidebar.visibilityButton.glyph = showIgnored || !showDotfiles ? "\u{F06E}" : "\u{F070}"
+        sidebar.visibilityButton.isOn = showIgnored || !showDotfiles
+    }
+
+    /// The choices behind the eye: each a switch, with the key that does it.
+    func visibilityMenu() -> NSMenu {
+        let menu = NSMenu()
+        let ignored = menu.addItem(
+            withTitle: "Show Ignored Files   I",
+            action: #selector(ignoredChosen(_:)),
+            keyEquivalent: ""
+        )
+        ignored.state = showIgnored ? .on : .off
+        ignored.target = self
+        let dotfiles = menu.addItem(
+            withTitle: "Show Dotfiles   H",
+            action: #selector(dotfilesChosen(_:)),
+            keyEquivalent: ""
+        )
+        dotfiles.state = showDotfiles ? .on : .off
+        dotfiles.target = self
+        return menu
+    }
+
+    @objc private func ignoredChosen(_: Any?) { toggleIgnored() }
+    @objc private func dotfilesChosen(_: Any?) { toggleDotfiles() }
+
+    @objc private func visibilityClicked(_ sender: NSButton) {
+        visibilityMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 2), in: sender)
+    }
+
     /// The editor's font changed: names, rows and indents follow.
     func fontChanged() { applyLook() }
 
@@ -374,6 +498,7 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         guard tree?.root.path != real else { return }
         events = nil
         let tree = FileTree(root: real)
+        tree.setVisibility(ignored: showIgnored, dotfiles: showDotfiles)
         self.tree = tree
         tree.children(of: tree.root)
         outline.reloadData()

@@ -31,7 +31,10 @@ public final class TreeNode: Hashable {
 /// thread-safe: use it from one actor; git is read apart (`GitState.read`) and handed in with `apply`.
 public final class FileTree {
     public let root: TreeNode
-    public var showIgnored = false
+    /// What git ignores: left out unless shown (then dimmed).
+    public private(set) var showIgnored = false
+    /// Names that start with a dot: shown unless asked not to be. Git's own folder is never shown.
+    public private(set) var showDotfiles = true
     public private(set) var git = GitState()
     private var nodes: [String: TreeNode] = [:]
     /// The folders with a changed file somewhere below them, so a folder read later is marked as well.
@@ -74,6 +77,7 @@ public final class FileTree {
             node.parent = folder
             style(node)
             if node.ignored, !showIgnored { continue }
+            if !showDotfiles, name.hasPrefix(".") { continue }
             entries.append(node)
         }
         entries.sort { a, b in
@@ -136,7 +140,26 @@ public final class FileTree {
             style(node)
         }
         // A folder read earlier may now hold (or no longer hold) ignored entries.
-        for node in nodes.values where node.isDirectory && node.children != nil {
+        affected = reloadLoaded()
+        return affected
+    }
+
+    /// Shows or hides what git ignores and the names that start with a dot (nil leaves one as it is). The folders whose
+    /// entries changed, to be shown again.
+    @discardableResult
+    public func setVisibility(ignored: Bool? = nil, dotfiles: Bool? = nil) -> [TreeNode] {
+        if let ignored { showIgnored = ignored }
+        if let dotfiles { showDotfiles = dotfiles }
+        return reloadLoaded()
+    }
+
+    /// Every folder read so far, read again (parents first, and one that went with a parent is left alone), and those
+    /// whose entries are not what they were.
+    private func reloadLoaded() -> [TreeNode] {
+        var affected: [TreeNode] = []
+        let loaded = nodes.values.filter { $0.isDirectory && $0.children != nil }
+            .sorted { $0.path.count < $1.path.count }
+        for node in loaded where nodes[node.path] === node {
             let before = node.children ?? []
             let after = reload(node)
             if before != after { affected.append(node) }

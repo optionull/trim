@@ -188,6 +188,39 @@ struct FrameCheck {
         } catch { fail("highlight: \(error)") }
         await wait("the sidebar back in the first colours") { sidebar.look.palette == expected(scheme.0, scheme.1) }
         step("the sidebar is a shade of the editor's background and follows a change of colour scheme")
+        // What is shown: ignored files and dotfiles, by key, by :FrameTree and by the eye's menu.
+        guard !names().contains("ignored.txt"), names().contains(".gitignore"), !sidebar.visibilityButton.isOn else {
+            fail("by default git's ignored files are left out and dotfiles shown: \(names())")
+        }
+        tree.focus()
+        tree.outline.keyDown(with: key("I"))
+        await wait("I to show what git ignores") { names().contains("ignored.txt") }
+        guard let dim = cell("ignored.txt"), dim.alphaValue < 1, sidebar.visibilityButton.isOn else {
+            fail("an ignored file is not dimmed, or the eye is not on")
+        }
+        tree.outline.keyDown(with: key("I"))
+        await wait("I to hide what git ignores") { !names().contains("ignored.txt") }
+        tree.outline.keyDown(with: key("H"))
+        await wait("H to hide dotfiles") { !names().contains(".gitignore") }
+        guard names().contains("README.md"),
+              sidebar.visibilityButton.isOn else { fail("H hid more than dotfiles: \(names())") }
+        tree.outline.keyDown(with: key("H"))
+        await wait("H to show dotfiles") { names().contains(".gitignore") }
+        do { _ = try await channel.command("FrameTree ignored") } catch { fail("FrameTree ignored: \(error)") }
+        await wait(":FrameTree ignored") { names().contains("ignored.txt") }
+        let menu = tree.visibilityMenu()
+        guard menu.items.map(\.state) == [.on, .on], menu.items.count == 2 else {
+            fail("the eye's menu does not say what is shown: \(menu.items.map(\.title)) \(menu.items.map(\.state))")
+        }
+        menu.performActionForItem(at: 0)
+        await wait("the menu to hide ignored files") { !names().contains("ignored.txt") }
+        guard !sidebar.visibilityButton.isOn, tree.visibilityMenu().items.map(\.state) == [.off, .on] else {
+            fail("the eye does not follow what is shown")
+        }
+        step(
+            "I and H, :FrameTree ignored and the eye's menu show and hide ignored files and dotfiles; ignored ones are dimmed"
+        )
+        shell.window.makeFirstResponder(editor)
         tree.expand(folder + "/src")
         await wait("src's entries") { names().contains("Order.cs") }
         guard cell("src")?.icon.stringValue == String(FileIcons.folderOpen.glyph),
@@ -345,7 +378,7 @@ struct FrameCheck {
         let mapped = await (try? channel.lua("return vim.fn.maparg('<leader>e', 'n') ~= ''"))?.boolValue
         let known = await (try? channel.lua("return vim.fn.getcompletion('FrameTree ', 'cmdline')"))?.arrayValue?
             .compactMap(\.stringValue)
-        guard mapped == true, known == ["toggle", "show", "hide", "focus"] else {
+        guard mapped == true, known == ["toggle", "show", "hide", "focus", "ignored", "dotfiles"] else {
             fail("<leader>e mapped: \(String(describing: mapped)); :FrameTree completes \(String(describing: known))")
         }
         _ = try? await channel.command("FrameTree sideways")

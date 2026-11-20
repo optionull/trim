@@ -178,6 +178,40 @@ struct GitTreeTests {
         #expect(state.ignored.contains(fixture.root + "/debug.log"))
     }
 
+    @Test("ignored files and dotfiles are shown or hidden on request, in the folders already read")
+    func visibility() throws {
+        let fixture = try Fixture(["src/a.swift", "src/.hidden", ".env", "top.txt", ".gitignore"], git: true)
+        try fixture.write(".gitignore", "build/\nsrc/skip.log\n")
+        try FileManager.default.createDirectory(atPath: fixture.root + "/build", withIntermediateDirectories: true)
+        try fixture.write("build/out.o")
+        try fixture.write("src/skip.log")
+        let tree = FileTree(root: fixture.root)
+        tree.apply(GitState.read(in: fixture.root))
+        let src = try #require(tree.children(of: tree.root).first { $0.name == "src" })
+        #expect(fixture.names(tree.children(of: src)) == ["a.swift", ".hidden"]
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending })
+        #expect(fixture.names(tree.children(of: tree.root)) == ["src", ".env", ".gitignore", "top.txt"])
+        #expect(tree.showDotfiles && !tree.showIgnored)
+
+        let hidden = tree.setVisibility(dotfiles: false)
+        #expect(hidden.contains(tree.root) && hidden.contains(src))
+        #expect(fixture.names(tree.children(of: tree.root)) == ["src", "top.txt"])
+        #expect(fixture.names(tree.children(of: src)) == ["a.swift"])
+
+        let ignored = tree.setVisibility(ignored: true)
+        #expect(ignored.contains(tree.root) && ignored.contains(src))
+        #expect(
+            fixture.names(tree.children(of: tree.root)) == ["build", "src", "top.txt"],
+            "ignored shown, dotfiles still hidden"
+        )
+        #expect(tree.children(of: tree.root).first { $0.name == "build" }?.ignored == true)
+        #expect(fixture.names(tree.children(of: src)) == ["a.swift", "skip.log"])
+
+        tree.setVisibility(ignored: false, dotfiles: true)
+        #expect(fixture.names(tree.children(of: tree.root)) == ["src", ".env", ".gitignore", "top.txt"])
+        #expect(tree.setVisibility(dotfiles: true).isEmpty, "nothing changed, nothing to show again")
+    }
+
     @Test("a folder that is not in a repository has nothing to report")
     func notARepository() throws {
         let fixture = try Fixture(["a.txt"])
@@ -211,9 +245,9 @@ struct GitTreeTests {
         #expect(file.status == .modified)
         #expect(deep.changedBelow && src.changedBelow && tree.root.changedBelow)
         #expect(!docs.changedBelow)
-        tree.showIgnored = true
-        let affected = tree.apply(GitState.read(in: fixture.root))
+        let affected = tree.setVisibility(ignored: true)
         #expect(affected.contains(tree.root))
+        tree.apply(GitState.read(in: fixture.root))
         let build = try #require(tree.children(of: tree.root).first { $0.name == "build" })
         #expect(build.ignored)
         let out = try #require(tree.children(of: build).first)
