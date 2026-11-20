@@ -507,6 +507,16 @@ starts wins over it). Each config keeps its own plugins and lockfile, so none di
 
 ![The shim: nvim in a rounded window with no title bar](docs/showcase-shell-2026-10-24.png)
 
+### Frame (working title)
+
+`Frame.app`, built beside sill and the shim, is the shim grown into a workspace of native panes around nvim, one pane
+at a time. So far a **sidebar** left of the grid: a native file tree (folders first, git's marks and branch, what git
+ignores left out, Nerd Font icons from a font the app carries, kept up to date as files change), sized by dragging its
+divider (⌘B hides it, ⇧⌘E goes into it; `j`/`k`/`h`/`l`, the arrows and Return move and open, Escape goes back to the
+editor, and `<C-w>h` from the leftmost window goes into it). Clicking a file opens it in nvim, and the tree follows
+the file nvim shows and the folder it is in. It has the shim's Config menu and `:FrameConfig`. `mise run fonts` downloads
+the icon font (`scripts/bundle.sh` does too); its licences are in `THIRD_PARTY_NOTICES.md`.
+
 ### As git's merge and diff tool
 
 ```sh

@@ -65,10 +65,13 @@ targets.append(.executableTarget(
     name: "Shim",
     dependencies: ["SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", messagePack]
 ))
+// Frame's file tree: what a folder holds, in order, and what git says of it. Foundation only, so it is tested alone.
+targets.append(.target(name: "FrameTree"))
+targets.append(.testTarget(name: "FrameTreeTests", dependencies: ["FrameTree"]))
 // Frame: Shim's host grown into a workspace of native panes around nvim (a working title). A copy of Shim that diverges.
 targets.append(.executableTarget(
     name: "Frame",
-    dependencies: ["SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", messagePack]
+    dependencies: ["SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", "FrameTree", messagePack]
 ))
 targets.append(.executableTarget(
     name: "SillApp",

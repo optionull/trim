@@ -45,16 +45,6 @@ enum PaneLayout {
     }
 }
 
-/// The column left of the grid. A placeholder island for now: the tree goes here.
-final class SidebarView: NSView {
-    override var isFlipped: Bool { true }
-
-    override func draw(_: NSRect) {
-        Design.chrome.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: Design.islandRadius, yRadius: Design.islandRadius).fill()
-    }
-}
-
 /// The strip between the sidebar and the grid: drag it to size the sidebar, double-click to size it back.
 final class DividerView: NSView {
     weak var host: FrameView?
@@ -92,7 +82,7 @@ final class DividerView: NSView {
 final class FrameView: NSView {
     let editor: EditorView
     let overlay: NSView
-    let sidebar = SidebarView()
+    let sidebar: SidebarView
     let divider = DividerView()
     /// Room for the title bar's buttons when it shows.
     var top: CGFloat = 0 {
@@ -120,9 +110,10 @@ final class FrameView: NSView {
     /// The gap between the sidebar and the grid, which is also what is grabbed to size it.
     static let dividerWidth: CGFloat = 8
 
-    init(editor: EditorView, overlay: NSView, persisting: Bool) {
+    init(editor: EditorView, overlay: NSView, sidebar: SidebarView, persisting: Bool) {
         self.editor = editor
         self.overlay = overlay
+        self.sidebar = sidebar
         self.persisting = persisting
         sidebarVisible = persisting ? PaneLayout.sidebarVisible : true
         sidebarWidth = persisting ? PaneLayout.sidebarWidth : PaneLayout.defaultWidth
@@ -278,6 +269,9 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     /// nvim has ended, so quitting has no one to ask.
     private var ended = false
     private let configMenu = NSMenu(title: "Config")
+    /// The tree, which stays through a switch of config: its view and its controller outlive any one nvim.
+    private let sidebar = SidebarView()
+    private(set) var tree: TreeController!
 
     private var checking: Bool { ProcessInfo.processInfo.environment["SILL_FRAME_CHECK"] == "1" }
 
@@ -307,6 +301,9 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         window.isMovableByWindowBackground = false
         window.delegate = self
         window.setFrameAutosaveName("Frame")
+        tree = TreeController(sidebar: sidebar)
+        tree.onOpen = { [weak self] path, toEditor in self?.open(file: path, toEditor: toEditor) }
+        tree.onEscape = { [weak self] in self?.focusEditor() }
         makeSurface()
         buildMenu()
 
@@ -330,12 +327,21 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         current = NvimConfig(appName: startup.appName, isBuiltIn: !startup.userConfig)
         let arguments = CommandLine.arguments.dropFirst()
             .filter { !$0.hasPrefix("-psn") && !$0.hasPrefix("-NS") }
+        // Where nvim and the tree start: the folder the app was started in, else (from the Dock that is /) the home
+        // folder; the self-check starts in a folder of its own so the tree never reads one that is not.
+        var folder = FileManager.default.currentDirectoryPath
+        if folder == "/" { folder = NSHomeDirectory() }
+        if checking {
+            folder = NSTemporaryDirectory() + "frame-check-\(UUID().uuidString)"
+            try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        }
+        tree.setRoot(folder)
         Task { [weak self] in
             guard let self else { return }
             do {
                 try await launch(
                     startup: startup,
-                    place: Place(cwd: FileManager.default.currentDirectoryPath),
+                    place: Place(cwd: folder),
                     arguments: Array(arguments)
                 )
                 if checking { await FrameCheck(self).run() }
@@ -355,7 +361,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         session = EditorSession()
         editor = EditorView(channel: session.channel)
         externalUI = ExternalUI(editor: editor)
-        view = FrameView(editor: editor, overlay: externalUI.overlay, persisting: !checking)
+        view = FrameView(editor: editor, overlay: externalUI.overlay, sidebar: sidebar, persisting: !checking)
         window.contentView = view
         apply()
         let session = session
@@ -445,6 +451,27 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     private static let commandLua = """
     local names, current = ...
     local function ask(name) vim.rpcnotify(vim.g.sill_channel, 'frame_config', name) end
+    local function tell(method, arg) vim.rpcnotify(vim.g.sill_channel, method, arg) end
+    -- The tree follows the editor: the file in the window, and the folder nvim is in.
+    local group = vim.api.nvim_create_augroup('FrameTree', { clear = true })
+    local function shown(buf)
+      local name = vim.api.nvim_buf_get_name(buf)
+      if vim.bo[buf].buftype == '' and name ~= '' then tell('frame_buffer', name) end
+    end
+    vim.api.nvim_create_autocmd('BufEnter', { group = group, callback = function(a) shown(a.buf) end })
+    vim.api.nvim_create_autocmd('DirChanged', { group = group, callback = function() tell('frame_cwd', vim.fn.getcwd()) end })
+    tell('frame_cwd', vim.fn.getcwd())
+    shown(vim.api.nvim_get_current_buf())
+    -- <C-w>h from the leftmost window goes on into the tree (a mapping of the config's own is left alone).
+    for _, lhs in ipairs({ '<C-w>h', '<C-w><C-h>' }) do
+      if vim.fn.maparg(lhs, 'n') == '' then
+        vim.keymap.set('n', lhs, function()
+          local before = vim.api.nvim_get_current_win()
+          vim.cmd.wincmd('h')
+          if vim.api.nvim_get_current_win() == before then tell('frame_focus', 'tree') end
+        end, { desc = 'Window to the left, or the tree' })
+      end
+    end
     vim.api.nvim_create_user_command('FrameConfig', function(opts)
       if opts.args ~= '' then return ask(opts.args) end
       vim.ui.select(names, {
@@ -462,6 +489,18 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
 
     /// What nvim asked of the frame (`:FrameConfig`).
     private func nvimAsked(_ method: String, _ args: [MessagePackValue]) {
+        switch method {
+        case "frame_buffer":
+            if let path = args.first?.stringValue { tree.reveal(path) }
+            return
+        case "frame_cwd":
+            if let path = args.first?.stringValue { tree.setRoot(path) }
+            return
+        case "frame_focus":
+            tree.focus()
+            return
+        default: break
+        }
         guard method == "frame_config", let name = args.first?.stringValue else { return }
         guard let config = configs().first(where: { $0.appName == name }) else {
             let known = configs().map(\.appName).joined(separator: ", ")
@@ -474,6 +513,29 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             return
         }
         switchConfig(to: config)
+    }
+
+    /// A file opened from the tree: nvim shows it, and has the keyboard only when asked (Return, a double-click): a
+    /// click or `l` leaves it in the tree, so the next key is the tree's.
+    func open(file path: String, toEditor: Bool) {
+        Task { [weak self] in
+            guard let self else { return }
+            _ = try? await session.channel.lua(
+                """
+                local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape((...)))
+                if not ok then vim.notify(tostring(err), vim.log.levels.ERROR) end
+                """,
+                args: [.string(path)]
+            )
+            if toEditor { focusEditor() }
+        }
+    }
+
+    func focusEditor() { window.makeFirstResponder(editor) }
+
+    @objc func focusSidebar(_: Any?) {
+        if !view.sidebarVisible { view.sidebarVisible = true }
+        tree.focus()
     }
 
     @objc func chooseConfig(_ sender: NSMenuItem) {
@@ -639,6 +701,12 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         menu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
         viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(toggleSidebar(_:)), keyEquivalent: "b")
+        let focus = viewMenu.addItem(
+            withTitle: "Focus Sidebar",
+            action: #selector(focusSidebar(_:)),
+            keyEquivalent: "e"
+        )
+        focus.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(.separator())
         viewMenu.addItem(withTitle: "Bigger", action: #selector(bigger(_:)), keyEquivalent: "+")
         let bigger = viewMenu.addItem(withTitle: "Bigger", action: #selector(bigger(_:)), keyEquivalent: "=")
@@ -663,6 +731,9 @@ if let directory = ProcessInfo.processInfo.environment["SILL_FONTS"],
     let fonts = files.compactMap { $0 as? URL }.filter { ["ttf", "otf"].contains($0.pathExtension.lowercased()) }
     CTFontManagerRegisterFontURLs(fonts as CFArray, .process, false, nil)
 }
+
+// The icon font that ships in the app, before anything is drawn or the grid looks for a fallback.
+NerdFont.register()
 
 let app = NSApplication.shared
 let delegate = FrameDelegate()

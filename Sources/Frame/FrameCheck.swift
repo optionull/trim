@@ -1,4 +1,5 @@
 import AppKit
+import FrameTree
 import MessagePack
 import Metal
 import SillCore
@@ -33,6 +34,15 @@ struct FrameCheck {
         fail("timed out waiting for " + what)
     }
 
+    /// `wait` for something only nvim can say, asked of it each time.
+    private func waitAsync(_ what: String, _ ready: () async -> Bool) async {
+        for _ in 0 ..< 100 {
+            if await ready() { return }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        fail("timed out waiting for " + what)
+    }
+
     func run() async {
         guard let editor = shell.editor, let window = shell.window else { fail("no window") }
         await wait("nvim's grid") { editor.screen.grids[1] != nil }
@@ -54,6 +64,7 @@ struct FrameCheck {
         step(
             "no title bar or buttons; a titled window (rounded by macOS) that moves by its \(Int(FrameView.margin))-point margin"
         )
+        await treeSteps()
         await layoutSteps()
         await switchSteps()
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -67,6 +78,160 @@ struct FrameCheck {
         print("frame check: passed")
         fflush(stdout)
         exit(0)
+    }
+
+    private func git(_ folder: String, _ arguments: String...) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-C", folder, "-c", "user.name=check", "-c", "user.email=check@example.com"] + arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { fail("git: \(error)") }
+        process.waitUntilExit()
+        if process.terminationStatus != 0 { fail("git \(arguments.joined(separator: " ")) failed") }
+    }
+
+    private func key(_ characters: String, code: UInt16 = 0) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: shell.window.windowNumber,
+            context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false,
+            keyCode: code
+        )!
+    }
+
+    /// The tree beside the grid: what a folder holds in order, git's marks, the files changing under it, and the way to
+    /// and from the editor, against a real repository.
+    private func treeSteps() async {
+        guard let tree = shell.tree else { fail("no tree") }
+        guard NerdFont.register() else { fail("the icon font is not there (scripts/fonts.sh makes Vendor/fonts)") }
+        let missing = FileIcons.all.filter { !NerdFont.has($0.glyph) }
+        guard missing.isEmpty else {
+            fail(
+                "icons whose glyph is not in the font: \(missing.map { String(format: "%X", $0.glyph.unicodeScalars.first!.value) })"
+            )
+        }
+        step("every icon is a glyph of the bundled Nerd Font")
+        let manager = FileManager.default
+        let base = URL(fileURLWithPath: NSTemporaryDirectory() + "frame-tree-\(UUID().uuidString)")
+        try? manager.createDirectory(at: base, withIntermediateDirectories: true)
+        let folder = RealPath.of(base.path)
+        for (path, text) in [
+            ("src/Order.cs", "class Order {}\n"), ("src/Util.swift", "let x = 1\n"), ("docs/guide.md", "# Guide\n"),
+            ("README.md", "readme\n"), (".gitignore", "ignored.txt\n"),
+        ] {
+            let url = URL(fileURLWithPath: folder + "/" + path)
+            try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
+        git(folder, "init", "-q", "-b", "main")
+        git(folder, "add", ".")
+        git(folder, "commit", "-q", "-m", "first")
+        try? "nobody reads this\n".write(toFile: folder + "/ignored.txt", atomically: true, encoding: .utf8)
+        let channel = shell.session.channel
+        for command in ["%bwipeout!", "cd " + folder] {
+            do { _ = try await channel.command(command) } catch { fail("\(command): \(error)") }
+        }
+        await wait("the tree to follow nvim's folder") { tree.rootPath == folder }
+        func names() -> [String] { tree.visibleNodes.map(\.name) }
+        await wait("the folder's entries, and what git ignores") {
+            names().contains("README.md") && tree.tree?.git.ignored.isEmpty == false
+        }
+        let top = names()
+        guard Array(top.prefix(2)) == ["docs", "src"], Set(top) == ["docs", "src", ".gitignore", "README.md"] else {
+            fail("the rows are folders first, without git's folder or what git ignores: \(top)")
+        }
+        step("a folder's entries: folders first, git's folder and the ignored files left out")
+        func cell(_ name: String) -> TreeCellView? {
+            guard let row = tree.visibleNodes.firstIndex(where: { $0.name == name }) else { return nil }
+            return tree.outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? TreeCellView
+        }
+        guard cell("README.md")?.icon
+            .stringValue == String(FileIcons.icon(name: "README.md", isDirectory: false).glyph),
+            cell("src")?.icon.stringValue == String(FileIcons.folder.glyph)
+        else { fail("the rows' icons: \(cell("README.md")?.icon.stringValue ?? "none")") }
+        tree.expand(folder + "/src")
+        await wait("src's entries") { names().contains("Order.cs") }
+        guard cell("src")?.icon.stringValue == String(FileIcons.folderOpen.glyph),
+              cell("Order.cs")?.icon.stringValue == String(FileIcons.icon(name: "Order.cs", isDirectory: false).glyph)
+        else { fail("an open folder's and a C# file's icons") }
+        step("icons by kind; an open folder shows open; its files appear under it")
+        try? "changed\n".write(toFile: folder + "/README.md", atomically: true, encoding: .utf8)
+        try? "class New {}\n".write(toFile: folder + "/src/New.cs", atomically: true, encoding: .utf8)
+        await wait("the file system's events (a new file, a changed one) in the tree") {
+            names().contains("New.cs") && tree.tree?.node(at: folder + "/README.md")?.status == .modified
+        }
+        await wait("git's marks on the rows") { tree.tree?.node(at: folder + "/src/New.cs")?.status == .untracked }
+        guard cell("README.md")?.badge.stringValue == "M", cell("New.cs")?.badge.stringValue == "U",
+              cell("src")?.badge.stringValue == "•", tree.tree?.node(at: folder + "/src")?.changedBelow == true
+        else { fail("git's marks: \(cell("README.md")?.badge.stringValue ?? "none")") }
+        guard let src = tree.tree?.node(at: folder + "/src"), tree.isExpanded(src) else {
+            fail("a folder that was open closed when the rows were read again")
+        }
+        step("a new file appears, git marks M and U and a dot on the folder, and open folders stay open")
+        guard let order = tree.tree?.node(at: folder + "/src/Order.cs") else { fail("no Order.cs") }
+        tree.focus()
+        tree.activate(order)
+        await waitAsync("nvim to open the file") {
+            let name = await (try? shell.session.channel.lua("return vim.api.nvim_buf_get_name(0)"))?.stringValue
+            return name == folder + "/src/Order.cs"
+        }
+        try? await Task.sleep(for: .milliseconds(300))
+        guard shell.window.firstResponder === tree.outline else {
+            fail(
+                "opening a file from the tree took the keyboard from it: \(String(describing: shell.window.firstResponder))"
+            )
+        }
+        step("a file opened from the tree opens in nvim, and the keyboard stays in the tree")
+        await wait("the opened file selected") { tree.selectedNode === order }
+        tree.outline.keyDown(with: key("l"))
+        try? await Task.sleep(for: .milliseconds(300))
+        guard shell.window.firstResponder === tree.outline else { fail("l on a file took the keyboard from the tree") }
+        tree.outline.keyDown(with: key("\r", code: 36))
+        await wait("Return to go on into the editor") { shell.window.firstResponder === shell.editor }
+        step("l opens and stays; Return opens and goes into the editor")
+        do { _ = try await channel.command("edit " + folder + "/docs/guide.md") } catch { fail("edit: \(error)") }
+        await wait("the tree to show the editor's file") { tree.selectedNode?.path == folder + "/docs/guide.md" }
+        guard let docs = tree.tree?.node(at: folder + "/docs"),
+              tree.isExpanded(docs) else { fail("its folder is not open") }
+        step("the file nvim shows is revealed in the tree: its folders open, its row selected")
+        channel.send(keys: "<C-w>h")
+        await wait("<C-w>h from the leftmost window to go into the tree") {
+            shell.window.firstResponder === tree.outline
+        }
+        let before = tree.outline.selectedRow
+        tree.outline.keyDown(with: key("k"))
+        guard tree.outline.selectedRow == before - 1
+        else { fail("k did not go up: \(before) to \(tree.outline.selectedRow)") }
+        tree.outline.keyDown(with: key("j"))
+        guard tree.outline.selectedRow == before else { fail("j did not go down") }
+        tree.outline.keyDown(with: key("G"))
+        guard tree.outline.selectedRow == tree.outline.numberOfRows - 1 else { fail("G did not go to the last row") }
+        tree.outline.keyDown(with: key("g"))
+        guard tree.outline.selectedRow == tree.outline.numberOfRows - 1 else { fail("one g moved the selection") }
+        tree.outline.keyDown(with: key("g"))
+        guard tree.outline.selectedRow == 0 else { fail("gg did not go to the first row") }
+        tree.outline.keyDown(with: key("\u{1B}", code: 53))
+        await wait("Escape back to the editor") { shell.window.firstResponder === shell.editor }
+        step("<C-w>h goes into the tree, j k gg G move, Escape comes back")
+        // After folders opened two levels deep: nothing is wider than what the sidebar shows, so no badge is cut off.
+        let visible = shell.view.sidebar.scroll.contentSize.width
+        guard tree.outline.frame.width == visible, tree.outline.tableColumns[0].width == visible,
+              let deep = cell("New.cs"), deep.frame.maxX <= visible, deep.badge.frame.maxX <= deep.bounds.width
+        else {
+            fail(
+                "the tree is wider than the sidebar: outline \(tree.outline.frame.width), column \(tree.outline.tableColumns[0].width), shows \(visible)"
+            )
+        }
+        step("rows fit the sidebar after folders open: no badge is cut off")
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"], let editor = shell.editor {
+            let treePath = path.replacingOccurrences(of: ".png", with: "-tree.png")
+            do {
+                try shot(editor: editor, to: treePath)
+                step("saved \(treePath)")
+            } catch {
+                fail("the tree's shot: \(error)")
+            }
+        }
     }
 
     /// The sidebar and the grid share the window: the grid takes what the sidebar leaves, nvim is told its new size
