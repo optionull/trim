@@ -66,6 +66,7 @@ struct FrameCheck {
         )
         await treeSteps()
         await focusSteps()
+        await forwardSteps()
         await layoutSteps()
         await switchSteps()
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -92,10 +93,13 @@ struct FrameCheck {
         if process.terminationStatus != 0 { fail("git \(arguments.joined(separator: " ")) failed") }
     }
 
-    private func key(_ characters: String, code: UInt16 = 0) -> NSEvent {
+    private func key(
+        _ characters: String, code: UInt16 = 0, flags: NSEvent.ModifierFlags = [], plain: String? = nil
+    ) -> NSEvent {
         NSEvent.keyEvent(
-            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: shell.window.windowNumber,
-            context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false,
+            with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+            windowNumber: shell.window.windowNumber,
+            context: nil, characters: characters, charactersIgnoringModifiers: plain ?? characters, isARepeat: false,
             keyCode: code
         )!
     }
@@ -350,6 +354,45 @@ struct FrameCheck {
         step(":FrameTree shows, hides and enters the sidebar; <C-w>e and <leader>e are bound; the keyboard follows")
     }
 
+    /// Keys that are nvim's, pressed with the tree selected: the leader, `:` and Control chords go to nvim whatever row
+    /// is selected, and the sequence they start is finished there.
+    private func forwardSteps() async {
+        guard let tree = shell.tree, let window = shell.window, let editor = shell.editor else { fail("no tree") }
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        let leader = await lua("return vim.g.mapleader or '\\\\'")?.stringValue ?? " "
+        guard tree.leaders.contains(leader)
+        else { fail("the tree does not know nvim's leader \(leader.debugDescription)") }
+        _ = await lua("vim.g.leader_hit = 0; vim.keymap.set('n', '<leader>zz', function() vim.g.leader_hit = 1 end)")
+        tree.focus()
+        tree.outline.keyDown(with: key(leader))
+        guard window.firstResponder === editor else { fail("the leader did not go to the editor") }
+        editor.keyDown(with: key("z"))
+        editor.keyDown(with: key("z"))
+        await waitAsync("<leader>zz pressed in the tree") { await lua("return vim.g.leader_hit")?.integerValue == 1 }
+        step("the leader pressed in the tree is nvim's: <leader>zz runs, whatever row is selected")
+        tree.focus()
+        tree.outline.keyDown(with: key(":"))
+        guard window.firstResponder === editor else { fail(": did not go to the editor") }
+        await waitAsync(": to open nvim's command line") { await lua("return vim.fn.mode()")?.stringValue == "c" }
+        editor.keyDown(with: key("\u{1B}", code: 53))
+        await waitAsync("the command line to close") { await lua("return vim.fn.mode()")?.stringValue == "n" }
+        tree.focus()
+        tree.outline.keyDown(with: key("\u{17}", flags: .control, plain: "w"))
+        guard window.firstResponder === editor else { fail("<C-w> did not go to the editor") }
+        editor.keyDown(with: key("v"))
+        await waitAsync("<C-w>v to split the window") {
+            await lua("return #vim.api.nvim_list_wins()")?.integerValue == 2
+        }
+        _ = try? await channel.command("only")
+        step(": and <C-w> chords pressed in the tree go to nvim and finish there")
+        // What is the tree's own stays its own.
+        tree.focus()
+        tree.outline.keyDown(with: key("j"))
+        guard window.firstResponder === tree.outline else { fail("j left the tree") }
+        window.makeFirstResponder(editor)
+    }
+
     /// The sidebar and the grid share the window: the grid takes what the sidebar leaves, nvim is told its new size
     /// when the sidebar is hidden, shown or dragged, and the sidebar's width is kept within bounds.
     private func layoutSteps() async {
@@ -410,6 +453,7 @@ struct FrameCheck {
         do { _ = try await channel.command("FrameConfig " + target.appName) } catch { fail("FrameConfig: \(error)") }
         await wait("nvim to restart under \(target.appName)") { shell.current == target }
         guard shell.window === window else { fail("the switch made another window") }
+        func lua(_ code: String) async -> MessagePackValue? { try? await shell.session.channel.lua(code) }
         let there = await (try? shell.session.channel.lua(
             "return { vim.g.frame_marker or '', vim.fn.getcwd(), vim.api.nvim_buf_get_name(0), vim.api.nvim_win_get_cursor(0)[1] }"
         ))?.arrayValue
@@ -423,6 +467,16 @@ struct FrameCheck {
             URL(fileURLWithPath: file).resolvingSymlinksInPath().path, line == 3
         else { fail("the open file was not kept: \(name ?? "nil") at \(line.map(String.init) ?? "nil")") }
         step("switching to \(target.appName) restarts nvim in the same window, folder, file and line")
+        // That config's leader is a comma: the tree knows it from nvim and hands it over.
+        if marker == target.appName, await lua("return vim.g.mapleader")?.stringValue == "," {
+            guard shell.tree.leaders.contains(",")
+            else { fail("the tree's leaders after the switch: \(shell.tree.leaders)") }
+            shell.tree.focus()
+            shell.tree.outline.keyDown(with: key(","))
+            guard shell.window.firstResponder === shell.editor
+            else { fail("that config's leader did not go to the editor") }
+            step("the tree learns the leader of the config nvim runs, and hands that one over")
+        }
         await wait("the grid again") { shell.editor.screen.grids[1] != nil }
         do { _ = try await shell.session.channel.command("FrameConfig sill") } catch {
             fail("FrameConfig sill: \(error)")
@@ -431,6 +485,8 @@ struct FrameCheck {
         let back = await (try? shell.session.channel.lua("return vim.g.frame_marker or ''"))?.stringValue
         guard back == "" else { fail("the first config's settings are still there: \(back ?? "nil")") }
         step("and back to sill's own, with nothing of the other config left")
+        guard !shell.tree.leaders.contains(",")
+        else { fail("the other config's leader is still the tree's: \(shell.tree.leaders)") }
         let complete = await (try? shell.session.channel.lua("return vim.fn.getcompletion('FrameConfig ', 'cmdline')"))?
             .arrayValue?.compactMap(\.stringValue)
         guard complete == ["sill", target.appName] else { fail("FrameConfig completes \(complete ?? [])") }

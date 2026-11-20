@@ -114,6 +114,12 @@ final class SidebarView: NSView {
 /// The outline: vim's keys beside the arrows, and Escape (or Tab) back to the editor.
 final class TreeOutline: NSOutlineView {
     var onEscape: (() -> Void)?
+    /// Keys that are nvim's, not the tree's: the leader, `:` and Control chords. The keyboard goes to the editor with
+    /// the
+    /// key, so a sequence that starts here (`<leader>e`, `<C-w>l`, `:`) is finished there, whatever row is selected.
+    var onForward: ((NSEvent) -> Void)?
+    /// The characters that are nvim's leader and local leader (Space for most configs).
+    var leaders: Set<String> = [" "]
     /// A node entered; `toEditor` when the keyboard should go along to the editor.
     var onActivate: ((TreeNode, _ toEditor: Bool) -> Void)?
     private var pendingG = false
@@ -130,6 +136,11 @@ final class TreeOutline: NSOutlineView {
         super.mouseDown(with: event)
     }
 
+    private func forward(_ event: NSEvent) {
+        pendingG = false
+        onForward?(event)
+    }
+
     private func select(row: Int) {
         guard (0 ..< numberOfRows).contains(row) else { return }
         selectRowIndexes([row], byExtendingSelection: false)
@@ -137,6 +148,13 @@ final class TreeOutline: NSOutlineView {
     }
 
     override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags
+        if flags.contains(.control), !flags.contains(.command) { return forward(event) }
+        if flags.isDisjoint(with: [.command, .control, .option]),
+           let typed = event.charactersIgnoringModifiers, typed == ":" || leaders.contains(typed)
+        {
+            return forward(event)
+        }
         guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
               let key = event.charactersIgnoringModifiers else { return super.keyDown(with: event) }
         let node = item(atRow: selectedRow) as? TreeNode
@@ -295,6 +313,14 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     var onOpen: ((String, Bool) -> Void)?
     /// Back to the editor.
     var onEscape: (() -> Void)?
+    /// A key that is nvim's: the editor takes the keyboard and the key.
+    var onForward: ((NSEvent) -> Void)?
+
+    /// The leader and local leader nvim has (its config's, known once it has started).
+    var leaders: Set<String> {
+        get { outline.leaders }
+        set { outline.leaders = newValue }
+    }
 
     init(sidebar: SidebarView) {
         self.sidebar = sidebar
@@ -318,6 +344,7 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         outline.target = self
         outline.action = #selector(clicked(_:))
         outline.onEscape = { [weak self] in self?.onEscape?() }
+        outline.onForward = { [weak self] event in self?.onForward?(event) }
         outline.onActivate = { [weak self] node, toEditor in self?.activate(node, toEditor: toEditor) }
         outline.doubleAction = #selector(doubleClicked(_:))
         sidebar.scroll.documentView = outline

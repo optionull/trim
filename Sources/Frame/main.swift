@@ -305,6 +305,11 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         tree = TreeController(sidebar: sidebar)
         tree.onOpen = { [weak self] path, toEditor in self?.open(file: path, toEditor: toEditor) }
         tree.onEscape = { [weak self] in self?.focusEditor() }
+        tree.onForward = { [weak self] event in
+            guard let self else { return }
+            focusEditor()
+            editor.keyDown(with: event)
+        }
         makeSurface()
         buildMenu()
 
@@ -419,6 +424,11 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         if arguments.isEmpty, place.current != nil || !place.files.isEmpty {
             _ = try await session.channel.lua(Place.restoreLua, args: [place.argument])
         }
+        // The keys that are the leader here, so the tree hands them to nvim.
+        let leaders = await (try? session.channel.lua(
+            "return { vim.g.mapleader or '\\\\', vim.g.maplocalleader or '\\\\' }"
+        ))?.arrayValue?.compactMap(\.stringValue)
+        if let leaders { tree.leaders = Set(leaders.filter { $0.count == 1 }) }
         let names = configs().map(\.appName)
         _ = try await session.channel.lua(
             Self.commandLua, args: [.array(names.map { .string($0) }), .string(startup.appName)]
