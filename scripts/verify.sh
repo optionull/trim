@@ -123,9 +123,9 @@ rm -rf /tmp/sill-settings && mkdir /tmp/sill-settings && cd /tmp/sill-settings
 run settings SILL_OFFSCREEN=1 SILL_CHECK=settings SILL_SETTINGS=/tmp/sill-settings/settings.toml SILL_CWD=/tmp/sill-settings HEED_CONTROL=/tmp/no-heed.sock SILL_CHECK_SHOT=/tmp/sill-settings.png
 bash $REPO/scripts/mergetool-check.sh | tail -1 | grep -q "MERGETOOL VERIFIED" || { echo "CHECK mergetool FAILED"; exit 1; }
 echo "sill check (mergetool): passed"
-out=$(cd /tmp && perl -e 'alarm 120; exec @ARGV or die' env SILL_SHELL_CHECK=1 "$REPO/build/Sill Shell.app/Contents/MacOS/SillShell" 2>&1 | grep -E "^shell check" || true)
-echo "$out" | grep -q "^shell check: passed$" || { echo "$out"; echo "CHECK shell FAILED"; exit 1; }
-echo "sill check (shell): passed"
+out=$(cd /tmp && perl -e 'alarm 120; exec @ARGV or die' env SILL_SHIM_CHECK=1 "$REPO/build/Shim.app/Contents/MacOS/Shim" 2>&1 | grep -E "^shim check" || true)
+echo "$out" | grep -q "^shim check: passed$" || { echo "$out"; echo "CHECK shim FAILED"; exit 1; }
+echo "sill check (shim): passed"
 if [ -d ~/Projects/docs-builder ]; then
   # A clone of its own, never the owner's working copy: made once, reset to their HEAD each run, restored when new.
   D=/tmp/sill-docs-builder

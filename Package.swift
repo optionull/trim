@@ -25,7 +25,7 @@ var targets: [Target] = [
     // The agent bridge: sill's MCP server on a Unix socket.
     .target(name: "SillAgent"),
     // The editor surface any nvim front end of sill's makes: the Metal grid and its input, nvim's command line,
-    // completion and messages as native views, the design's tokens and the grid's font. sill and the shell use it.
+    // completion and messages as native views, the design's tokens and the grid's font. sill and the shim use it.
     .target(name: "SillEditor", dependencies: ["SillCore", "SillNvim", "SillRender", "SillInput", messagePack]),
     .testTarget(name: "SillAgentTests", dependencies: ["SillAgent"]),
     // The Metal grid: glyph atlas, instanced passes, and the render thread that draws screens.
@@ -60,9 +60,9 @@ if hasGhostty {
     appDependencies.append("SillTerminal")
 }
 
-// The shell: nvim alone in a native window, with sill's editor surface and nothing else.
+// The shim: nvim alone in a native window, with sill's editor surface and nothing else.
 targets.append(.executableTarget(
-    name: "SillShell",
+    name: "Shim",
     dependencies: ["SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", messagePack]
 ))
 targets.append(.executableTarget(
@@ -76,7 +76,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .executable(name: "SillApp", targets: ["SillApp"]),
-        .executable(name: "SillShell", targets: ["SillShell"]),
+        .executable(name: "Shim", targets: ["Shim"]),
     ],
     // The msgpack codec Veil's RPC layer is written against (MIT).
     dependencies: [.package(url: "https://github.com/qvacua/MessagePack.swift", exact: "4.1.0")],

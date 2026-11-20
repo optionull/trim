@@ -4,13 +4,13 @@ import SillCore
 import SillEditor
 import SillNvim
 
-// The shell: nvim alone in a native window, drawn by sill's Metal grid, its command line, completion and messages as
+// The shim: nvim alone in a native window, drawn by sill's Metal grid, its command line, completion and messages as
 // native views, with the person's own nvim config. No title bar by default; the window keeps macOS's rounded corners
 // and shadow, and moves by its margin. Settings are sill's (~/.config/sill/settings.toml): the font, its size and line
 // height, and `title_bar` under [shell].
 
 /// Where sill's runtime is: in the app's Resources, else (a `swift run` build) in the source tree.
-enum ShellRuntime {
+enum ShimRuntime {
     static var directory: URL {
         if let override = ProcessInfo.processInfo.environment["SILL_RUNTIME"] { return URL(fileURLWithPath: override) }
         if let bundled = Bundle.main.resourceURL?.appendingPathComponent("runtime"),
@@ -24,7 +24,7 @@ enum ShellRuntime {
 }
 
 /// The window's content: the grid inset by a margin the window moves by, and the native overlays over it.
-final class ShellView: NSView {
+final class ShimView: NSView {
     let editor: EditorView
     let overlay: NSView
     /// Room for the title bar's buttons when it shows.
@@ -75,11 +75,11 @@ extension NSColor {
 }
 
 @MainActor
-final class ShellDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class ShimDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let session = EditorSession()
     private(set) var window: NSWindow!
     private(set) var editor: EditorView!
-    private(set) var view: ShellView!
+    private(set) var view: ShimView!
     private var externalUI: ExternalUI!
     private var watcher: SettingsWatcher?
     private var quitting = false
@@ -99,7 +99,7 @@ final class ShellDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         EditorFont.load(Settings.shared.current)
         editor = EditorView(channel: session.channel)
         externalUI = ExternalUI(editor: editor)
-        view = ShellView(editor: editor, overlay: externalUI.overlay)
+        view = ShimView(editor: editor, overlay: externalUI.overlay)
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -113,7 +113,7 @@ final class ShellDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.isMovableByWindowBackground = false
         window.contentView = view
         window.delegate = self
-        window.setFrameAutosaveName("SillShell")
+        window.setFrameAutosaveName("Shim")
         apply()
         buildMenu()
 
@@ -131,7 +131,7 @@ final class ShellDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // nvim ended (:qa).
             NSApp.terminate(nil)
         }
-        if ProcessInfo.processInfo.environment["SILL_SHELL_CHECK"] == "1" {
+        if ProcessInfo.processInfo.environment["SILL_SHIM_CHECK"] == "1" {
             window.setFrame(NSRect(x: 0, y: 0, width: 1100, height: 760), display: false)
             view.layoutSubtreeIfNeeded()
         } else {
@@ -149,20 +149,20 @@ final class ShellDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let environment = NvimProcess.cachedEnv.merging(ProcessInfo.processInfo.environment) { _, own in own }
                 let startup = EditorSession.startup(
                     environment: environment,
-                    own: environment["SILL_SHELL_CHECK"] == "1"
+                    own: environment["SILL_SHIM_CHECK"] == "1"
                 )
                 try await session.start(
-                    runtime: ShellRuntime.directory,
+                    runtime: ShimRuntime.directory,
                     cols: cols,
                     rows: rows,
                     cwd: FileManager.default.currentDirectoryPath,
                     appName: startup.appName,
                     extraArgs: startup.arguments + ["-n"] + Array(arguments)
                 )
-                if ProcessInfo.processInfo.environment["SILL_SHELL_CHECK"] == "1" { await ShellCheck(self).run() }
+                if ProcessInfo.processInfo.environment["SILL_SHIM_CHECK"] == "1" { await ShimCheck(self).run() }
             } catch {
                 let alert = NSAlert(error: error)
-                alert.messageText = "The shell could not start nvim"
+                alert.messageText = "The shim could not start nvim"
                 alert.runModal()
                 NSApp.terminate(nil)
             }
@@ -183,7 +183,7 @@ final class ShellDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// Quitting with unsaved changes asks first, as nvim's :qa would refuse.
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
-        guard !quitting, ProcessInfo.processInfo.environment["SILL_SHELL_CHECK"] == nil else { return .terminateNow }
+        guard !quitting, ProcessInfo.processInfo.environment["SILL_SHIM_CHECK"] == nil else { return .terminateNow }
         Task {
             let modified = await (try? session.channel.lua("""
             return #vim.tbl_filter(function(b) return vim.bo[b].modified and vim.bo[b].buflisted end, vim.api.nvim_list_bufs())
@@ -276,7 +276,7 @@ if let directory = ProcessInfo.processInfo.environment["SILL_FONTS"],
 }
 
 let app = NSApplication.shared
-let delegate = ShellDelegate()
+let delegate = ShimDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.regular)
 app.run()

@@ -4,14 +4,14 @@ import SillCore
 import SillEditor
 import SillRender
 
-/// The shell's check (`SILL_SHELL_CHECK=1`, nvim without the person's config): what is typed reaches nvim and comes
+/// The shim's check (`SILL_SHIM_CHECK=1`, nvim without the person's config): what is typed reaches nvim and comes
 /// back as the grid; the window has no title bar's buttons but stays a titled window (macOS rounds those) and moves by
 /// its margin; `SILL_CHECK_SHOT` saves a picture of the window, its corners rounded as on screen.
 @MainActor
-struct ShellCheck {
-    let shell: ShellDelegate
+struct ShimCheck {
+    let shell: ShimDelegate
 
-    init(_ shell: ShellDelegate) { self.shell = shell }
+    init(_ shell: ShimDelegate) { self.shell = shell }
 
     private func step(_ text: String) {
         print("ok    " + text)
@@ -19,7 +19,7 @@ struct ShellCheck {
     }
 
     private func fail(_ text: String) -> Never {
-        print("shell check: FAILED: " + text)
+        print("shim check: FAILED: " + text)
         fflush(stdout)
         exit(1)
     }
@@ -35,11 +35,11 @@ struct ShellCheck {
     func run() async {
         guard let editor = shell.editor, let window = shell.window else { fail("no window") }
         await wait("nvim's grid") { editor.screen.grids[1] != nil }
-        shell.session.channel.send(keys: "ihello from the shell<Esc>")
+        shell.session.channel.send(keys: "ihello from the shim<Esc>")
         // Each window is a grid of its own (multigrid): the text is in one of them.
         await wait("the text in the grid") {
             editor.screen.grids.values
-                .contains { grid in (0 ..< grid.rows).contains { grid.line($0).contains("hello from the shell") } }
+                .contains { grid in (0 ..< grid.rows).contains { grid.line($0).contains("hello from the shim") } }
         }
         step("typed keys reach nvim and come back as the grid")
         let hidden = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
@@ -47,11 +47,11 @@ struct ShellCheck {
         guard hidden, window.styleMask.contains(.titled), window.titlebarAppearsTransparent,
               window.styleMask.contains(.fullSizeContentView)
         else { fail("no title bar, still a titled window: \(window.styleMask)") }
-        guard shell.view.mouseDownCanMoveWindow, editor.frame.minX == ShellView.margin,
-              editor.frame.minY == ShellView.margin
+        guard shell.view.mouseDownCanMoveWindow, editor.frame.minX == ShimView.margin,
+              editor.frame.minY == ShimView.margin
         else { fail("the grid inside its margin: \(editor.frame)") }
         step(
-            "no title bar or buttons; a titled window (rounded by macOS) that moves by its \(Int(ShellView.margin))-point margin"
+            "no title bar or buttons; a titled window (rounded by macOS) that moves by its \(Int(ShimView.margin))-point margin"
         )
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             do {
@@ -61,7 +61,7 @@ struct ShellCheck {
                 fail("the shot: \(error)")
             }
         }
-        print("shell check: passed")
+        print("shim check: passed")
         fflush(stdout)
         exit(0)
     }

@@ -489,15 +489,15 @@ font, the chrome, which nvim config, the agents, dotnet, heed); what nvim has an
 
 ![The settings window: the font, size and line height, smooth scrolling, the chrome, the nvim config, the agents, dotnet and heed, and a typo in the file named at the top](docs/showcase-settings-2026-10-24.png)
 
-### The shell
+### The shim (working title)
 
-`Sill Shell.app`, built beside sill, is nvim alone in a native window: the same Metal grid, the command line,
+`Shim.app`, built beside sill, is nvim alone in a native window: the same Metal grid, the command line,
 completion and messages as native views, your own nvim config, and nothing else (no explorer, panel, sidecar or
 agents). It has no title bar by default; the window keeps macOS's rounded corners and shadow and moves by its margin
 (`title_bar = true` under `[shell]` in the settings brings the buttons back). ⌘+, ⌘- and ⌘0 size the font; ⌘, opens
 the settings in it.
 
-![The shell: nvim in a rounded window with no title bar](docs/showcase-shell-2026-10-24.png)
+![The shim: nvim in a rounded window with no title bar](docs/showcase-shell-2026-10-24.png)
 
 ### As git's merge and diff tool
 
