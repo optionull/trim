@@ -22,8 +22,8 @@ public actor EditorSession {
     private var attached: (cols: Int, rows: Int)?
     /// A size asked for before nvim was attached; applied once it is.
     private var pendingSize: (cols: Int, rows: Int)?
-    /// Where a front end's own notifications go (`shim_*`: the shim's commands in nvim), set before `start`.
-    private var frontEndHandler: (@Sendable (String, [MessagePackValue]) -> Void)?
+    /// Where a front end's own notifications go (`shim_*`, `frame_*`: its commands in nvim), set before `start`.
+    private var frontEnd: (prefix: String, handler: @Sendable (String, [MessagePackValue]) -> Void)?
 
     public init() {
         (updates, continuation) = AsyncStream<ScreenUpdate>.makeStream()
@@ -70,10 +70,13 @@ public actor EditorSession {
         }
     }
 
-    /// Hands the notifications nvim sends a front end of its own (named `shim_…`) to `handler`, in order. They never
-    /// reach the screen model, which is sill's.
-    public func onFrontEndNotification(_ handler: @escaping @Sendable (String, [MessagePackValue]) -> Void) {
-        frontEndHandler = handler
+    /// Hands the notifications nvim sends a front end of its own (named `<prefix>…`, e.g. `shim_`) to `handler`, in
+    /// order. They never reach the screen model, which is sill's.
+    public func onFrontEndNotification(
+        prefix: String,
+        _ handler: @escaping @Sendable (String, [MessagePackValue]) -> Void
+    ) {
+        frontEnd = (prefix, handler)
     }
 
     /// Asks nvim for a new screen size. A size asked for before nvim is attached is kept and applied once it is: the
@@ -99,8 +102,8 @@ public actor EditorSession {
             // sill's runtime notifies outside redraw, so no flush need follow: a focus request or a pane report goes
             // out at once, with the last consistent screen.
             if case let .notification(method, args) = event {
-                if method.hasPrefix("shim_") {
-                    frontEndHandler?(method, args)
+                if let frontEnd, method.hasPrefix(frontEnd.prefix) {
+                    frontEnd.handler(method, args)
                 } else if method == "sill_terminal" {
                     continuation.yield(ScreenUpdate(screen: flushed, focusPane: args.first?.intValue))
                 } else if method.hasPrefix("sill_") {

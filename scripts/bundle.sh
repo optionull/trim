@@ -58,3 +58,14 @@ sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$co
   "$root/Resources/Shim-Info.plist" >"$shim/Contents/Info.plist"
 codesign --force --sign - "$shim"
 echo "bundle: $shim"
+
+# Frame: Shim's host with native panes around nvim (a working title). Its binary, sill's runtime and its own Info.plist.
+frame="${BUILD_DIR:-$root/build}/Frame.app"
+mkdir -p "$frame/Contents/MacOS" "$frame/Contents/Resources"
+cp "$products/Frame" "$frame/Contents/MacOS/Frame"
+rm -rf "$frame/Contents/Resources/runtime"
+cp -R "$root/runtime" "$frame/Contents/Resources/runtime"
+sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
+  "$root/Resources/Frame-Info.plist" >"$frame/Contents/Info.plist"
+codesign --force --sign - "$frame"
+echo "bundle: $frame"

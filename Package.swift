@@ -65,6 +65,11 @@ targets.append(.executableTarget(
     name: "Shim",
     dependencies: ["SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", messagePack]
 ))
+// Frame: Shim's host grown into a workspace of native panes around nvim (a working title). A copy of Shim that diverges.
+targets.append(.executableTarget(
+    name: "Frame",
+    dependencies: ["SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", messagePack]
+))
 targets.append(.executableTarget(
     name: "SillApp",
     dependencies: appDependencies,
@@ -77,6 +82,7 @@ let package = Package(
     products: [
         .executable(name: "SillApp", targets: ["SillApp"]),
         .executable(name: "Shim", targets: ["Shim"]),
+        .executable(name: "Frame", targets: ["Frame"]),
     ],
     // The msgpack codec Veil's RPC layer is written against (MIT).
     dependencies: [.package(url: "https://github.com/qvacua/MessagePack.swift", exact: "4.1.0")],

@@ -127,6 +127,10 @@ rm -rf /tmp/sill-shim-configs && mkdir -p /tmp/sill-shim-configs/alpha && echo '
 out=$(cd /tmp && perl -e 'alarm 120; exec @ARGV or die' env SILL_SHIM_CHECK=1 XDG_CONFIG_HOME=/tmp/sill-shim-configs "$REPO/build/Shim.app/Contents/MacOS/Shim" 2>&1 | grep -E "^shim check" || true)
 echo "$out" | grep -q "^shim check: passed$" || { echo "$out"; echo "CHECK shim FAILED"; exit 1; }
 echo "sill check (shim): passed"
+rm -rf /tmp/sill-frame-configs && mkdir -p /tmp/sill-frame-configs/alpha && echo 'vim.g.frame_marker = "alpha"' >/tmp/sill-frame-configs/alpha/init.lua
+out=$(cd /tmp && perl -e 'alarm 120; exec @ARGV or die' env SILL_FRAME_CHECK=1 XDG_CONFIG_HOME=/tmp/sill-frame-configs "$REPO/build/Frame.app/Contents/MacOS/Frame" 2>&1 | grep -E "^frame check" || true)
+echo "$out" | grep -q "^frame check: passed$" || { echo "$out"; echo "CHECK frame FAILED"; exit 1; }
+echo "sill check (frame): passed"
 if [ -d ~/Projects/docs-builder ]; then
   # A clone of its own, never the owner's working copy: made once, reset to their HEAD each run, restored when new.
   D=/tmp/sill-docs-builder

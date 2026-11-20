@@ -278,7 +278,7 @@ final class ShimDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSM
     private func launch(startup: EditorSession.Startup, place: Place, arguments: [String]) async throws {
         view.layoutSubtreeIfNeeded()
         let (cols, rows) = editor.gridSize
-        await session.onFrontEndNotification { [weak self] method, args in
+        await session.onFrontEndNotification(prefix: "shim_") { [weak self] method, args in
             Task { @MainActor in self?.nvimAsked(method, args) }
         }
         try await session.start(
