@@ -246,3 +246,42 @@ struct FileIconTests {
         }
     }
 }
+
+@Suite("the sidebar's colours")
+struct TreePaletteTests {
+    @Test("a dark editor gets a sidebar of its own hue, a shade darker")
+    func dark() {
+        let palette = TreePalette(background: 0x1A1B26, foreground: 0xC0CAF5)
+        #expect(palette.isDark)
+        #expect(palette.sidebar == 0x13131B) // each channel 72% of the editor's (0x1A, 0x1B, 0x26)
+        #expect(TreePalette.luminance(palette.sidebar) < TreePalette.luminance(0x1A1B26))
+        // The hue is kept: blue stays the strongest channel and the channels keep their order.
+        let red = (palette.sidebar >> 16) & 0xFF, green = (palette.sidebar >> 8) & 0xFF, blue = palette.sidebar & 0xFF
+        #expect(blue > green && green >= red)
+    }
+
+    @Test("a light editor gets a sidebar only a little darker")
+    func light() {
+        let palette = TreePalette(background: 0xFFFFFF, foreground: 0x333333)
+        #expect(!palette.isDark)
+        #expect(palette.sidebar == 0xF2F2F2)
+        #expect(TreePalette(background: 0xFAF4ED, foreground: 0x575279).sidebar < 0xFAF4ED)
+    }
+
+    @Test("the quieter text is the foreground fading into the background, the fainter one nearer it")
+    func fading() {
+        let palette = TreePalette(background: 0x000000, foreground: 0xFFFFFF)
+        #expect(palette.muted == 0x8C8C8C)
+        #expect(palette.faint == 0x595959)
+        #expect(TreePalette.luminance(palette.faint) < TreePalette.luminance(palette.muted), "nearer the background")
+        #expect(TreePalette.mix(0x102030, 0xF0E0D0, 0) == 0x102030)
+        #expect(TreePalette.mix(0x102030, 0xF0E0D0, 1) == 0xF0E0D0)
+        #expect(TreePalette.mix(0x000000, 0xFFFFFF, 2) == 0xFFFFFF, "kept within a colour")
+    }
+
+    @Test("the same editor colours give the same palette, and another background another one")
+    func equality() {
+        #expect(TreePalette(background: 1, foreground: 2) == TreePalette(background: 1, foreground: 2))
+        #expect(TreePalette(background: 1, foreground: 2) != TreePalette(background: 3, foreground: 2))
+    }
+}

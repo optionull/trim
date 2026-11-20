@@ -3,23 +3,58 @@ import FrameTree
 import SillCore
 import SillEditor
 
+extension NSColor {
+    convenience init(frameRGB rgb: Int, alpha: CGFloat = 1) {
+        self.init(
+            srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255,
+            blue: CGFloat(rgb & 0xFF) / 255, alpha: alpha
+        )
+    }
+}
+
+/// The sidebar's look: the editor's colours (`TreePalette`) and the editor's font, at the sizes the grid has now.
+@MainActor
+struct TreeLook {
+    var palette = TreePalette(background: 0x0C0D0F, foreground: 0xCFD3D8)
+
+    var island: NSColor { NSColor(frameRGB: palette.sidebar) }
+    var text: NSColor { NSColor(frameRGB: palette.foreground) }
+    var muted: NSColor { NSColor(frameRGB: palette.muted) }
+    var faint: NSColor { NSColor(frameRGB: palette.faint) }
+    /// The selected row: the text's colour, faintly; more while the tree has the keyboard.
+    var selection: NSColor { NSColor(frameRGB: palette.foreground, alpha: 0.10) }
+    var focusedSelection: NSColor { NSColor(frameRGB: palette.foreground, alpha: 0.20) }
+
+    /// The editor's font (the face, size and line height of the grid), for names; a little smaller for what is beside
+    /// them.
+    var font: NSFont { EditorFont.font(CGFloat(EditorFont.size)) }
+    var boldFont: NSFont { EditorFont.font(CGFloat(EditorFont.size), .semibold) }
+    var smallFont: NSFont { EditorFont.font(max(CGFloat(EditorFont.size) - 2, 8)) }
+    var iconSize: CGFloat { CGFloat(EditorFont.size) + 1 }
+    /// A row is a line of the grid.
+    var rowHeight: CGFloat { max(ceil(EditorFont.metrics.height), 20) }
+    var indent: CGFloat { ceil(EditorFont.metrics.width * 2) }
+}
+
 /// The column left of the grid: a rounded island with the folder's name and branch over the tree.
 final class SidebarView: NSView {
+    var look = TreeLook() {
+        didSet { applyLook() }
+    }
+
     let scroll = NSScrollView()
     private let title = NSTextField(labelWithString: "")
     private let branch = NSTextField(labelWithString: "")
-    static let headerHeight: CGFloat = 40
+    /// The header: the name, and under it the branch, in the editor's font.
+    var headerHeight: CGFloat { look.rowHeight + 18 }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         // The island is dark whatever the system is: the disclosure triangles and scrollers follow.
         appearance = NSAppearance(named: .darkAqua)
-        title.font = Design.ui(13, weight: .semibold)
-        title.textColor = Design.text
         title.lineBreakMode = .byTruncatingMiddle
-        branch.font = Design.ui(11)
-        branch.textColor = Design.textMuted
         branch.lineBreakMode = .byTruncatingTail
+        applyLook()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
@@ -34,6 +69,16 @@ final class SidebarView: NSView {
     required init?(coder _: NSCoder) { fatalError("not used") }
 
     override var isFlipped: Bool { true }
+
+    /// The editor's font and colours, as they are now.
+    func applyLook() {
+        title.font = look.boldFont
+        title.textColor = look.text
+        branch.font = look.smallFont
+        branch.textColor = look.muted
+        needsLayout = true
+        needsDisplay = true
+    }
 
     func show(name: String, branch name_: String) {
         title.stringValue = name
@@ -51,7 +96,7 @@ final class SidebarView: NSView {
         title.frame = NSRect(x: inset, y: hasBranch ? 8 : 12, width: width, height: title.frame.height)
         branch.frame = NSRect(x: inset, y: title.frame.maxY + 1, width: width, height: branch.frame.height)
         branch.isHidden = !hasBranch
-        let top = Self.headerHeight + (hasBranch ? 4 : 0)
+        let top = max(headerHeight, branch.frame.maxY + 6)
         scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top - 6))
         // The one column is as wide as what shows, so the badges at a row's right edge are not beyond it.
         if let table = scroll.documentView as? NSTableView, let column = table.tableColumns.first {
@@ -61,7 +106,7 @@ final class SidebarView: NSView {
     }
 
     override func draw(_: NSRect) {
-        Design.chrome.setFill()
+        look.island.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: Design.islandRadius, yRadius: Design.islandRadius).fill()
     }
 }
@@ -74,6 +119,16 @@ final class TreeOutline: NSOutlineView {
     private var pendingG = false
 
     override var acceptsFirstResponder: Bool { true }
+
+    /// The click that activates the window is the tree's too: a person who clicks a row means to use it.
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
+
+    /// A click gives the tree the keyboard itself: when the window or the app is not active yet, the table's own
+    /// mouse-down selects the row but leaves the keyboard where it was, and keys go on to the editor.
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
 
     private func select(row: Int) {
         guard (0 ..< numberOfRows).contains(row) else { return }
@@ -118,9 +173,11 @@ final class TreeOutline: NSOutlineView {
 
 /// A row: the selection a rounded fill, in the accent while the tree has the keyboard.
 final class TreeRowView: NSTableRowView {
+    var look = TreeLook()
+
     override func drawSelection(in _: NSRect) {
         let rect = bounds.insetBy(dx: 6, dy: 1)
-        (isEmphasized ? Design.accent.withAlphaComponent(0.18) : Design.selection).setFill()
+        (isEmphasized ? look.focusedSelection : look.selection).setFill()
         NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
     }
 
@@ -135,9 +192,7 @@ final class TreeCellView: NSTableCellView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        name.font = Design.ui(13)
         name.lineBreakMode = .byTruncatingMiddle
-        badge.font = Design.ui(11, weight: .semibold)
         badge.alignment = .right
         for view in [icon, name, badge] {
             view.isBordered = false
@@ -148,16 +203,16 @@ final class TreeCellView: NSTableCellView {
     @available(*, unavailable)
     required init?(coder _: NSCoder) { fatalError("not used") }
 
-    static func color(_ tint: FileIcon.Tint) -> NSColor {
+    static func color(_ tint: FileIcon.Tint, look: TreeLook) -> NSColor {
         switch tint {
-        case .folder: NSColor(hex: 0x7C9CCB)
+        case .folder: NSColor(frameRGB: TreePalette.mix(look.palette.foreground, 0x7C9CCB, 0.6))
         case .dotnet: Design.insert
         case .systems: NSColor(hex: 0xF0965F)
         case .web: NSColor(hex: 0x7FB4F0)
         case .script: Design.accent
         case .data: Design.modified
         case .project, .image: Design.visual
-        case .plain, .docs: Design.textMuted
+        case .plain, .docs: look.muted
         }
     }
 
@@ -181,15 +236,16 @@ final class TreeCellView: NSTableCellView {
         }
     }
 
-    func configure(_ node: TreeNode, expanded: Bool) {
-        let look = FileIcons.icon(name: node.name, isDirectory: node.isDirectory, expanded: expanded)
-        icon.font = NerdFont.font(size: 14)
-        icon.stringValue = NerdFont.has(look.glyph) ? String(look.glyph) : ""
-        icon.textColor = Self.color(look.tint)
+    func configure(_ node: TreeNode, expanded: Bool, look: TreeLook) {
+        let kind = FileIcons.icon(name: node.name, isDirectory: node.isDirectory, expanded: expanded)
+        icon.font = NerdFont.font(size: look.iconSize)
+        icon.stringValue = NerdFont.has(kind.glyph) ? String(kind.glyph) : ""
+        icon.textColor = Self.color(kind.tint, look: look)
+        name.font = look.font
+        badge.font = look.smallFont
         name.stringValue = node.name
         let changed = node.status
-        name.textColor = changed
-            .map(Self.color) ?? (node.isDirectory ? Design.text : Design.text.withAlphaComponent(0.88))
+        name.textColor = changed.map(Self.color) ?? look.text
         if let changed {
             badge.stringValue = Self.letter(changed)
             badge.textColor = Self.color(changed)
@@ -233,6 +289,8 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     private var events: FileEvents?
     private var gitTask: Task<Void, Never>?
     private var pending: DispatchWorkItem?
+    /// The editor's colours and font as they are now.
+    private(set) var look = TreeLook()
     /// A file is opened: the path, for the editor to show, and whether the keyboard goes to the editor with it.
     var onOpen: ((String, Bool) -> Void)?
     /// Back to the editor.
@@ -248,9 +306,9 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         outline.headerView = nil
         outline.backgroundColor = .clear
         outline.style = .plain
-        outline.rowHeight = 24
+        outline.rowHeight = look.rowHeight
         outline.intercellSpacing = NSSize(width: 0, height: 2)
-        outline.indentationPerLevel = 14
+        outline.indentationPerLevel = look.indent
         outline.floatsGroupRows = false
         // The column stays as wide as the sidebar: by default it grows by an indent whenever a deeper folder opens.
         outline.autoresizesOutlineColumn = false
@@ -263,6 +321,24 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         outline.onActivate = { [weak self] node, toEditor in self?.activate(node, toEditor: toEditor) }
         outline.doubleAction = #selector(doubleClicked(_:))
         sidebar.scroll.documentView = outline
+    }
+
+    /// The editor's colour scheme changed (or the first one arrived): the sidebar follows it.
+    func follow(background: Int, foreground: Int) {
+        let palette = TreePalette(background: background, foreground: foreground)
+        guard palette != look.palette else { return }
+        look.palette = palette
+        applyLook()
+    }
+
+    /// The editor's font changed: names, rows and indents follow.
+    func fontChanged() { applyLook() }
+
+    private func applyLook() {
+        sidebar.look = look
+        outline.rowHeight = look.rowHeight
+        outline.indentationPerLevel = look.indent
+        outline.reloadData()
     }
 
     /// The tree now shows this folder (the same one again changes nothing).
@@ -415,7 +491,11 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         (item as? TreeNode)?.isDirectory ?? false
     }
 
-    func outlineView(_: NSOutlineView, rowViewForItem _: Any) -> NSTableRowView? { TreeRowView() }
+    func outlineView(_: NSOutlineView, rowViewForItem _: Any) -> NSTableRowView? {
+        let row = TreeRowView()
+        row.look = look
+        return row
+    }
 
     func outlineView(_ outlineView: NSOutlineView, viewFor _: NSTableColumn?, item: Any) -> NSView? {
         guard let node = item as? TreeNode else { return nil }
@@ -425,7 +505,7 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
             made.identifier = identifier
             return made
         }()
-        cell.configure(node, expanded: outlineView.isItemExpanded(node))
+        cell.configure(node, expanded: outlineView.isItemExpanded(node), look: look)
         return cell
     }
 

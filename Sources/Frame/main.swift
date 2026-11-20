@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+import FrameTree
 import MessagePack
 import SillCore
 import SillEditor
@@ -325,12 +326,24 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             startup = config.startup
         }
         current = NvimConfig(appName: startup.appName, isBuiltIn: !startup.userConfig)
-        let arguments = CommandLine.arguments.dropFirst()
-            .filter { !$0.hasPrefix("-psn") && !$0.hasPrefix("-NS") }
-        // Where nvim and the tree start: the folder the app was started in, else (from the Dock that is /) the home
-        // folder; the self-check starts in a folder of its own so the tree never reads one that is not.
+        var arguments = Array(CommandLine.arguments.dropFirst()
+            .filter { !$0.hasPrefix("-psn") && !$0.hasPrefix("-NS") })
+        // Where nvim and the tree start: a folder given as the first argument (`open -n Frame.app --args
+        // ~/Projects/x`),
+        // else the folder the app was started in, else (from the Dock that is /) the home folder; the self-check starts
+        // in a folder of its own so the tree never reads one that is not.
         var folder = FileManager.default.currentDirectoryPath
         if folder == "/" { folder = NSHomeDirectory() }
+        var isFolder: ObjCBool = false
+        if !checking, let first = arguments.first, FileManager.default.fileExists(
+            atPath: first,
+            isDirectory: &isFolder
+        ),
+            isFolder.boolValue
+        {
+            folder = RealPath.of(first)
+            arguments.removeFirst()
+        }
         if checking {
             folder = NSTemporaryDirectory() + "frame-check-\(UUID().uuidString)"
             try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -342,7 +355,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
                 try await launch(
                     startup: startup,
                     place: Place(cwd: folder),
-                    arguments: Array(arguments)
+                    arguments: arguments
                 )
                 if checking { await FrameCheck(self).run() }
             } catch {
@@ -367,11 +380,15 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         let session = session
         editor.onResize = { cols, rows in Task { await session.resize(cols: cols, rows: rows) } }
         editor.onKey = { [weak self] in self?.externalUI.keyPressed() }
-        EditorFont.onChange = { [weak self] in self?.editor.fontChanged() }
+        EditorFont.onChange = { [weak self] in
+            self?.editor.fontChanged()
+            self?.tree.fontChanged()
+        }
         let updates = session.updates
         Task { [weak self] in
             for await update in updates {
                 guard let self, self.generation == generation else { return }
+                tree.follow(background: update.screen.defaultBackground, foreground: update.screen.defaultForeground)
                 editor.show(update.screen)
                 externalUI.update(update.screen)
                 view.needsDisplay = true
@@ -462,6 +479,28 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     vim.api.nvim_create_autocmd('DirChanged', { group = group, callback = function() tell('frame_cwd', vim.fn.getcwd()) end })
     tell('frame_cwd', vim.fn.getcwd())
     shown(vim.api.nvim_get_current_buf())
+    -- :FrameTree shows, hides or goes into the sidebar; <Plug> mappings to bind your own keys to.
+    local actions = { 'toggle', 'show', 'hide', 'focus' }
+    vim.api.nvim_create_user_command('FrameTree', function(opts)
+      local action = opts.args ~= '' and opts.args or 'toggle'
+      if not vim.tbl_contains(actions, action) then
+        return vim.notify('FrameTree: ' .. action .. ' is not one of ' .. table.concat(actions, ', '), vim.log.levels.ERROR)
+      end
+      tell('frame_tree', action)
+    end, {
+      nargs = '?',
+      complete = function(lead)
+        return vim.tbl_filter(function(name) return name:sub(1, #lead) == lead end, actions)
+      end,
+      desc = 'Show, hide or go into the file tree',
+    })
+    vim.keymap.set('n', '<Plug>(frame-tree-toggle)', function() tell('frame_tree', 'toggle') end, { desc = 'Show or hide the file tree' })
+    vim.keymap.set('n', '<Plug>(frame-tree-focus)', function() tell('frame_tree', 'focus') end, { desc = 'Go into the file tree' })
+    -- Default keys, each only where the config has not bound it: <leader>e shows and enters the tree, or hides it;
+    -- <C-w>e enters it (showing it first).
+    for lhs, plug in pairs({ ['<leader>e'] = '<Plug>(frame-tree-toggle)', ['<C-w>e'] = '<Plug>(frame-tree-focus)' }) do
+      if vim.fn.maparg(lhs, 'n') == '' then vim.keymap.set('n', lhs, plug, { remap = true, desc = 'File tree' }) end
+    end
     -- <C-w>h from the leftmost window goes on into the tree (a mapping of the config's own is left alone).
     for _, lhs in ipairs({ '<C-w>h', '<C-w><C-h>' }) do
       if vim.fn.maparg(lhs, 'n') == '' then
@@ -499,6 +538,16 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         case "frame_focus":
             tree.focus()
             return
+        case "frame_tree":
+            switch args.first?.stringValue {
+            case "show": setSidebar(visible: true)
+            case "hide": setSidebar(visible: false)
+            case "focus": focusSidebar(nil)
+            default:
+                // Toggle: shown and entered, or hidden.
+                if view.sidebarVisible { setSidebar(visible: false) } else { focusSidebar(nil) }
+            }
+            return
         default: break
         }
         guard method == "frame_config", let name = args.first?.stringValue else { return }
@@ -534,7 +583,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     func focusEditor() { window.makeFirstResponder(editor) }
 
     @objc func focusSidebar(_: Any?) {
-        if !view.sidebarVisible { view.sidebarVisible = true }
+        setSidebar(visible: true)
         tree.focus()
     }
 
@@ -662,7 +711,13 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
 
     // MARK: Menu
 
-    @objc func toggleSidebar(_: Any?) { view.sidebarVisible.toggle() }
+    /// Shows or hides the sidebar. Hidden while it has the keyboard, the keyboard goes back to the editor.
+    func setSidebar(visible: Bool) {
+        view.sidebarVisible = visible
+        if !visible, window.firstResponder === tree.outline { focusEditor() }
+    }
+
+    @objc func toggleSidebar(_: Any?) { setSidebar(visible: !view.sidebarVisible) }
 
     @objc func bigger(_: Any?) { EditorFont.zoom(1) }
     @objc func smaller(_: Any?) { EditorFont.zoom(-1) }

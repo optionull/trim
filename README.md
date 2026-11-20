@@ -514,7 +514,11 @@ at a time. So far a **sidebar** left of the grid: a native file tree (folders fi
 ignores left out, Nerd Font icons from a font the app carries, kept up to date as files change), sized by dragging its
 divider (⌘B hides it, ⇧⌘E goes into it; `j`/`k`/`h`/`l`, the arrows and Return move and open, Escape goes back to the
 editor, and `<C-w>h` from the leftmost window goes into it). Clicking a file opens it in nvim, and the tree follows
-the file nvim shows and the folder it is in. It has the shim's Config menu and `:FrameConfig`. `mise run fonts` downloads
+the file nvim shows and the folder it is in. `:FrameTree [toggle|show|hide|focus]` shows, hides or enters the sidebar (⌘B hides or shows it, ⇧⌘E enters it);
+`<leader>e` toggles it and `<C-w>e` enters it, each only where your config has not bound the key, and
+`<Plug>(frame-tree-toggle)` and `<Plug>(frame-tree-focus)` are there to bind your own. The sidebar is in the editor's
+font and a shade of its background, and follows its colour scheme. `open -n Frame.app --args ~/Projects/x` starts it
+in a folder. It has the shim's Config menu and `:FrameConfig`. `mise run fonts` downloads
 the icon font (`scripts/bundle.sh` does too); its licences are in `THIRD_PARTY_NOTICES.md`.
 
 ### As git's merge and diff tool

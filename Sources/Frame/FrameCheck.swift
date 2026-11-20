@@ -65,6 +65,7 @@ struct FrameCheck {
             "no title bar or buttons; a titled window (rounded by macOS) that moves by its \(Int(FrameView.margin))-point margin"
         )
         await treeSteps()
+        await focusSteps()
         await layoutSteps()
         await switchSteps()
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -149,6 +150,40 @@ struct FrameCheck {
             .stringValue == String(FileIcons.icon(name: "README.md", isDirectory: false).glyph),
             cell("src")?.icon.stringValue == String(FileIcons.folder.glyph)
         else { fail("the rows' icons: \(cell("README.md")?.icon.stringValue ?? "none")") }
+        // The editor's own font, row height and colours, and a colour scheme change followed as it comes.
+        guard let readme = cell(".gitignore"), let sidebar = shell.view.sidebar as SidebarView?,
+              let editor = shell.editor
+        else { fail("no row to look at") }
+        let grid = EditorFont.metrics.regular
+        guard readme.name.font?.familyName == grid.familyName, readme.name.font?.pointSize == CGFloat(EditorFont.size),
+              tree.outline.rowHeight == max(ceil(EditorFont.metrics.height), 20)
+        else {
+            fail(
+                "the tree is not in the editor's font: \(readme.name.font?.fontName ?? "none"), the grid's is \(grid.fontName)"
+            )
+        }
+        step("the tree is in the editor's font and size, a row a line of the grid")
+        func expected(_ background: Int, _ foreground: Int) -> TreePalette {
+            TreePalette(background: background, foreground: foreground)
+        }
+        let scheme = (editor.screen.defaultBackground, editor.screen.defaultForeground)
+        guard sidebar.look.palette == expected(scheme.0, scheme.1)
+        else { fail("the sidebar is not in the editor's colours") }
+        do { _ = try await channel.command("highlight Normal guibg=#102030 guifg=#e0e0d0") } catch {
+            fail("highlight: \(error)")
+        }
+        await wait("the sidebar to follow the colour scheme") { sidebar.look.palette == expected(0x102030, 0xE0E0D0) }
+        guard sidebar.look.palette.sidebar == TreePalette.mix(0x102030, 0, TreePalette.darkShade),
+              sidebar.look.palette.sidebar != 0x102030,
+              cell(".gitignore")?.name.textColor == NSColor(frameRGB: 0xE0E0D0)
+        else { fail("the sidebar's colours after the change: \(String(sidebar.look.palette.sidebar, radix: 16))") }
+        do {
+            _ = try await channel.command(
+                "highlight Normal guibg=#\(String(format: "%06x", scheme.0)) guifg=#\(String(format: "%06x", scheme.1))"
+            )
+        } catch { fail("highlight: \(error)") }
+        await wait("the sidebar back in the first colours") { sidebar.look.palette == expected(scheme.0, scheme.1) }
+        step("the sidebar is a shade of the editor's background and follows a change of colour scheme")
         tree.expand(folder + "/src")
         await wait("src's entries") { names().contains("Order.cs") }
         guard cell("src")?.icon.stringValue == String(FileIcons.folderOpen.glyph),
@@ -232,6 +267,87 @@ struct FrameCheck {
                 fail("the tree's shot: \(error)")
             }
         }
+    }
+
+    /// What a person does to reach the tree, through AppKit's own event handling (hit-testing, first responder,
+    /// key equivalents), not by calling the controller: a click on a row, and the menu's keys.
+    private func focusSteps() async {
+        guard let tree = shell.tree, let window = shell.window, let editor = shell.editor, let view = shell.view
+        else { fail("no tree") }
+        func click(row: Int, count: Int = 1) {
+            let rect = tree.outline.convert(tree.outline.rect(ofRow: row), to: nil)
+            let point = NSPoint(x: rect.minX + 60, y: rect.midY)
+            func event(_ type: NSEvent.EventType, _ number: Int) -> NSEvent {
+                NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: number, clickCount: count,
+                    pressure: 1
+                )!
+            }
+            // The release is queued first: a table's mouse-down tracks until it.
+            NSApp.postEvent(event(.leftMouseUp, 2), atStart: false)
+            // To the outline itself: a window that is not on screen is sent no mouse events, and what matters here is
+            // what
+            // the outline does with the click when its window or app is not the active one.
+            tree.outline.mouseDown(with: event(.leftMouseDown, 1))
+        }
+        func chord(_ characters: String, _ flags: NSEvent.ModifierFlags) {
+            let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: characters.lowercased(), isARepeat: false, keyCode: 0
+            )!
+            // The menu's key equivalents, as the system hands them to the menu bar.
+            if NSApp.mainMenu?.performKeyEquivalent(with: event) != true { fail("no menu item takes \(characters)") }
+        }
+        view.sidebarVisible = true
+        view.layoutSubtreeIfNeeded()
+        window.makeFirstResponder(editor)
+        click(row: 0)
+        await wait("a click on a row to give the tree the keyboard") { window.firstResponder === tree.outline }
+        step("a click on a row gives the tree the keyboard")
+        window.makeFirstResponder(editor)
+        chord("E", [.command, .shift])
+        await wait("⇧⌘E to give the tree the keyboard") { window.firstResponder === tree.outline }
+        step("⇧⌘E gives the tree the keyboard")
+        window.makeFirstResponder(editor)
+        // :FrameTree and its keys, from inside nvim.
+        let channel = shell.session.channel
+        func command(_ text: String) async {
+            do { _ = try await channel.command(text) } catch { fail("\(text): \(error)") }
+        }
+        await command("FrameTree hide")
+        await wait(":FrameTree hide") { !view.sidebarVisible }
+        guard window.firstResponder === editor
+        else { fail("hiding the sidebar left the keyboard on something that is gone") }
+        await command("FrameTree show")
+        await wait(":FrameTree show") { view.sidebarVisible }
+        await command("FrameTree focus")
+        await wait(":FrameTree focus") { window.firstResponder === tree.outline }
+        await command("FrameTree toggle")
+        await wait(":FrameTree toggle to hide it from inside") { !view.sidebarVisible }
+        guard window.firstResponder === editor
+        else { fail("toggling the sidebar away from the tree lost the keyboard") }
+        await command("FrameTree toggle")
+        await wait(":FrameTree toggle to show it and go in") {
+            view.sidebarVisible && window.firstResponder === tree.outline
+        }
+        window.makeFirstResponder(editor)
+        await command("FrameTree hide")
+        channel.send(keys: "<C-w>e")
+        await wait("<C-w>e to show the tree and go in") { view.sidebarVisible && window.firstResponder === tree.outline
+        }
+        window.makeFirstResponder(editor)
+        let mapped = await (try? channel.lua("return vim.fn.maparg('<leader>e', 'n') ~= ''"))?.boolValue
+        let known = await (try? channel.lua("return vim.fn.getcompletion('FrameTree ', 'cmdline')"))?.arrayValue?
+            .compactMap(\.stringValue)
+        guard mapped == true, known == ["toggle", "show", "hide", "focus"] else {
+            fail("<leader>e mapped: \(String(describing: mapped)); :FrameTree completes \(String(describing: known))")
+        }
+        _ = try? await channel.command("FrameTree sideways")
+        try? await Task.sleep(for: .milliseconds(300))
+        guard view.sidebarVisible else { fail("an unknown :FrameTree action changed the sidebar") }
+        step(":FrameTree shows, hides and enters the sidebar; <C-w>e and <leader>e are bound; the keyboard follows")
     }
 
     /// The sidebar and the grid share the window: the grid takes what the sidebar leaves, nvim is told its new size
