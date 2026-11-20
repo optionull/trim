@@ -113,14 +113,23 @@ public actor EditorSession {
         public var arguments: [String]
         /// The user's config is loaded (their init.lua, plugins and lockfile, as in a terminal).
         public var userConfig: Bool
+
+        public init(appName: String, arguments: [String], userConfig: Bool) {
+            self.appName = appName
+            self.arguments = arguments
+            self.userConfig = userConfig
+        }
     }
+
+    /// sill's base settings, passed ahead of the user's config so theirs win.
+    static let baseArguments = ["--cmd", "lua require('sill.base')"]
 
     /// With a config of the user's (`$XDG_CONFIG_HOME/nvim` or `~/.config/nvim` holding an init.lua or init.vim),
     /// nvim runs under its own name so that config loads as it always does, plugins and lockfile shared with nvim in
     /// a terminal; sill's base settings go first (`--cmd`), so the user's win. Without one, or when `own` asks for
     /// sill alone (the self-check), nvim runs as `sill` with only the base settings.
     public static func startup(environment: [String: String], own: Bool) -> Startup {
-        let base = ["--cmd", "lua require('sill.base')"]
+        let base = baseArguments
         guard !own else { return Startup(appName: "sill", arguments: base, userConfig: false) }
         let home = environment["HOME"] ?? NSHomeDirectory()
         let configHome = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? "\(home)/.config"

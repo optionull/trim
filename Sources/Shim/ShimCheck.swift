@@ -1,4 +1,5 @@
 import AppKit
+import MessagePack
 import Metal
 import SillCore
 import SillEditor
@@ -53,6 +54,7 @@ struct ShimCheck {
         step(
             "no title bar or buttons; a titled window (rounded by macOS) that moves by its \(Int(ShimView.margin))-point margin"
         )
+        await switchSteps()
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             do {
                 try shot(editor: editor, to: path)
@@ -64,6 +66,46 @@ struct ShimCheck {
         print("shim check: passed")
         fflush(stdout)
         exit(0)
+    }
+
+    /// Switching config, when `XDG_CONFIG_HOME` holds one to switch to (verify.sh makes it): nvim restarts in the same
+    /// window under that config, in the same folder, with the file it had open at the same line; and back again.
+    private func switchSteps() async {
+        let environment = ProcessInfo.processInfo.environment
+        guard let home = environment["XDG_CONFIG_HOME"],
+              let target = NvimConfigs.discover(environment: environment).first(where: { !$0.isBuiltIn })
+        else { return }
+        let folder = home + "/work"
+        let file = folder + "/notes.txt"
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        try? "one\ntwo\nthree\nfour\n".write(toFile: file, atomically: true, encoding: .utf8)
+        let channel = shell.session.channel
+        for command in ["%bwipeout!", "cd " + folder, "edit " + file, "call cursor(3, 2)"] {
+            do { _ = try await channel.command(command) } catch { fail("\(command): \(error)") }
+        }
+        let window = shell.window
+        shell.switchConfig(to: target)
+        await wait("nvim to restart under \(target.appName)") { shell.current == target }
+        guard shell.window === window else { fail("the switch made another window") }
+        let there = await (try? shell.session.channel.lua(
+            "return { vim.g.shim_marker or '', vim.fn.getcwd(), vim.api.nvim_buf_get_name(0), vim.api.nvim_win_get_cursor(0)[1] }"
+        ))?.arrayValue
+        let marker = there?[0].stringValue, cwd = there?[1].stringValue
+        let name = there?[2].stringValue, line = there?[3].integerValue
+        guard marker == target.appName else { fail("the config did not load: marker \(marker ?? "nil")") }
+        guard cwd.map({ URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }) ==
+            URL(fileURLWithPath: folder).resolvingSymlinksInPath().path
+        else { fail("the folder was not kept: \(cwd ?? "nil")") }
+        guard name.map({ URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }) ==
+            URL(fileURLWithPath: file).resolvingSymlinksInPath().path, line == 3
+        else { fail("the open file was not kept: \(name ?? "nil") at \(line.map(String.init) ?? "nil")") }
+        step("switching to \(target.appName) restarts nvim in the same window, folder, file and line")
+        await wait("the grid again") { shell.editor.screen.grids[1] != nil }
+        shell.switchConfig(to: .builtIn)
+        await wait("nvim to restart under sill's own") { shell.current == .builtIn }
+        let back = await (try? shell.session.channel.lua("return vim.g.shim_marker or ''"))?.stringValue
+        guard back == "" else { fail("the first config's settings are still there: \(back ?? "nil")") }
+        step("and back to sill's own, with nothing of the other config left")
     }
 
     /// The window as it shows: its background, the grid at its margin, corners rounded by the window's radius.

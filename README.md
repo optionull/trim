@@ -497,6 +497,13 @@ agents). It has no title bar by default; the window keeps macOS's rounded corner
 (`title_bar = true` under `[shell]` in the settings brings the buttons back). ⌘+, ⌘- and ⌘0 size the font; ⌘, opens
 the settings in it.
 
+Config menu: nvim reads a config by its folder name (`NVIM_APPNAME`), so every folder in `~/.config` holding an
+`init.lua` or `init.vim` is a config the shim can run, beside sill's own built in. Choosing one in the Config menu
+(⌃⌘1 to ⌃⌘9, or ⌃⌘] for the next) restarts nvim in the same window under it, where you were: the same folder, the
+files you had open, the cursor in the one you were in. Unsaved changes are asked about first, a config that will not
+start puts the last one back, and the choice is remembered for the next start (`NVIM_APPNAME` set when the shim
+starts wins over it). Each config keeps its own plugins and lockfile, so none disturbs another.
+
 ![The shim: nvim in a rounded window with no title bar](docs/showcase-shell-2026-10-24.png)
 
 ### As git's merge and diff tool
