@@ -499,7 +499,8 @@ the settings in it.
 
 Config menu: nvim reads a config by its folder name (`NVIM_APPNAME`), so every folder in `~/.config` holding an
 `init.lua` or `init.vim` is a config the shim can run, beside sill's own built in. Choosing one in the Config menu
-(⌃⌘1 to ⌃⌘9, or ⌃⌘] for the next) restarts nvim in the same window under it, where you were: the same folder, the
+(⌃⌘1 to ⌃⌘9, or ⌃⌘] for the next), or `:ShimConfig name` from inside nvim (`:ShimConfig` alone lists them to choose
+from, through `vim.ui.select`, so your picker plugin takes over), restarts nvim in the same window under it, where you were: the same folder, the
 files you had open, the cursor in the one you were in. Unsaved changes are asked about first, a config that will not
 start puts the last one back, and the choice is remembered for the next start (`NVIM_APPNAME` set when the shim
 starts wins over it). Each config keeps its own plugins and lockfile, so none disturbs another.

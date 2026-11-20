@@ -278,6 +278,9 @@ final class ShimDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSM
     private func launch(startup: EditorSession.Startup, place: Place, arguments: [String]) async throws {
         view.layoutSubtreeIfNeeded()
         let (cols, rows) = editor.gridSize
+        await session.onFrontEndNotification { [weak self] method, args in
+            Task { @MainActor in self?.nvimAsked(method, args) }
+        }
         try await session.start(
             runtime: ShimRuntime.directory,
             cols: cols,
@@ -289,6 +292,10 @@ final class ShimDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSM
         if arguments.isEmpty, place.current != nil || !place.files.isEmpty {
             _ = try await session.channel.lua(Place.restoreLua, args: [place.argument])
         }
+        let names = configs().map(\.appName)
+        _ = try await session.channel.lua(
+            Self.commandLua, args: [.array(names.map { .string($0) }), .string(startup.appName)]
+        )
         if !checking { ConfigChoice.remembered = startup.appName }
     }
 
@@ -326,6 +333,42 @@ final class ShimDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSM
                 }
             }
         }
+    }
+
+    /// `:ShimConfig`, in each nvim the shim starts: with a name it switches to it, without one it lists the configs to
+    /// choose from (`vim.ui.select`, so a picker plugin of the config's takes over).
+    private static let commandLua = """
+    local names, current = ...
+    local function ask(name) vim.rpcnotify(vim.g.sill_channel, 'shim_config', name) end
+    vim.api.nvim_create_user_command('ShimConfig', function(opts)
+      if opts.args ~= '' then return ask(opts.args) end
+      vim.ui.select(names, {
+        prompt = 'Switch to nvim config',
+        format_item = function(name) return name == current and (name .. '  (current)') or name end,
+      }, function(choice) if choice then ask(choice) end end)
+    end, {
+      nargs = '?',
+      complete = function(lead)
+        return vim.tbl_filter(function(name) return name:sub(1, #lead) == lead end, names)
+      end,
+      desc = 'Restart nvim under another config, in this window',
+    })
+    """
+
+    /// What nvim asked of the shim (`:ShimConfig`).
+    private func nvimAsked(_ method: String, _ args: [MessagePackValue]) {
+        guard method == "shim_config", let name = args.first?.stringValue else { return }
+        guard let config = configs().first(where: { $0.appName == name }) else {
+            let known = configs().map(\.appName).joined(separator: ", ")
+            Task {
+                _ = try? await session.channel.lua(
+                    "vim.notify(..., vim.log.levels.ERROR)",
+                    args: [.string("ShimConfig: no config named \(name) (there are: \(known))")]
+                )
+            }
+            return
+        }
+        switchConfig(to: config)
     }
 
     @objc func chooseConfig(_ sender: NSMenuItem) {

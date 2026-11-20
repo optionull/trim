@@ -84,7 +84,8 @@ struct ShimCheck {
             do { _ = try await channel.command(command) } catch { fail("\(command): \(error)") }
         }
         let window = shell.window
-        shell.switchConfig(to: target)
+        // Through nvim, as a person does: `:ShimConfig name`.
+        do { _ = try await channel.command("ShimConfig " + target.appName) } catch { fail("ShimConfig: \(error)") }
         await wait("nvim to restart under \(target.appName)") { shell.current == target }
         guard shell.window === window else { fail("the switch made another window") }
         let there = await (try? shell.session.channel.lua(
@@ -101,11 +102,23 @@ struct ShimCheck {
         else { fail("the open file was not kept: \(name ?? "nil") at \(line.map(String.init) ?? "nil")") }
         step("switching to \(target.appName) restarts nvim in the same window, folder, file and line")
         await wait("the grid again") { shell.editor.screen.grids[1] != nil }
-        shell.switchConfig(to: .builtIn)
+        do { _ = try await shell.session.channel.command("ShimConfig sill") } catch { fail("ShimConfig sill: \(error)")
+        }
         await wait("nvim to restart under sill's own") { shell.current == .builtIn }
         let back = await (try? shell.session.channel.lua("return vim.g.shim_marker or ''"))?.stringValue
         guard back == "" else { fail("the first config's settings are still there: \(back ?? "nil")") }
         step("and back to sill's own, with nothing of the other config left")
+        let complete = await (try? shell.session.channel.lua("return vim.fn.getcompletion('ShimConfig ', 'cmdline')"))?
+            .arrayValue?.compactMap(\.stringValue)
+        guard complete == ["sill", target.appName] else { fail("ShimConfig completes \(complete ?? [])") }
+        step(":ShimConfig completes the configs there are")
+        _ = try? await shell.session.channel.command("ShimConfig nosuchconfig")
+        try? await Task.sleep(for: .milliseconds(400))
+        let messages = await (try? shell.session.channel.lua("return vim.fn.execute('messages')"))?.stringValue ?? ""
+        guard messages.contains("no config named nosuchconfig")
+        else { fail("an unknown config is not named: \(messages)") }
+        guard shell.current == .builtIn else { fail("an unknown config switched") }
+        step("an unknown config is named and nothing switches")
     }
 
     /// The window as it shows: its background, the grid at its margin, corners rounded by the window's radius.
