@@ -490,7 +490,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     tell('frame_cwd', vim.fn.getcwd())
     shown(vim.api.nvim_get_current_buf())
     -- :FrameTree shows, hides or goes into the sidebar; <Plug> mappings to bind your own keys to.
-    local actions = { 'toggle', 'show', 'hide', 'focus', 'ignored', 'dotfiles' }
+    local actions = { 'toggle', 'show', 'hide', 'focus', 'filter', 'ignored', 'dotfiles' }
     vim.api.nvim_create_user_command('FrameTree', function(opts)
       local action = opts.args ~= '' and opts.args or 'toggle'
       if not vim.tbl_contains(actions, action) then
@@ -553,6 +553,9 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             case "show": setSidebar(visible: true)
             case "hide": setSidebar(visible: false)
             case "focus": focusSidebar(nil)
+            case "filter":
+                setSidebar(visible: true)
+                tree.openFilter()
             case "ignored": tree.toggleIgnored()
             case "dotfiles": tree.toggleDotfiles()
             default:
@@ -730,6 +733,11 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     }
 
     @objc func toggleSidebar(_: Any?) { setSidebar(visible: !view.sidebarVisible) }
+    @objc func filterTree(_: Any?) {
+        setSidebar(visible: true)
+        tree.openFilter()
+    }
+
     @objc func toggleIgnoredFiles(_: Any?) { tree.toggleIgnored() }
     @objc func toggleDotfiles(_: Any?) { tree.toggleDotfiles() }
 
@@ -780,6 +788,8 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         menu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
         viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(toggleSidebar(_:)), keyEquivalent: "b")
+        viewMenu.addItem(withTitle: "Filter Files", action: #selector(filterTree(_:)), keyEquivalent: "f")
+            .keyEquivalentModifierMask = [.command, .option]
         let ignoredItem = viewMenu.addItem(
             withTitle: "Show Ignored Files", action: #selector(toggleIgnoredFiles(_:)), keyEquivalent: "."
         )

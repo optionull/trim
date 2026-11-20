@@ -221,6 +221,63 @@ struct FrameCheck {
             "I and H, :FrameTree ignored and the eye's menu show and hide ignored files and dotfiles; ignored ones are dimmed"
         )
         shell.window.makeFirstResponder(editor)
+        // The filter: an icon opens an input under the header; typing narrows the tree by path, live; Escape closes it.
+        let box = sidebar.filterBox
+        // A folder that is open when the filter starts is open again when it ends, and the ones it opened are shut.
+        tree.expand(folder + "/docs")
+        await wait("docs open") { names().contains("guide.md") }
+        let everything = names()
+        func type(_ text: String) {
+            guard let editor = box.field.currentEditor() as? NSTextView
+            else { fail("the filter is not being typed in") }
+            editor.string = ""
+            editor.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
+        func command(_ selector: Selector) {
+            guard let editor = box.field.currentEditor() as? NSTextView
+            else { fail("the filter is not being typed in") }
+            editor.doCommand(by: selector)
+        }
+        guard !sidebar.filterVisible, box.isHidden else { fail("the filter is open from the start") }
+        sidebar.filterButton.performClick(nil)
+        guard sidebar.filterVisible, !box.isHidden, box.field.currentEditor() != nil, sidebar.filterButton.isOn else {
+            fail("the filter's icon did not open the input with the keyboard in it")
+        }
+        type("ord")
+        await wait("the tree narrowed to the files that match") { names() == ["src", "Order.cs"] }
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try? shot(editor: editor, to: path.replacingOccurrences(of: ".png", with: "-filter.png"))
+        }
+        guard tree.selectedNode?.name == "Order.cs" else { fail("the first match is not selected") }
+        type("ZZZ")
+        await wait("nothing to match") { names().isEmpty && !sidebar.emptyNote.isHidden }
+        type("guide")
+        await wait("another match") { names() == ["docs", "guide.md"] }
+        command(#selector(NSResponder.moveDown(_:)))
+        guard tree.selectedNode?.name == "guide.md" else { fail("the arrow did not move through the results") }
+        command(#selector(NSResponder.insertNewline(_:)))
+        guard shell.window.firstResponder === tree.outline, tree.selectedNode?.name == "guide.md" else {
+            fail("Return did not go to the results: \(String(describing: shell.window.firstResponder))")
+        }
+        step("the filter narrows the tree to the paths that hold the text, live, and Return goes to the results")
+        tree.outline.keyDown(with: key("/"))
+        guard box.field.currentEditor() != nil else { fail("/ in the tree did not go to the filter") }
+        // End on a filter that opens src, not the docs that were open: both must be put right when it closes.
+        type("ord")
+        await wait("src opened by the filter") { names() == ["src", "Order.cs"] }
+        command(#selector(NSResponder.cancelOperation(_:)))
+        await wait("Escape to close the filter and show everything") { !sidebar.filterVisible && names() == everything }
+        guard shell.window.firstResponder === tree.outline, box.field.stringValue.isEmpty,
+              !sidebar.filterButton.isOn
+        else {
+            fail("Escape did not leave the tree with no filter")
+        }
+        do { _ = try await channel.command("FrameTree filter") } catch { fail("FrameTree filter: \(error)") }
+        await wait(":FrameTree filter") { sidebar.filterVisible && box.field.currentEditor() != nil }
+        command(#selector(NSResponder.cancelOperation(_:)))
+        await wait("the filter to close again") { !sidebar.filterVisible }
+        step("/ and :FrameTree filter open it, Escape closes it and the folders it opened shut again")
+        shell.window.makeFirstResponder(editor)
         tree.expand(folder + "/src")
         await wait("src's entries") { names().contains("Order.cs") }
         guard cell("src")?.icon.stringValue == String(FileIcons.folderOpen.glyph),
@@ -378,7 +435,7 @@ struct FrameCheck {
         let mapped = await (try? channel.lua("return vim.fn.maparg('<leader>e', 'n') ~= ''"))?.boolValue
         let known = await (try? channel.lua("return vim.fn.getcompletion('FrameTree ', 'cmdline')"))?.arrayValue?
             .compactMap(\.stringValue)
-        guard mapped == true, known == ["toggle", "show", "hide", "focus", "ignored", "dotfiles"] else {
+        guard mapped == true, known == ["toggle", "show", "hide", "focus", "filter", "ignored", "dotfiles"] else {
             fail("<leader>e mapped: \(String(describing: mapped)); :FrameTree completes \(String(describing: known))")
         }
         _ = try? await channel.command("FrameTree sideways")

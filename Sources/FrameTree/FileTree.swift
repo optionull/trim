@@ -37,6 +37,10 @@ public final class FileTree {
     public private(set) var showDotfiles = true
     public private(set) var git = GitState()
     private var nodes: [String: TreeNode] = [:]
+    /// The text the tree is filtered by, and what it found (nil when it is not filtered).
+    public private(set) var filter = ""
+    public private(set) var filterResult: FilterResult?
+    private var matches: Set<String>? { filterResult?.paths }
     /// The folders with a changed file somewhere below them, so a folder read later is marked as well.
     private var changedFolders: Set<String> = []
 
@@ -65,6 +69,7 @@ public final class FileTree {
         var entries: [TreeNode] = []
         for name in names {
             let path = folder.path + "/" + name
+            if let matches, !matches.contains(path) { continue }
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { continue }
             let node: TreeNode
@@ -151,6 +156,30 @@ public final class FileTree {
         if let ignored { showIgnored = ignored }
         if let dotfiles { showDotfiles = dotfiles }
         return reloadLoaded()
+    }
+
+    /// Filters the tree by what a scan found (nil, or no text, shows everything again). The folders whose entries
+    /// changed,
+    /// to be shown again.
+    @discardableResult
+    public func setFilter(_ text: String, result: FilterResult?) -> [TreeNode] {
+        filter = text
+        filterResult = text.isEmpty ? nil : result
+        return reloadLoaded()
+    }
+
+    /// While filtered: the folders on the way to what was found, read and in order from the root, to be opened.
+    public func foldersToExpand() -> [TreeNode] {
+        guard matches != nil else { return [] }
+        var folders: [TreeNode] = []
+        func walk(_ folder: TreeNode) {
+            for child in children(of: folder) where child.isDirectory {
+                folders.append(child)
+                walk(child)
+            }
+        }
+        walk(root)
+        return folders
     }
 
     /// Every folder read so far, read again (parents first, and one that went with a parent is left alone), and those

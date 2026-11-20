@@ -36,6 +36,52 @@ struct TreeLook {
     var indent: CGFloat { ceil(EditorFont.metrics.width * 2) }
 }
 
+/// The filter's input: a rounded field under the header, in the editor's font.
+final class FilterBox: NSView {
+    let field = NSTextField()
+    var look = TreeLook() {
+        didSet { apply() }
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.lineBreakMode = .byClipping
+        field.cell?.isScrollable = true
+        addSubview(field)
+        apply()
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) { fatalError("not used") }
+
+    func apply() {
+        field.font = look.font
+        field.textColor = look.text
+        field.placeholderAttributedString = NSAttributedString(string: "Filter files", attributes: [
+            .font: look.font, .foregroundColor: look.faint,
+        ])
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        field.sizeToFit()
+        let height = field.frame.height
+        field.frame = NSRect(x: 9, y: (bounds.height - height) / 2, width: max(0, bounds.width - 18), height: height)
+    }
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func draw(_: NSRect) {
+        look.text.withAlphaComponent(0.09).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
+    }
+}
+
 /// The column left of the grid: a rounded island with the folder's name and branch over the tree.
 final class SidebarView: NSView {
     var look = TreeLook() {
@@ -48,6 +94,16 @@ final class SidebarView: NSView {
     /// At the top right: the filter, and what is shown (ignored files, dotfiles).
     let filterButton = HeaderButton()
     let visibilityButton = HeaderButton()
+    /// Under the header while the filter is open, and what it says when nothing matches.
+    let filterBox = FilterBox()
+    let emptyNote = NSTextField(labelWithString: "No files match")
+    var filterVisible = false {
+        didSet {
+            filterBox.isHidden = !filterVisible
+            needsLayout = true
+        }
+    }
+
     /// The header: the name, and under it the branch, in the editor's font.
     var headerHeight: CGFloat { look.rowHeight + 18 }
 
@@ -63,7 +119,10 @@ final class SidebarView: NSView {
         scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = true
         scroll.scrollerStyle = .overlay
-        for view in [scroll, title, branch, filterButton, visibilityButton] {
+        filterBox.isHidden = true
+        emptyNote.isHidden = true
+        emptyNote.alignment = .center
+        for view in [scroll, title, branch, filterButton, visibilityButton, filterBox, emptyNote] {
             addSubview(view)
         }
     }
@@ -82,6 +141,9 @@ final class SidebarView: NSView {
         for button in [filterButton, visibilityButton] {
             button.look = look
         }
+        filterBox.look = look
+        emptyNote.font = look.smallFont
+        emptyNote.textColor = look.muted
         needsLayout = true
         needsDisplay = true
     }
@@ -109,7 +171,14 @@ final class SidebarView: NSView {
             x: inset, y: title.frame.maxY + 1, width: bounds.width - 2 * inset, height: branch.frame.height
         )
         branch.isHidden = !hasBranch
-        let top = max(headerHeight, branch.frame.maxY + 6)
+        var top = max(headerHeight, branch.frame.maxY + 6)
+        if filterVisible {
+            let height = look.rowHeight + 6
+            filterBox.frame = NSRect(x: 10, y: top - 4, width: bounds.width - 20, height: height)
+            top += height
+        }
+        emptyNote.sizeToFit()
+        emptyNote.frame = NSRect(x: inset, y: top + 12, width: bounds.width - 2 * inset, height: emptyNote.frame.height)
         scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top - 6))
         // The one column is as wide as what shows, so the badges at a row's right edge are not beyond it.
         if let table = scroll.documentView as? NSTableView, let column = table.tableColumns.first {
@@ -174,6 +243,8 @@ final class TreeOutline: NSOutlineView {
     /// `I` and `H`: show or hide ignored files, show or hide dotfiles.
     var onToggleIgnored: (() -> Void)?
     var onToggleDotfiles: (() -> Void)?
+    /// `/`: the filter.
+    var onFilter: (() -> Void)?
     /// The characters that are nvim's leader and local leader (Space for most configs).
     var leaders: Set<String> = [" "]
     /// A node entered; `toEditor` when the keyboard should go along to the editor.
@@ -223,6 +294,7 @@ final class TreeOutline: NSOutlineView {
         case "g":
             if wasG { select(row: 0) } else { pendingG = true }
         case "G": select(row: numberOfRows - 1)
+        case "/": onFilter?()
         case "I": onToggleIgnored?()
         case "H": onToggleDotfiles?()
         case "l":
@@ -358,7 +430,7 @@ final class TreeCellView: NSTableCellView {
 /// The tree in the sidebar: a folder's files read as they are asked for, kept up to date by the file system's events
 /// and by git, and the way into the editor: what is clicked or entered opens in nvim.
 @MainActor
-final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
+final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate {
     let sidebar: SidebarView
     let outline = TreeOutline()
     private(set) var tree: FileTree?
@@ -371,6 +443,14 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     private(set) var showIgnored: Bool
     private(set) var showDotfiles: Bool
     private let persisting: Bool
+    /// The filter: what its scan is doing, the folders it opened that were not open, and a keystroke waiting to be
+    /// scanned.
+    private var filterTask: Task<Void, Never>?
+    private var filterDebounce: DispatchWorkItem?
+    /// The folders that were open when the filter began, to open again when it ends: showing the matches reads the tree
+    /// afresh, which shuts every folder.
+    private var openBeforeFilter: [String]?
+    var filterText: String { sidebar.filterBox.field.stringValue }
     /// A file is opened: the path, for the editor to show, and whether the keyboard goes to the editor with it.
     var onOpen: ((String, Bool) -> Void)?
     /// Back to the editor.
@@ -394,6 +474,10 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         sidebar.visibilityButton.target = self
         sidebar.visibilityButton.action = #selector(visibilityClicked(_:))
         sidebar.filterButton.glyph = "\u{F0B0}"
+        sidebar.filterButton.target = self
+        sidebar.filterButton.action = #selector(filterClicked(_:))
+        sidebar.filterBox.field.delegate = self
+        outline.onFilter = { [weak self] in self?.openFilter() }
         outline.onToggleIgnored = { [weak self] in self?.toggleIgnored() }
         outline.onToggleDotfiles = { [weak self] in self?.toggleDotfiles() }
         refreshButtons()
@@ -428,6 +512,113 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         guard palette != look.palette else { return }
         look.palette = palette
         applyLook()
+    }
+
+    // MARK: The filter
+
+    @objc private func filterClicked(_: Any?) {
+        if sidebar.filterVisible { closeFilter() } else { openFilter() }
+    }
+
+    /// The input shows under the header and has the keyboard.
+    func openFilter() {
+        sidebar.filterVisible = true
+        sidebar.filterButton.isOn = true
+        sidebar.layoutSubtreeIfNeeded()
+        let field = sidebar.filterBox.field
+        field.window?.makeFirstResponder(field)
+        field.currentEditor()?.selectAll(nil)
+    }
+
+    /// The input goes, the filter with it, and the keyboard is the tree's.
+    func closeFilter() {
+        resetFilter()
+        outline.window?.makeFirstResponder(outline)
+    }
+
+    private func resetFilter() {
+        filterDebounce?.cancel()
+        sidebar.filterBox.field.stringValue = ""
+        sidebar.filterVisible = false
+        sidebar.filterButton.isOn = false
+        applyFilter("")
+    }
+
+    func controlTextDidChange(_: Notification) {
+        filterDebounce?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self.map { $0.applyFilter($0.filterText) } }
+        }
+        filterDebounce = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    /// Typing in the filter: Escape closes it, Return and Tab go to what it found, the arrows move through it.
+    func control(_: NSControl, textView _: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.cancelOperation(_:)):
+            closeFilter()
+        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
+            outline.window?.makeFirstResponder(outline)
+            if selectedNode == nil || selectedNode?.isDirectory == true { selectFirstFile() }
+        case #selector(NSResponder.moveDown(_:)): move(by: 1)
+        case #selector(NSResponder.moveUp(_:)): move(by: -1)
+        default: return false
+        }
+        return true
+    }
+
+    private func move(by step: Int) {
+        let row = min(max(outline.selectedRow + step, 0), outline.numberOfRows - 1)
+        guard row >= 0 else { return }
+        outline.selectRowIndexes([row], byExtendingSelection: false)
+        outline.scrollRowToVisible(row)
+    }
+
+    private func selectFirstFile() {
+        guard let row = visibleNodes.firstIndex(where: { !$0.isDirectory }) else { return }
+        outline.selectRowIndexes([row], byExtendingSelection: false)
+        outline.scrollRowToVisible(row)
+    }
+
+    /// Shows only what has `text` in its path, the way to it open; no text shows everything again. The folders are
+    /// scanned off the main thread.
+    func applyFilter(_ text: String) {
+        filterTask?.cancel()
+        guard let tree else { return }
+        guard !text.isEmpty else {
+            guard let open = openBeforeFilter else { return }
+            openBeforeFilter = nil
+            tree.setFilter("", result: nil)
+            outline.reloadData()
+            // What the filter opened is shut, and what was open before it is open again.
+            outline.collapseItem(nil, collapseChildren: true)
+            // By path: a folder the filter hid was forgotten, and is a new node now.
+            for path in open {
+                if let folder = tree.node(at: path) { outline.expandItem(folder) }
+            }
+            sidebar.emptyNote.isHidden = true
+            return
+        }
+        if openBeforeFilter == nil {
+            openBeforeFilter = visibleNodes.filter { $0.isDirectory && outline.isItemExpanded($0) }
+                .map(\.path).sorted { $0.count < $1.count }
+        }
+        let root = tree.root.path, ignored = tree.git.ignored
+        let (dotfiles, shown) = (tree.showDotfiles, tree.showIgnored)
+        filterTask = Task { [weak self] in
+            let result = await Task.detached {
+                FileTree.scan(root: root, text: text, showDotfiles: dotfiles, showIgnored: shown, ignored: ignored)
+            }.value
+            guard !Task.isCancelled, let self, self.tree === tree, filterText == text else { return }
+            tree.setFilter(text, result: result)
+            outline.reloadData()
+            for folder in tree.foldersToExpand() {
+                outline.expandItem(folder)
+            }
+            sidebar.emptyNote.isHidden = result.paths.contains { $0 != root }
+            selectFirstFile()
+        }
     }
 
     // MARK: What is shown
@@ -497,6 +688,7 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         let real = RealPath.of(path)
         guard tree?.root.path != real else { return }
         events = nil
+        resetFilter()
         let tree = FileTree(root: real)
         tree.setVisibility(ignored: showIgnored, dotfiles: showDotfiles)
         self.tree = tree
@@ -550,6 +742,7 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
             tree.reload(node)
             show(node)
         }
+        if !filterText.isEmpty { applyFilter(filterText) }
         refreshGit()
     }
 

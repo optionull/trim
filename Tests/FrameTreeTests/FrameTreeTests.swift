@@ -6,7 +6,7 @@ import Testing
 private struct Fixture {
     let root: String
 
-    init(_ paths: [String], git: Bool = false) throws {
+    init(_ paths: [String], git: Bool = false, ignore: String? = nil) throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("frame-tree-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         // As the tree sees it: /var and /tmp are links, and git reports the real paths.
@@ -23,6 +23,8 @@ private struct Fixture {
                 try "x\n".write(to: url, atomically: true, encoding: .utf8)
             }
         }
+        // Before the first commit, so what it names is never tracked.
+        if let ignore { try ignore.write(toFile: root + "/.gitignore", atomically: true, encoding: .utf8) }
         if git {
             try run("init", "-q", "-b", "main")
             try run("add", ".")
@@ -317,5 +319,81 @@ struct TreePaletteTests {
     func equality() {
         #expect(TreePalette(background: 1, foreground: 2) == TreePalette(background: 1, foreground: 2))
         #expect(TreePalette(background: 1, foreground: 2) != TreePalette(background: 3, foreground: 2))
+    }
+}
+
+@Suite("filtering the tree")
+struct TreeFilterTests {
+    private func fixture() throws -> Fixture {
+        try Fixture([
+            "src/Orders/Order.cs", "src/Orders/Total.cs", "src/Util.swift", "docs/guide.md", "docs/orders.md",
+            ".hidden/Order.txt", "build/order.o", "README.md",
+        ], git: true, ignore: "build/\n")
+    }
+
+    private func scan(
+        _ fixture: Fixture, _ text: String, dotfiles: Bool = true, ignored: Bool = false, limit: Int = 50000
+    ) -> FilterResult {
+        FileTree.scan(
+            root: fixture.root, text: text, showDotfiles: dotfiles, showIgnored: ignored,
+            ignored: GitState.read(in: fixture.root).ignored, limit: limit
+        )
+    }
+
+    @Test("the files whose path holds the text, without regard to case, and the folders above them")
+    func scans() throws {
+        let fixture = try fixture()
+        let root = fixture.root
+        let found = scan(fixture, "ORDER")
+        #expect(found.paths == [
+            root, root + "/src", root + "/src/Orders", root + "/src/Orders/Order.cs", root + "/src/Orders/Total.cs",
+            root + "/docs", root + "/docs/orders.md", root + "/.hidden", root + "/.hidden/Order.txt",
+        ], "a folder's name counts, so everything in src/Orders is there; build/ is ignored")
+        #expect(!found.truncated)
+        #expect(scan(fixture, "").paths.isEmpty)
+        #expect(scan(fixture, "nothing like this").paths.isEmpty)
+        #expect(scan(fixture, "guide").paths == [root, root + "/docs", root + "/docs/guide.md"])
+    }
+
+    @Test("what the tree leaves out is not walked: dotfiles and ignored files, as asked")
+    func skipping() throws {
+        let fixture = try fixture()
+        let root = fixture.root
+        #expect(!scan(fixture, "order", dotfiles: false).paths.contains(root + "/.hidden/Order.txt"))
+        #expect(scan(fixture, "order", dotfiles: true).paths.contains(root + "/.hidden/Order.txt"))
+        #expect(!scan(fixture, "order").paths.contains(root + "/build/order.o"))
+        #expect(scan(fixture, "order", ignored: true).paths.contains(root + "/build/order.o"))
+        #expect(!scan(fixture, "config").paths.contains { $0.contains("/.git/") }, "git's own folder is never walked")
+    }
+
+    @Test("a walk that reaches its limit says so")
+    func limit() throws {
+        let fixture = try fixture()
+        let found = scan(fixture, "order", limit: 3)
+        #expect(found.truncated)
+        #expect(!scan(fixture, "order").truncated)
+    }
+
+    @Test("a filtered tree lists only what was found, opens the way to it, and shows everything again when cleared")
+    func filtered() throws {
+        let fixture = try fixture()
+        let root = fixture.root
+        let tree = FileTree(root: root)
+        tree.apply(GitState.read(in: root))
+        let everything = fixture.names(tree.children(of: tree.root))
+        let result = scan(fixture, "total")
+        let affected = tree.setFilter("total", result: result)
+        #expect(affected.contains(tree.root))
+        #expect(fixture.names(tree.children(of: tree.root)) == ["src"])
+        #expect(tree.filter == "total")
+        let open = tree.foldersToExpand()
+        #expect(fixture.names(open) == ["src", "Orders"], "the way down to the match")
+        #expect(fixture.names(tree.children(of: open[1])) == ["Total.cs"])
+        tree.setFilter("", result: nil)
+        #expect(fixture.names(tree.children(of: tree.root)) == everything)
+        #expect(tree.foldersToExpand().isEmpty)
+        // A filter with no result at all shows everything too: nothing was found out, so nothing is hidden.
+        tree.setFilter("total", result: nil)
+        #expect(fixture.names(tree.children(of: tree.root)) == everything)
     }
 }
