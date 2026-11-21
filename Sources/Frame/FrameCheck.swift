@@ -370,6 +370,27 @@ struct FrameCheck {
         tree.outline.keyDown(with: key("\u{1B}", code: 53))
         await wait("Escape back to the editor") { shell.window.firstResponder === shell.editor }
         step("<C-w>h goes into the tree, j k gg G move, Escape comes back")
+        // Escape goes back and forth, as often as it is pressed.
+        for round in 1 ... 3 {
+            shell.editor.keyDown(with: key("\u{1B}", code: 53))
+            await wait("Escape to the tree (round \(round))") { shell.window.firstResponder === tree.outline }
+            tree.outline.keyDown(with: key("\u{1B}", code: 53))
+            await wait("Escape to the editor (round \(round))") { shell.window.firstResponder === shell.editor }
+        }
+        step("Escape in the editor's normal mode and in the tree go back and forth, again and again")
+        // A mode leaves before the tree does: with a filter on, Escape ends it first.
+        shell.editor.keyDown(with: key("\u{1B}", code: 53))
+        await wait("the tree") { shell.window.firstResponder === tree.outline }
+        tree.outline.keyDown(with: key("/"))
+        type("ord")
+        await wait("the filter") { tree.mode == .filter }
+        tree.outline.window?.makeFirstResponder(tree.outline)
+        tree.outline.keyDown(with: key("\u{1B}", code: 53))
+        await wait("Escape to end the filter") { tree.mode == .normal }
+        guard shell.window.firstResponder === tree.outline else { fail("Escape in a filter left the tree with it") }
+        tree.outline.keyDown(with: key("\u{1B}", code: 53))
+        await wait("the next Escape to leave the tree") { shell.window.firstResponder === shell.editor }
+        step("Escape in the tree ends the filter first and leaves the tree on the next")
         // After folders opened two levels deep: nothing is wider than what the sidebar shows, so no badge is cut off.
         let visible = shell.view.sidebar.scroll.contentSize.width
         guard tree.outline.frame.width == visible, tree.outline.tableColumns[0].width == visible,

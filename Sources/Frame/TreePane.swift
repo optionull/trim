@@ -236,6 +236,8 @@ final class HeaderButton: NSButton {
 /// The outline: vim's keys beside the arrows, and Escape (or Tab) back to the editor.
 final class TreeOutline: NSOutlineView {
     var onEscape: (() -> Void)?
+    /// Escape: the tree decides whether it is leaving a mode or leaving the tree.
+    var onCancel: (() -> Void)?
     /// Keys that are nvim's, not the tree's: the leader, `:` and Control chords. The keyboard goes to the editor with
     /// the
     /// key, so a sequence that starts here (`<leader>e`, `<C-w>l`, `:`) is finished there, whatever row is selected.
@@ -313,7 +315,8 @@ final class TreeOutline: NSOutlineView {
             if let node { onActivate?(node, true) }
         case "p", " ":
             if let node, !node.isDirectory { onActivate?(node, false) }
-        case "\u{1B}", "\t": onEscape?()
+        case "\u{1B}": onCancel?()
+        case "\t": onEscape?()
         default: super.keyDown(with: event)
         }
     }
@@ -502,6 +505,7 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         outline.target = self
         outline.action = #selector(clicked(_:))
         outline.onEscape = { [weak self] in self?.onEscape?() }
+        outline.onCancel = { [weak self] in self?.cancel() }
         outline.onForward = { [weak self] event in self?.onForward?(event) }
         outline.onActivate = { [weak self] node, toEditor in self?.activate(node, toEditor: toEditor) }
         outline.doubleAction = #selector(doubleClicked(_:))
@@ -515,6 +519,31 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         look.palette = palette
         applyLook()
         onPalette?(palette)
+    }
+
+    // MARK: Modes
+
+    /// What the tree is doing, as vim has modes: Escape leaves the mode it is in, and only from `normal` leaves the
+    /// tree.
+    /// A new mode (a diff, a context switch) is a case here, with its own way out in `leaveMode`.
+    enum Mode: Equatable {
+        case normal
+        /// A filter is showing, typed into or being walked through.
+        case filter
+    }
+
+    var mode: Mode { sidebar.filterVisible ? .filter : .normal }
+
+    /// Escape: out of the mode the tree is in, back to normal; from normal, out of the tree to the editor.
+    func cancel() {
+        if mode == .normal { onEscape?() } else { leaveMode() }
+    }
+
+    private func leaveMode() {
+        switch mode {
+        case .normal: break
+        case .filter: closeFilter()
+        }
     }
 
     // MARK: The filter

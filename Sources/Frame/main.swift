@@ -304,7 +304,10 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         window.setFrameAutosaveName("Frame")
         tree = TreeController(sidebar: sidebar, persisting: !checking)
         tree.onOpen = { [weak self] path, toEditor in self?.open(file: path, toEditor: toEditor) }
-        tree.onEscape = { [weak self] in self?.focusEditor() }
+        tree.onEscape = { [weak self] in
+            self?.focusEditor()
+            self?.returnsToTree = true
+        }
         tree.onPalette = { [weak self] palette in self?.styleWhichKey(palette) }
         tree.onForward = { [weak self] event in
             guard let self else { return }
