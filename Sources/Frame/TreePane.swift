@@ -328,8 +328,10 @@ final class HeaderButton: NSButton {
 /// The outline: vim's keys beside the arrows, and Escape (or Tab) back to the editor.
 final class TreeOutline: NSOutlineView {
     var onEscape: (() -> Void)?
-    /// Escape: the tree decides whether it is leaving a mode or leaving the tree.
+    /// Escape: what it does is the window's to say (`FrameModes`), for it depends on where the keyboard came from.
     var onCancel: (() -> Void)?
+    /// The outline took the keyboard (a click, a key from elsewhere).
+    var onFocused: (() -> Void)?
     /// Keys that are nvim's, not the tree's: the leader, `:` and Control chords. The keyboard goes to the editor with
     /// the
     /// key, so a sequence that starts here (`<leader>e`, `<C-w>l`, `:`) is finished there, whatever row is selected.
@@ -346,6 +348,12 @@ final class TreeOutline: NSOutlineView {
     private var pendingG = false
 
     override var acceptsFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        let taken = super.becomeFirstResponder()
+        if taken { onFocused?() }
+        return taken
+    }
 
     /// The click that activates the window is the tree's too: a person who clicks a row means to use it.
     override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
@@ -548,8 +556,13 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     var filterText: String { sidebar.filterBox.field.stringValue }
     /// A file is opened: the path, for the editor to show, and whether the keyboard goes to the editor with it.
     var onOpen: ((String, Bool) -> Void)?
-    /// Back to the editor.
+    /// Tab: on to the editor.
     var onEscape: (() -> Void)?
+    /// Escape, in the tree or in its filter: the window's modes say what it does.
+    var onCancel: (() -> Void)?
+    /// The filter opened or closed (the tree's own mode), and the tree took the keyboard.
+    var onFilterChange: ((_ open: Bool) -> Void)?
+    var onFocused: (() -> Void)?
     /// A key that is nvim's: the editor takes the keyboard and the key.
     var onForward: ((NSEvent) -> Void)?
     /// The editor's colours changed (or the first arrived).
@@ -597,7 +610,8 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         outline.target = self
         outline.action = #selector(clicked(_:))
         outline.onEscape = { [weak self] in self?.onEscape?() }
-        outline.onCancel = { [weak self] in self?.cancel() }
+        outline.onCancel = { [weak self] in self?.onCancel?() }
+        outline.onFocused = { [weak self] in self?.onFocused?() }
         outline.onForward = { [weak self] event in self?.onForward?(event) }
         outline.onActivate = { [weak self] node, toEditor in self?.activate(node, toEditor: toEditor) }
         outline.doubleAction = #selector(doubleClicked(_:))
@@ -613,31 +627,6 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         onPalette?(palette)
     }
 
-    // MARK: Modes
-
-    /// What the tree is doing, as vim has modes: Escape leaves the mode it is in, and only from `normal` leaves the
-    /// tree.
-    /// A new mode (a diff, a context switch) is a case here, with its own way out in `leaveMode`.
-    enum Mode: Equatable {
-        case normal
-        /// A filter is showing, typed into or being walked through.
-        case filter
-    }
-
-    var mode: Mode { sidebar.filterVisible ? .filter : .normal }
-
-    /// Escape: out of the mode the tree is in, back to normal; from normal, out of the tree to the editor.
-    func cancel() {
-        if mode == .normal { onEscape?() } else { leaveMode() }
-    }
-
-    private func leaveMode() {
-        switch mode {
-        case .normal: break
-        case .filter: closeFilter()
-        }
-    }
-
     // MARK: The filter
 
     @objc private func filterClicked(_: Any?) {
@@ -648,10 +637,17 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     func openFilter() {
         sidebar.filterVisible = true
         sidebar.filterButton.isOn = true
+        onFilterChange?(true)
         sidebar.layoutSubtreeIfNeeded()
         let field = sidebar.filterBox.field
         field.window?.makeFirstResponder(field)
         field.currentEditor()?.selectAll(nil)
+    }
+
+    /// The keyboard to the filter's input, when it is open.
+    func focusFilter() {
+        let field = sidebar.filterBox.field
+        field.window?.makeFirstResponder(field)
     }
 
     /// The input goes, the filter with it, and the keyboard is the tree's.
@@ -663,8 +659,10 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     private func resetFilter() {
         filterDebounce?.cancel()
         sidebar.filterBox.field.stringValue = ""
+        let wasOpen = sidebar.filterVisible
         sidebar.filterVisible = false
         sidebar.filterButton.isOn = false
+        if wasOpen { onFilterChange?(false) }
         applyFilter("")
     }
 
@@ -682,7 +680,7 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     func control(_: NSControl, textView _: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.cancelOperation(_:)):
-            closeFilter()
+            onCancel?()
         case #selector(NSResponder.insertNewline(_:)):
             // Return opens what the filter found: the file selected with the arrows, or else the first one.
             outline.window?.makeFirstResponder(outline)

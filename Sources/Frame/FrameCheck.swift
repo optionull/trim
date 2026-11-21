@@ -407,8 +407,12 @@ struct FrameCheck {
         for round in 1 ... 3 {
             shell.editor.keyDown(with: key("\u{1B}", code: 53))
             await wait("Escape to the tree (round \(round))") { shell.window.firstResponder === tree.outline }
+            guard shell.modes.surface == .tree
+            else { fail("the keyboard is in the tree, the modes say \(shell.modes.surface)") }
             tree.outline.keyDown(with: key("\u{1B}", code: 53))
             await wait("Escape to the editor (round \(round))") { shell.window.firstResponder === shell.editor }
+            guard shell.modes.surface == .editor
+            else { fail("the keyboard is in the editor, the modes say \(shell.modes.surface)") }
         }
         step("Escape in the editor's normal mode and in the tree go back and forth, again and again")
         // A mode leaves before the tree does: with a filter on, Escape ends it first.
@@ -416,10 +420,10 @@ struct FrameCheck {
         await wait("the tree") { shell.window.firstResponder === tree.outline }
         tree.outline.keyDown(with: key("/"))
         type("ord")
-        await wait("the filter") { tree.mode == .filter }
+        await wait("the filter") { shell.modes.treeMode == .filter }
         tree.outline.window?.makeFirstResponder(tree.outline)
         tree.outline.keyDown(with: key("\u{1B}", code: 53))
-        await wait("Escape to end the filter") { tree.mode == .normal }
+        await wait("Escape to end the filter") { shell.modes.treeMode == .normal }
         guard shell.window.firstResponder === tree.outline else { fail("Escape in a filter left the tree with it") }
         tree.outline.keyDown(with: key("\u{1B}", code: 53))
         await wait("the next Escape to leave the tree") { shell.window.firstResponder === shell.editor }
@@ -770,8 +774,9 @@ struct FrameCheck {
         guard rows(panel).contains("alpha"), !rows(panel).contains("Add the blog option") else {
             fail("without heed, the rows are: \(rows(panel))")
         }
-        guard shell.window.firstResponder === panel.field.currentEditor()
-        else { fail("the search line has no keyboard") }
+        guard shell.window.firstResponder === panel.field.currentEditor(), shell.modes.surface == .switcher,
+              shell.modes.label(editorMode: "normal") == "SWITCH"
+        else { fail("the search line has no keyboard, or the modes do not say switcher: \(shell.modes.surface)") }
         step("the switcher lists repositories and worktrees, a worktree by its branch, with no heed")
         shell.closeSwitcher()
         guard shell.switcher == nil, shell.window.firstResponder === editor else {
@@ -826,6 +831,8 @@ struct FrameCheck {
         guard shell.switcher == nil, shell.window.firstResponder === shell.tree.outline else {
             fail("Escape did not close it into the tree: \(String(describing: shell.window.firstResponder))")
         }
+        guard shell.modes.surface == .tree
+        else { fail("the modes did not go back to the tree: \(shell.modes.surface)") }
         step("Escape closes it and the keyboard goes back to where it was")
 
         // The chip at the sidebar's foot: outside a repository it is the folder's name; it opens the switcher.

@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+import FrameModes
 import FrameTree
 import MessagePack
 import SillCore
@@ -278,7 +279,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     private(set) var tree: TreeController!
     /// The workspace switcher while it is up, and where the keyboard was.
     private(set) var switcher: SwitcherView?
-    private var beforeSwitcher: NSResponder?
+    /// Which surface has the keyboard, and what Escape does from each: the window's modes.
+    private(set) var modes = Modes()
 
     init(app: FrameApp, folder: String, arguments: [String], isFirst: Bool) {
         self.app = app
@@ -311,8 +313,11 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         tree.onOpen = { [weak self] path, toEditor in self?.open(file: path, toEditor: toEditor) }
         tree.onEscape = { [weak self] in
             self?.focusEditor()
-            self?.returnsToTree = true
+            self?.modes.handedToEditor()
         }
+        tree.onCancel = { [weak self] in self?.escape() }
+        tree.onFilterChange = { [weak self] open in self?.modes.filterChanged(open: open) }
+        tree.onFocused = { [weak self] in self?.modes.focused(.tree) }
         sidebar.chip.onClick = { [weak self] in self?.switchWorkspace(nil) }
         tree.onPalette = { [weak self] palette in self?.styleWhichKey(palette) }
         tree.onForward = { [weak self] event in
@@ -383,9 +388,10 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         editor.onResize = { cols, rows in Task { await session.resize(cols: cols, rows: rows) } }
         editor.onKey = { [weak self] in self?.externalUI.keyPressed() }
         editor.keyInterceptor = { [weak self] event in self?.escapeToTree(event) ?? false }
-        editor.onFocus = { [weak self] in self?.returnsToTree = false }
+        // A click into the editor is the person's own going in: Escape there is nvim's.
+        editor.onFocus = { [weak self] in self?.modes.focused(.editor, byClick: true) }
         // A fresh editor (the landing page) has not been entered from anywhere: the tree is where Escape goes.
-        returnsToTree = true
+        modes.editorRestarted()
         let updates = session.updates
         Task { [weak self] in
             for await update in updates {
@@ -625,27 +631,55 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             )
             if toEditor {
                 focusEditor()
-                returnsToTree = true
+                modes.handedToEditor()
             }
         }
     }
 
-    /// Set when the tree handed the keyboard to the editor (Return on a file), and on a fresh editor: Escape in normal
-    /// mode takes it to the tree. A click in the editor clears it.
-    var returnsToTree = false
-
-    /// Escape in the editor's normal mode, after a file was opened from the tree: back to the tree, and nvim does not
-    /// see the key.
+    /// Escape in the editor, when it is the keyboard's: in normal mode, after the tree handed it over (or on a fresh
+    /// editor), it goes back to the tree and nvim does not see the key. Whether it does is the modes' to say.
     func escapeToTree(_ event: NSEvent) -> Bool {
-        guard returnsToTree, view.sidebarVisible, event.keyCode == 53,
-              event.modifierFlags.isDisjoint(with: [.control, .command, .option]),
-              editor.screen.mode == "normal" else { return false }
-        returnsToTree = false
-        focusSidebar(nil)
+        guard event.keyCode == 53, event.modifierFlags.isDisjoint(with: [.control, .command, .option]) else {
+            return false
+        }
+        // The editor has the keys, so it is where the keyboard is, whatever was last told.
+        modes.focused(.editor)
+        let effect = modes.escape(editorMode: editor.screen.mode, sidebarVisible: view.sidebarVisible)
+        guard effect != .pass else { return false }
+        apply(effect)
         return true
     }
 
-    func focusEditor() { window.makeFirstResponder(editor) }
+    /// Escape from the tree, its filter or the switcher: what the modes decide, done.
+    func escape() {
+        guard view != nil else { return }
+        apply(modes.escape(editorMode: editor.screen.mode, sidebarVisible: view.sidebarVisible))
+    }
+
+    /// What the modes asked for: the keyboard somewhere, a filter closed, the switcher away.
+    private func apply(_ effect: ModeEffect) {
+        switch effect {
+        case .pass: break
+        case let .focus(surface): focus(surface)
+        case .closeFilter: tree.closeFilter()
+        case let .closeSwitcher(restoring): closeSwitcher(restoring: true, to: restoring)
+        }
+    }
+
+    /// The keyboard to a surface (the tree's filter if it is filtering; the editor if there is no sidebar to be in).
+    private func focus(_ surface: Surface) {
+        switch surface {
+        case .tree where view.sidebarVisible:
+            if modes.treeMode == .filter { tree.focusFilter() } else { tree.focus() }
+        case .tree, .editor: window.makeFirstResponder(editor)
+        case .switcher: if let panel = switcher { window.makeFirstResponder(panel.field) }
+        }
+    }
+
+    func focusEditor() {
+        window.makeFirstResponder(editor)
+        modes.focused(.editor)
+    }
 
     // MARK: The workspace switcher
 
@@ -659,13 +693,13 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         let panel = SwitcherView(look: tree.look)
         panel.frame = view.bounds
         panel.autoresizingMask = [.width, .height]
-        panel.onDismiss = { [weak self] in self?.closeSwitcher() }
+        panel.onDismiss = { [weak self] in self?.escape() }
         panel.onChoose = { [weak self] workspace, newWindow in
             guard let self else { return }
             closeSwitcher()
             app.go(to: workspace.path, from: self, newWindow: newWindow)
         }
-        beforeSwitcher = window.firstResponder
+        modes.openSwitcher()
         view.addSubview(panel)
         switcher = panel
         window.makeFirstResponder(panel.field)
@@ -675,13 +709,13 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     }
 
     /// The switcher away; the keyboard goes back to where it was (the tree, if that is where it came from).
-    func closeSwitcher(restoring: Bool = true) {
+    func closeSwitcher(restoring: Bool = true, to surface: Surface? = nil) {
         guard let panel = switcher else { return }
         switcher = nil
         panel.removeFromSuperview()
-        guard restoring else { return }
-        let target = beforeSwitcher.flatMap { $0 is NSTextView ? nil : $0 } ?? editor
-        window.makeFirstResponder(target === window ? editor : target)
+        // Escape has already told the modes; anything else (a choice, the chip) tells them now.
+        let back = modes.closeSwitcher()
+        if restoring { focus(surface ?? back) }
     }
 
     /// A which-key.nvim window in the sidebar's colours: the colours go to nvim, which applies them whenever the colour
@@ -696,6 +730,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     @objc func focusSidebar(_: Any?) {
         setSidebar(visible: true)
         tree.focus()
+        modes.focused(.tree)
     }
 
     @objc func chooseConfig(_ sender: NSMenuItem) {
@@ -812,6 +847,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// Shows or hides the sidebar. Hidden while it has the keyboard, the keyboard goes back to the editor.
     func setSidebar(visible: Bool) {
         view.sidebarVisible = visible
+        if !visible { modes.sidebarHidden() }
         if !visible, window.firstResponder === tree.outline { focusEditor() }
     }
 

@@ -1,0 +1,150 @@
+import Foundation
+
+/// Where the keyboard is in a window of the frame. Like vim's modes, each is entered and left on purpose, and Escape
+/// is the one way out of whichever it is in, towards where the person came from.
+public enum Surface: Equatable, Sendable {
+    /// nvim: it has modes of its own (normal, insert...), which `Modes` only reads.
+    case editor
+    /// The file tree.
+    case tree
+    /// The workspace switcher, over everything.
+    case switcher
+}
+
+/// What the tree is doing, as vim has modes. A new one (a diff, a context switch) is a case here, with its own way out
+/// in `Modes.escape`.
+public enum TreeMode: Equatable, Sendable {
+    case normal
+    /// A filter is showing, typed into or being walked through.
+    case filter
+}
+
+/// What the window must do for a key, as `Modes` decides it: the model changes its own state, the window does these.
+public enum ModeEffect: Equatable, Sendable {
+    /// Not Frame's: the key goes on to nvim (or whoever had it).
+    case pass
+    /// The keyboard goes to this surface.
+    case focus(Surface)
+    /// The tree's filter closes (the keyboard stays in the tree).
+    case closeFilter
+    /// The switcher closes and the keyboard goes back to this surface.
+    case closeSwitcher(restoring: Surface)
+}
+
+/// The modes of one window: which surface has the keyboard, what the tree is doing, and where Escape goes from the
+/// editor. Pure: the window tells it what happened (`focused`, `openSwitcher`...) and asks it what Escape does.
+public struct Modes: Equatable, Sendable {
+    public private(set) var surface: Surface = .editor
+    public private(set) var treeMode: TreeMode = .normal
+    /// Where Escape goes from the editor's normal mode: the tree, unless the person went into the editor themselves
+    /// (a click). A fresh editor has not been entered from anywhere, so it is the tree.
+    public private(set) var editorEscape: Surface? = .tree
+    /// What had the keyboard when the switcher came up, to give it back.
+    private var beneathSwitcher: Surface = .editor
+
+    public init() {}
+
+    // MARK: What happened
+
+    /// The keyboard went to `surface`. A click into the editor means the person is in it for its own sake: Escape
+    /// there is nvim's. Anything else leaves where Escape goes as it was.
+    public mutating func focused(_ surface: Surface, byClick: Bool = false) {
+        guard self.surface != .switcher || surface == .switcher else { return }
+        self.surface = surface
+        if surface == .editor, byClick { editorEscape = nil }
+    }
+
+    /// The tree gave the keyboard to the editor (Return on a file, Tab, Escape): Escape in the editor's normal mode
+    /// takes it back.
+    public mutating func handedToEditor() {
+        guard surface != .switcher else { return }
+        surface = .editor
+        editorEscape = .tree
+    }
+
+    /// The filter opened (the keyboard is in its input) or closed.
+    public mutating func filterChanged(open: Bool) {
+        treeMode = open ? .filter : .normal
+        if open, surface != .switcher { surface = .tree }
+    }
+
+    public mutating func openSwitcher() {
+        guard surface != .switcher else { return }
+        beneathSwitcher = surface
+        surface = .switcher
+    }
+
+    /// The switcher is done (a workspace was chosen, say): the surface the keyboard goes back to.
+    @discardableResult
+    public mutating func closeSwitcher() -> Surface {
+        guard surface == .switcher else { return surface }
+        surface = beneathSwitcher
+        return surface
+    }
+
+    /// The sidebar went away: the keyboard cannot be in it.
+    public mutating func sidebarHidden() {
+        if surface == .tree { surface = .editor }
+        if surface == .switcher, beneathSwitcher == .tree { beneathSwitcher = .editor }
+        treeMode = .normal
+    }
+
+    /// A new nvim in the window (a switch of config or of workspace): the editor, not yet entered from anywhere.
+    public mutating func editorRestarted() {
+        surface = .editor
+        treeMode = .normal
+        editorEscape = .tree
+        beneathSwitcher = .editor
+    }
+
+    // MARK: Escape
+
+    /// What Escape does now, and the change of mode it makes. Out of the switcher, back to where it came from; in the
+    /// tree, out of what it is doing, and from plain tree to the editor; in the editor's normal mode, to the tree when
+    /// that is where it came from and the sidebar shows; anywhere else it is nvim's.
+    public mutating func escape(editorMode: String, sidebarVisible: Bool) -> ModeEffect {
+        switch surface {
+        case .switcher:
+            return .closeSwitcher(restoring: closeSwitcher())
+        case .tree:
+            if treeMode != .normal {
+                treeMode = .normal
+                return .closeFilter
+            }
+            handedToEditor()
+            return .focus(.editor)
+        case .editor:
+            guard let target = editorEscape, sidebarVisible, editorMode == "normal" else { return .pass }
+            surface = target
+            editorEscape = nil
+            return .focus(target)
+        }
+    }
+
+    // MARK: How it is called
+
+    /// The mode as a short word: Frame's own while the keyboard is outside nvim, else nvim's (`mode` as nvim's
+    /// `mode_change` gives it: "normal", "insert", "visual", "cmdline_normal"...).
+    public func label(editorMode: String) -> String {
+        switch surface {
+        case .switcher: "SWITCH"
+        case .tree: treeMode == .filter ? "FILTER" : "TREE"
+        case .editor: Self.name(ofEditorMode: editorMode)
+        }
+    }
+
+    /// nvim's mode as a word to show.
+    public static func name(ofEditorMode mode: String) -> String {
+        switch mode {
+        case "normal": "NORMAL"
+        case "insert": "INSERT"
+        case "replace": "REPLACE"
+        case "visual": "VISUAL"
+        case "visual_select", "select": "SELECT"
+        case "operator": "OP"
+        case let mode where mode.hasPrefix("cmdline"): "COMMAND"
+        case "terminal": "TERMINAL"
+        default: mode.uppercased()
+        }
+    }
+}
