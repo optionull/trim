@@ -11,9 +11,13 @@ import SillRender
 /// its margin; `SILL_CHECK_SHOT` saves a picture of the window, its corners rounded as on screen.
 @MainActor
 struct FrameCheck {
-    let shell: FrameDelegate
+    let shell: FrameWindowController
+    let app: FrameApp
 
-    init(_ shell: FrameDelegate) { self.shell = shell }
+    init(_ shell: FrameWindowController, app: FrameApp) {
+        self.shell = shell
+        self.app = app
+    }
 
     private func step(_ text: String) {
         print("ok    " + text)
@@ -76,6 +80,7 @@ struct FrameCheck {
         await forwardSteps()
         await layoutSteps()
         await switchSteps()
+        await windowSteps()
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             do {
                 try shot(editor: editor, to: path)
@@ -667,6 +672,38 @@ struct FrameCheck {
     }
 
     /// The window as it shows: its background, the grid at its margin, corners rounded by the window's radius.
+    /// A window for each workspace: one folder, one window, found again by its real path; each with its own nvim in its
+    /// own folder, and closing one leaves the other.
+    private func windowSteps() async {
+        let base = RealPath.of(NSTemporaryDirectory()) + "frame-windows-\(UUID().uuidString)"
+        let other = base + "/other"
+        try? FileManager.default.createDirectory(atPath: other, withIntermediateDirectories: true)
+        try? FileManager.default.createSymbolicLink(atPath: base + "/link", withDestinationPath: other)
+        func cwd(_ controller: FrameWindowController) async -> String? {
+            await (try? controller.session.channel.lua("return vim.fn.getcwd()"))?.stringValue
+        }
+        let first = shell
+        let windows = app.controllers.count
+        let second = app.open(folder: other)
+        guard second !== first,
+              app.controllers.count == windows + 1 else { fail("a second folder made no second window") }
+        await waitAsync("the second window's nvim in its own folder") { await cwd(second) == other }
+        guard await cwd(first) != other else { fail("the first window's nvim moved to the second's folder") }
+        guard second.window !== first.window, second.tree !== first.tree, second.session !== first.session
+        else { fail("the two windows share a window, a tree or an nvim") }
+        step("a second folder opens a window of its own: its own nvim, tree and folder")
+        guard app.open(folder: other) === second, app.open(folder: base + "/link") === second,
+              app.controllers.count == windows + 1
+        else { fail("a folder already open (by its path, or through a link) opened another window") }
+        step("a folder that is open is found again, by its real path, not opened twice")
+        app.close(second)
+        await wait("the second window to go") { app.controllers.count == windows }
+        guard app.controllers.contains(where: { $0 === first }), await cwd(first) != nil else {
+            fail("closing the second window took the first with it")
+        }
+        step("closing one window leaves the other")
+    }
+
     private func shot(editor: EditorView, to path: String) throws {
         let size = shell.view.bounds.size, scale: CGFloat = 2
         guard let device = MTLCreateSystemDefaultDevice() else { throw ShotFailure() }

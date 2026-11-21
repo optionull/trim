@@ -253,42 +253,41 @@ struct Place {
     }
 }
 
+/// One window of the frame: a workspace, with its own nvim, tree and sidebar. The app (`FrameApp`) holds them.
 @MainActor
-final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate, NSMenuItemValidation {
+final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidation {
+    unowned let app: FrameApp
+    /// The folder it was opened on (real path), the first window's being the one the app started in.
+    let workspace: String
+    private let startArguments: [String]
+    private let isFirst: Bool
     private(set) var session = EditorSession()
     private(set) var window: NSWindow!
     private(set) var editor: EditorView!
     private(set) var view: FrameView!
     private var externalUI: ExternalUI!
-    private var watcher: SettingsWatcher?
-    private var quitting = false
     /// Which session is the current one: a session that ends after a switch is not nvim quitting.
     private var generation = 0
     /// The config nvim runs under now, and whether a switch is under way.
     private(set) var current = NvimConfig.builtIn
     private var switching = false
     /// nvim has ended, so quitting has no one to ask.
-    private var ended = false
-    private let configMenu = NSMenu(title: "Config")
+    private(set) var ended = false
     /// The tree, which stays through a switch of config: its view and its controller outlive any one nvim.
     private let sidebar = SidebarView()
     private(set) var tree: TreeController!
 
+    init(app: FrameApp, folder: String, arguments: [String], isFirst: Bool) {
+        self.app = app
+        workspace = folder
+        startArguments = arguments
+        self.isFirst = isFirst
+    }
+
     private var checking: Bool { ProcessInfo.processInfo.environment["SILL_FRAME_CHECK"] == "1" }
 
-    func applicationDidFinishLaunching(_: Notification) {
-        // sill's settings: the font, and whether a title bar shows.
-        let file = ProcessInfo.processInfo.environment["SILL_SETTINGS"].map { URL(fileURLWithPath: $0) } ??
-            SettingsLoader.defaultFile()
-        if FileManager.default.fileExists(atPath: file.path) {
-            let watcher = SettingsWatcher(file: file) { source in
-                Settings.shared.load(source)
-                Task { @MainActor [weak self] in self?.apply() }
-            }
-            Settings.shared.load(watcher.start())
-            self.watcher = watcher
-        }
-        EditorFont.load(Settings.shared.current)
+    /// Makes the window and starts nvim in it.
+    func start() {
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -301,7 +300,8 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = false
         window.delegate = self
-        window.setFrameAutosaveName("Frame")
+        // Only the first window remembers where it was: the rest would all claim one place.
+        if isFirst { window.setFrameAutosaveName("Frame") }
         tree = TreeController(sidebar: sidebar, persisting: !checking)
         tree.onOpen = { [weak self] path, toEditor in self?.open(file: path, toEditor: toEditor) }
         tree.onEscape = { [weak self] in
@@ -315,13 +315,20 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             editor.keyDown(with: event)
         }
         makeSurface()
-        buildMenu()
 
         if checking {
             window.setFrame(NSRect(x: 0, y: 0, width: 1100, height: 760), display: false)
             view.layoutSubtreeIfNeeded()
         } else {
-            window.center()
+            if let near = app.controllers.last(where: { $0 !== self })?.window {
+                // Beside the window it was opened from, a step down and to the right.
+                var frame = near.frame
+                frame.origin.x += 26
+                frame.origin.y -= 26
+                window.setFrame(frame, display: false)
+            } else {
+                window.center()
+            }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate()
         }
@@ -335,28 +342,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             startup = config.startup
         }
         current = NvimConfig(appName: startup.appName, isBuiltIn: !startup.userConfig)
-        var arguments = Array(CommandLine.arguments.dropFirst()
-            .filter { !$0.hasPrefix("-psn") && !$0.hasPrefix("-NS") })
-        // Where nvim and the tree start: a folder given as the first argument (`open -n Frame.app --args
-        // ~/Projects/x`),
-        // else the folder the app was started in, else (from the Dock that is /) the home folder; the self-check starts
-        // in a folder of its own so the tree never reads one that is not.
-        var folder = FileManager.default.currentDirectoryPath
-        if folder == "/" { folder = NSHomeDirectory() }
-        var isFolder: ObjCBool = false
-        if !checking, let first = arguments.first, FileManager.default.fileExists(
-            atPath: first,
-            isDirectory: &isFolder
-        ),
-            isFolder.boolValue
-        {
-            folder = RealPath.of(first)
-            arguments.removeFirst()
-        }
-        if checking {
-            folder = NSTemporaryDirectory() + "frame-check-\(UUID().uuidString)"
-            try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        }
+        let folder = workspace, arguments = startArguments
         tree.setRoot(folder)
         Task { [weak self] in
             guard let self else { return }
@@ -366,7 +352,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
                     place: Place(cwd: folder),
                     arguments: arguments
                 )
-                if checking { await FrameCheck(self).run() }
+                if checking, isFirst { await FrameCheck(self, app: app).run() }
             } catch {
                 let alert = NSAlert(error: error)
                 alert.messageText = "The frame could not start nvim"
@@ -393,10 +379,6 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         editor.onFocus = { [weak self] in self?.returnsToTree = false }
         // A fresh editor (the landing page) has not been entered from anywhere: the tree is where Escape goes.
         returnsToTree = true
-        EditorFont.onChange = { [weak self] in
-            self?.editor.fontChanged()
-            self?.tree.fontChanged()
-        }
         let updates = session.updates
         Task { [weak self] in
             for await update in updates {
@@ -410,7 +392,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             // changes, so quitting must not wait on it.
             guard let self, self.generation == generation else { return }
             ended = true
-            NSApp.terminate(nil)
+            app.close(self)
         }
     }
 
@@ -652,7 +634,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         switchConfig(to: all[(at + 1) % all.count])
     }
 
-    private func configs() -> [NvimConfig] {
+    func configs() -> [NvimConfig] {
         let environment = NvimProcess.cachedEnv.merging(ProcessInfo.processInfo.environment) { _, own in own }
         var all = NvimConfigs.discover(environment: environment)
         // A config nvim runs under that is not in the list (NVIM_APPNAME pointing elsewhere) is still the one in use.
@@ -660,26 +642,8 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         return all
     }
 
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        guard menu === configMenu else { return }
-        menu.removeAllItems()
-        for (index, config) in configs().enumerated() {
-            let item = menu.addItem(
-                withTitle: config.title,
-                action: #selector(chooseConfig(_:)),
-                keyEquivalent: index < 9 ? String(index + 1) : ""
-            )
-            item.keyEquivalentModifierMask = [.control, .command]
-            item.representedObject = config.appName
-            item.state = config == current ? .on : .off
-        }
-        menu.addItem(.separator())
-        let next = menu.addItem(withTitle: "Next Config", action: #selector(nextConfig(_:)), keyEquivalent: "]")
-        next.keyEquivalentModifierMask = [.control, .command]
-    }
-
     /// The settings that apply at once: the title bar, the font.
-    private func apply() {
+    func apply() {
         let titleBar = Settings.shared.current.shellTitleBar
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             window.standardWindowButton(button)?.isHidden = !titleBar
@@ -688,7 +652,10 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         EditorFont.load(Settings.shared.current)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
+    func fontChanged() {
+        editor.fontChanged()
+        tree.fontChanged()
+    }
 
     enum Unsaved { case clean, saved, discarded, cancelled }
 
@@ -737,28 +704,30 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         }
     }
 
-    /// Quitting with unsaved changes asks first, as nvim's :qa would refuse.
-    func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
-        guard !quitting, !ended, ProcessInfo.processInfo.environment["SILL_FRAME_CHECK"] == nil else {
-            return .terminateNow
-        }
-        Task {
-            let outcome = await resolveUnsaved()
-            if outcome == .discarded { quitting = true }
-            NSApp.reply(toApplicationShouldTerminate: outcome != .cancelled)
-        }
-        return .terminateLater
-    }
-
+    /// Closing the window asks about its unsaved changes, then stops its nvim; the last window closing quits.
     func windowShouldClose(_: NSWindow) -> Bool {
-        NSApp.terminate(nil)
+        if app.controllers.count <= 1 {
+            NSApp.terminate(nil)
+            return false
+        }
+        Task { [weak self] in
+            guard let self, await resolveUnsaved() != .cancelled else { return }
+            app.close(self)
+        }
         return false
     }
 
-    func applicationWillTerminate(_: Notification) {
-        let session = session
-        Task { await session.stop() }
+    /// Ends this window's nvim and lets go of the window.
+    func shutDown() async {
+        generation += 1
+        window.delegate = nil
+        window.orderOut(nil)
+        await session.stop()
+        window.close()
     }
+
+    /// Stops nvim (quitting).
+    func stop() async { await session.stop() }
 
     // MARK: Menu
 
@@ -803,56 +772,6 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         }
         Task { _ = try? await session.channel.command("edit " + file.path.replacingOccurrences(of: " ", with: "\\ ")) }
     }
-
-    private func buildMenu() {
-        let menu = NSMenu()
-        let appItem = NSMenuItem()
-        menu.addItem(appItem)
-        let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings(_:)), keyEquivalent: ",")
-        appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        appItem.submenu = appMenu
-        let editItem = NSMenuItem()
-        menu.addItem(editItem)
-        let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editItem.submenu = editMenu
-        let viewItem = NSMenuItem()
-        menu.addItem(viewItem)
-        let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(toggleSidebar(_:)), keyEquivalent: "b")
-        viewMenu.addItem(withTitle: "Filter Files", action: #selector(filterTree(_:)), keyEquivalent: "f")
-            .keyEquivalentModifierMask = [.command, .option]
-        let ignoredItem = viewMenu.addItem(
-            withTitle: "Show Ignored Files", action: #selector(toggleIgnoredFiles(_:)), keyEquivalent: "."
-        )
-        ignoredItem.keyEquivalentModifierMask = [.command, .shift, .option]
-        viewMenu.addItem(withTitle: "Show Dotfiles", action: #selector(toggleDotfiles(_:)), keyEquivalent: ".")
-            .keyEquivalentModifierMask = [.command, .shift]
-        let focus = viewMenu.addItem(
-            withTitle: "Focus Sidebar",
-            action: #selector(focusSidebar(_:)),
-            keyEquivalent: "e"
-        )
-        focus.keyEquivalentModifierMask = [.command, .shift]
-        viewMenu.addItem(.separator())
-        viewMenu.addItem(withTitle: "Bigger", action: #selector(bigger(_:)), keyEquivalent: "+")
-        let bigger = viewMenu.addItem(withTitle: "Bigger", action: #selector(bigger(_:)), keyEquivalent: "=")
-        bigger.isHidden = true
-        bigger.allowsKeyEquivalentWhenHidden = true
-        viewMenu.addItem(withTitle: "Smaller", action: #selector(smaller(_:)), keyEquivalent: "-")
-        viewMenu.addItem(withTitle: "Actual Size", action: #selector(actual(_:)), keyEquivalent: "0")
-        viewItem.submenu = viewMenu
-        let configItem = NSMenuItem()
-        menu.addItem(configItem)
-        configMenu.delegate = self
-        configItem.submenu = configMenu
-        menuNeedsUpdate(configMenu)
-        NSApp.mainMenu = menu
-    }
 }
 
 // SILL_FONTS: a directory of fonts to use without installing them, for this process only.
@@ -867,7 +786,7 @@ if let directory = ProcessInfo.processInfo.environment["SILL_FONTS"],
 NerdFont.register()
 
 let app = NSApplication.shared
-let delegate = FrameDelegate()
+let delegate = FrameApp()
 app.delegate = delegate
 app.setActivationPolicy(.regular)
 app.run()
