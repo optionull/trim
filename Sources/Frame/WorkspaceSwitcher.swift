@@ -87,8 +87,9 @@ final class SwitcherCell: NSView {
             trailing = "working"
         } else if workspace.isCurrent {
             trailing = "here"
-        } else if workspace.activeAt > .distantPast {
-            trailing = Self.ago(workspace.activeAt)
+        } else if let since = workspace.openedAt ?? (workspace.activeAt > .distantPast ? workspace.activeAt : nil) {
+            // When it was last opened here, else when anything last happened in it.
+            trailing = Self.ago(since)
         }
         var rightEdge = bounds.width - 16
         if !trailing.isEmpty {

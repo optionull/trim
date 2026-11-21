@@ -531,9 +531,11 @@ the chip at the sidebar's foot (the git root's name and the branch) bring up the
 repositories and worktrees under `home.roots` (`~/Projects` when it is not set) and those with a window. Rows are
 named by what the work is about, not by a folder name nobody remembers: [heed](https://github.com/heed-build/heed)'s
 title for the session in it when heed is running, else the branch of a worktree or the name of a repository; the
-repository and branch stand under it, read from `.git` at once. heed is only ever an addition; without it the list is
-the same, by branches. Those that need you come first, then by whatever happened last (the newest of git, edits,
-heed's activity and when Frame last opened it); Return with nothing typed goes to the one before this.
+repository and branch stand under it, read from `.git` at once. The order is the one Frame knows by itself, so the
+list is there the moment it opens and never shuffles: the workspaces last opened in Frame first, then the rest by
+repository and path. What is found under the roots, what heed says of each and what git says of each is asked for
+in the background, each on its own, and fills in names, marks and times without moving a row. heed is only ever
+an addition; without it the list is the same, by branches. Return with nothing typed goes to the one before this.
 Return opens a workspace in this window (nvim starts again in its folder, the tree is rooted there; unsaved changes
 are asked about first), ⇧Return in a new window, and a workspace that already has a window is brought forward, never
 opened twice. Escape closes the switcher and the keyboard goes back to where it was.

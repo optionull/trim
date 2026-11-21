@@ -17,7 +17,10 @@ public struct Workspace: Equatable, Sendable, Identifiable {
     public var heedState: String?
     public var needsYou = false
     public var changes = 0
+    /// The last of git's and heed's word of activity, for show: it never orders the list.
     public var activeAt: Date = .distantPast
+    /// When Frame last opened it: what orders the list.
+    public var openedAt: Date?
     /// A window of Frame is on it, and it is the one the person is in.
     public var isOpen = false
     public var isCurrent = false
@@ -62,7 +65,8 @@ public struct WorkspaceMatch: Equatable, Sendable {
 
 public enum WorkspaceIndex {
     /// The workspaces from the checkouts found, what is read of each (by path), heed's sessions, when Frame last
-    /// opened each, and which have a window. Needs-you first, then whatever happened last.
+    /// opened each, and which have a window. The order is the one Frame knows by itself: the last opened first, then
+    /// the rest by repository and path. What git and heed say arrives later and never moves a row.
     public static func build(
         checkouts: [Checkout], states: [String: CheckoutState] = [:], sessions: [HeedSession] = [],
         opened: [String: Date] = [:], open: Set<String> = [], current: String? = nil
@@ -112,12 +116,17 @@ public enum WorkspaceIndex {
             if workspaces[index].branch.isEmpty, let info = GitHead.info(at: path, levels: 0) {
                 workspaces[index].branch = info.branch
             }
-            workspaces[index].activeAt = max(workspaces[index].activeAt, opened[path] ?? .distantPast)
+            workspaces[index].openedAt = opened[path]
             workspaces[index].isOpen = open.contains(path)
             workspaces[index].isCurrent = path == current
         }
-        return workspaces.sorted {
-            ($0.needsYou ? 1 : 0, $0.activeAt, $1.path) > ($1.needsYou ? 1 : 0, $1.activeAt, $0.path)
+        return workspaces.sorted { first, second in
+            switch (first.openedAt, second.openedAt) {
+            case let (one?, other?) where one != other: one > other
+            case (_?, nil): true
+            case (nil, _?): false
+            default: (first.repository.lowercased(), first.path) < (second.repository.lowercased(), second.path)
+            }
         }
     }
 

@@ -732,9 +732,24 @@ struct FrameCheck {
             directory: shell.tree.rootPath, repo: "me/work", branch: "main", lastActivity: Date()
         )
         // The fixture's roots, and heed as a stand-in: a session for the worktree, or no heed at all.
-        func sources(heed: [HeedSession]) -> WorkspaceSources {
-            WorkspaceSources(roots: { [roots] }, heed: { heed })
+        // When Frame opened them is the order: this window, then beta, then alpha; the worktree was never opened.
+        let hereFolder = shell.tree.rootPath ?? shell.workspace
+        let opened: [String: Date] = [
+            hereFolder: Date(timeIntervalSinceNow: -60), beta: Date(timeIntervalSinceNow: -120),
+            alpha: Date(timeIntervalSinceNow: -240),
+        ]
+        // `slow`: heed answers late; `cached`: what was found last time, shown before anything is looked for.
+        func sources(heed: [HeedSession], slow: Bool = false, cached: [Checkout] = []) -> WorkspaceSources {
+            WorkspaceSources(
+                roots: { [roots] },
+                heed: {
+                    if slow { try? await Task.sleep(for: .seconds(1.5)) }
+                    return heed
+                },
+                opened: { opened }, cached: { cached }, remember: { _ in }
+            )
         }
+        func paths(_ panel: SwitcherView) -> [String] { panel.matches.map(\.workspace.path) }
         func rows(_ panel: SwitcherView) -> [String] { panel.matches.map(\.workspace.primary) }
         func type(_ panel: SwitcherView, _ text: String) {
             guard let editor = panel.field.currentEditor() as? NSTextView
@@ -766,23 +781,30 @@ struct FrameCheck {
         }
 
         // With heed: the worktree is what the work is about, and a query finds it by that.
-        app.sources = sources(heed: [named, here])
+        let known = Checkouts.find(roots: [roots])
+        app.sources = sources(heed: [named, here], slow: true, cached: known)
         shell.tree.focus()
         shell.showSwitcher()
         guard let withHeed = shell.switcher else { fail("the switcher did not come up again") }
+        // At once, from the cache and in the order Frame knows: no heed yet, so no titles, and nothing waited for.
+        let order = [hereFolder, beta, alpha, worktree]
+        guard paths(withHeed) == order, !rows(withHeed).contains("Add the blog option") else {
+            fail("the first paint is not the cached list in the order last opened: \(paths(withHeed))")
+        }
         await wait("heed's title") { rows(withHeed).contains("Add the blog option") }
         guard let row = withHeed.matches.first(where: { $0.workspace.path == worktree }),
               row.workspace.secondary.contains("alpha")
         else { fail("the titled row is not the worktree, with its repository under it") }
-        guard withHeed.matches.first?.workspace.isCurrent == true,
-              withHeed.matches.first?.workspace.needsYou == true
-        else {
-            fail("the window that needs the person is not first: \(rows(withHeed))")
+        // heed's titles came in, and no row moved: needing the person does not reorder, nor does activity.
+        guard paths(withHeed) == order, withHeed.matches.first?.workspace.needsYou == true else {
+            fail("heed's word moved the rows: \(paths(withHeed))")
         }
         guard withHeed.selectedWorkspace?.isCurrent == false
         else { fail("Return would go to the workspace already shown") }
         step("heed names the worktree by what the work is about; the repository and branch stand under it")
-        step("those that need you come first; Return goes to the one before this, not the one shown")
+        step(
+            "the first paint is the cached list, last opened first; heed arriving late names rows and moves none; Return goes to the one before this"
+        )
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             do {
                 try shot(editor: editor, to: path.replacingOccurrences(of: ".png", with: "-switcher.png"))

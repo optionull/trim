@@ -112,26 +112,44 @@ import Testing
         #expect(built.first { $0.path == temp + "/main" }?.title == nil)
     }
 
-    @Test func `those that need you come first, then the latest of git, heed and Frame`() {
+    @Test func `the order is when Frame last opened them, then repository and path; heed and git never move a row`() {
         var states: [String: CheckoutState] = [:]
-        var older = CheckoutState(branch: "main")
-        older.lastCommit = Date(timeIntervalSince1970: 100)
-        states[temp + "/main"] = older
-        var newer = CheckoutState(branch: "x")
-        newer.lastCommit = Date(timeIntervalSince1970: 50)
-        states[temp + "/wt-one"] = newer
-        // Git says main is the newer; Frame opened wt-one since.
-        var built = WorkspaceIndex.build(checkouts: checkouts, states: states)
+        var busy = CheckoutState(branch: "x")
+        busy.lastCommit = Date(timeIntervalSince1970: 5000)
+        states[temp + "/wt-one"] = busy
+        let working = session(temp + "/wt-one", title: "t", at: 9000, needs: true)
+        // Never opened: by repository, then path, whatever git and heed say.
+        var built = WorkspaceIndex.build(checkouts: checkouts, states: states, sessions: [working])
+        #expect(built.map(\.path) == [temp + "/main", temp + "/wt-one"])
+        // Opened: the last opened first.
+        built = WorkspaceIndex.build(
+            checkouts: checkouts, states: states, sessions: [working],
+            opened: [temp + "/wt-one": Date(timeIntervalSince1970: 10), temp + "/main": Date(timeIntervalSince1970: 20)]
+        )
         #expect(built.map(\.path) == [temp + "/main", temp + "/wt-one"])
         built = WorkspaceIndex.build(
-            checkouts: checkouts, states: states, opened: [temp + "/wt-one": Date(timeIntervalSince1970: 200)]
+            checkouts: checkouts, states: states, sessions: [working],
+            opened: [temp + "/wt-one": Date(timeIntervalSince1970: 30), temp + "/main": Date(timeIntervalSince1970: 20)]
         )
         #expect(built.map(\.path) == [temp + "/wt-one", temp + "/main"])
-        built = WorkspaceIndex.build(
-            checkouts: checkouts, states: states, sessions: [session(temp + "/wt-one", title: "t", at: 1, needs: true)],
-            opened: [temp + "/main": Date(timeIntervalSince1970: 300)]
-        )
-        #expect(built.first?.path == temp + "/wt-one")
+        // One opened comes before any never opened.
+        built = WorkspaceIndex.build(checkouts: checkouts, opened: [temp + "/wt-one": Date(timeIntervalSince1970: 1)])
+        #expect(built.map(\.path) == [temp + "/wt-one", temp + "/main"])
+        #expect(built.first?.openedAt == Date(timeIntervalSince1970: 1))
+    }
+
+    @Test func `the order is the same with no metadata and with all of it`() {
+        let opened = [temp + "/wt-one": Date(timeIntervalSince1970: 7)]
+        var states: [String: CheckoutState] = [:]
+        var recent = CheckoutState(branch: "b")
+        recent.lastCommit = Date()
+        states[temp + "/main"] = recent
+        let bare = WorkspaceIndex.build(checkouts: checkouts, opened: opened).map(\.path)
+        let full = WorkspaceIndex.build(
+            checkouts: checkouts, states: states, sessions: [session(temp + "/main", title: "x", at: 99, needs: true)],
+            opened: opened
+        ).map(\.path)
+        #expect(bare == full)
     }
 
     @Test func `which have a window and which is the current one`() {

@@ -1,5 +1,6 @@
 import AppKit
 import FrameTree
+import SillAgent
 import SillCore
 import SillEditor
 import SillNvim
@@ -13,6 +14,8 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let configMenu = NSMenu(title: "Config")
     /// Where the switcher's workspaces come from (the self-check swaps it for a fixture).
     var sources = WorkspaceSources.live
+    /// What heed said last time: the titles shown at once, until it is asked again.
+    var lastSessions: [HeedSession] = []
 
     static var checking: Bool { ProcessInfo.processInfo.environment["SILL_FRAME_CHECK"] == "1" }
 
