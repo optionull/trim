@@ -85,6 +85,7 @@ struct FrameCheck {
         await switchSteps()
         await statusSteps()
         await tabsSteps()
+        await scrollSteps()
         await windowSteps()
         await switcherSteps()
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -794,6 +795,56 @@ struct FrameCheck {
         )
         _ = await lua("vim.cmd('bwipeout!')")
         step(":FrameStatusline hides the bar and gives nvim's own back; the grid ends where the bar begins")
+    }
+
+    /// Smooth scrolling of the text: a scroll of nvim's slides, and a scroll that comes while one slides goes on from
+    /// where
+    /// the window is drawn, as one move of all the lines, instead of starting over.
+    private func scrollSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        let file = RealPath.of(NSTemporaryDirectory()) + "frame-scroll-\(UUID().uuidString).txt"
+        try? (1 ... 400).map { "line \($0)" }.joined(separator: "\n").write(
+            toFile: file,
+            atomically: true,
+            encoding: .utf8
+        )
+        _ = await lua("vim.o.scrolloff = 0; vim.cmd('edit ' .. vim.fn.fnameescape('\(file)'))")
+        let editor = shell.editor!
+        // A window that is not on screen has no display link to end a slide: asking for the frame does.
+        func sliding() -> Bool {
+            _ = editor.currentFrame
+            return editor.isSliding
+        }
+        await wait("nothing sliding to begin with") { !sliding() }
+        /// The most lines any window was sliding by in the time given, looked at every few milliseconds.
+        func watch(for seconds: Double) async -> Int {
+            var most = 0
+            let end = Date().addingTimeInterval(seconds)
+            while Date() < end {
+                _ = editor.currentFrame
+                most = max(most, editor.slidingLines.values.map(abs).max() ?? 0)
+                try? await Task.sleep(for: .milliseconds(4))
+            }
+            return most
+        }
+        let one = Task { @MainActor in await watch(for: 0.6) }
+        try? await Task.sleep(for: .milliseconds(50))
+        channel.send(keys: "<C-e>")
+        guard await one.value == 1 else { fail("a scroll of one line did not slide by one line") }
+        await wait("the slide to end") { !sliding() }
+        step("a scroll slides")
+        let chained = Task { @MainActor in await watch(for: 0.8) }
+        try? await Task.sleep(for: .milliseconds(50))
+        for _ in 0 ..< 4 {
+            channel.send(keys: "<C-e>")
+            try? await Task.sleep(for: .milliseconds(18))
+        }
+        guard await chained.value >= 2
+        else { fail("scrolls in quick succession were not one slide of all their lines") }
+        await wait("the slides to end") { !sliding() }
+        _ = await lua("vim.cmd('silent! bwipeout!')")
+        step("a scroll that comes while one slides goes on from where the window is drawn")
     }
 
     /// The tabs: the open files, in the places they can be, selected and closed by clicks and keys, and kept from being

@@ -565,6 +565,12 @@ again, ⌘W closes the current one, and `:FrameTabs next|prev|close|N` does the 
 were: `:bnext` and `:bprevious` (LazyVim's `]b` and `[b`, `<S-l>` and `<S-h>`), `<C-^>` for the last file, `gt` and `gT`
 for tab pages.
 
+The text scrolls smoothly: when nvim scrolls a window by less than a screenful (a wheel or trackpad step, `<C-e>`,
+`<C-d>`, a search landing a few lines away) the window slides there over about a tenth of a second, easing out
+(`smooth_scroll = false` under `[editor]` in the settings turns it off). In Frame a scroll that comes while one still
+slides goes on from where the window is drawn, as one move of all the lines, so fast scrolling flows instead of
+restarting at every line.
+
 ### As git's merge and diff tool
 
 ```sh

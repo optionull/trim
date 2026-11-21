@@ -534,6 +534,9 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         editor = EditorView(channel: session.channel)
         // A status line that went away must not show through the window that took its place.
         editor.windowsCover = true
+        // A scroll while another still slides goes on from where the window is drawn, not back to where the first
+        // began.
+        editor.chainsScrolls = true
         externalUI = ExternalUI(editor: editor)
         view = FrameView(
             editor: editor, overlay: externalUI.overlay, sidebar: sidebar, statusBar: statusBar, chip: chip,
