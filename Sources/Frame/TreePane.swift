@@ -181,6 +181,12 @@ final class SidebarView: NSView {
     }
 
     let scroll = NSScrollView()
+    /// The open files, above the tree, when the tabs are put there.
+    let openFiles = TabsView(axis: .vertical)
+    var openFilesVisible = false {
+        didSet { needsLayout = true }
+    }
+
     private let title = NSTextField(labelWithString: "")
     private let branch = NSTextField(labelWithString: "")
     /// At the top right: the filter, and what is shown (ignored files, dotfiles).
@@ -206,6 +212,9 @@ final class SidebarView: NSView {
         title.lineBreakMode = .byTruncatingMiddle
         branch.lineBreakMode = .byTruncatingTail
         applyLook()
+        openFiles.drawsIsland = false
+        openFiles.heading = "Open files"
+        openFiles.isHidden = true
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
@@ -214,7 +223,7 @@ final class SidebarView: NSView {
         filterBox.isHidden = true
         emptyNote.isHidden = true
         emptyNote.alignment = .center
-        for view in [scroll, title, branch, filterButton, visibilityButton, filterBox, emptyNote] {
+        for view in [scroll, title, branch, filterButton, visibilityButton, filterBox, emptyNote, openFiles] {
             addSubview(view)
         }
     }
@@ -234,6 +243,7 @@ final class SidebarView: NSView {
             button.look = look
         }
         filterBox.look = look
+        openFiles.look = look
         emptyNote.font = look.smallFont
         emptyNote.textColor = look.muted
         needsLayout = true
@@ -269,6 +279,13 @@ final class SidebarView: NSView {
             filterBox.frame = NSRect(x: 10, y: top - 4, width: bounds.width - 20, height: height)
             top += height
         }
+
+        // The open files, a list above the tree, at most eight rows of it, a thin line under.
+        let listHeight = openFilesVisible && !openFiles.tabs.isEmpty
+            ? min(openFiles.contentHeight, 8 * max(look.rowHeight + 4, 24) + (look.rowHeight + 6)) : 0
+        openFiles.isHidden = listHeight == 0
+        openFiles.frame = NSRect(x: 0, y: top, width: bounds.width, height: listHeight)
+        top += listHeight
         emptyNote.sizeToFit()
         emptyNote.frame = NSRect(x: inset, y: top + 12, width: bounds.width - 2 * inset, height: emptyNote.frame.height)
         scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top - 6))

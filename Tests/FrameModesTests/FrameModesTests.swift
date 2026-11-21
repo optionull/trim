@@ -155,3 +155,51 @@ import Testing
         #expect(StatusLine.counts(errors: 0, warnings: 0, infos: 0, hints: 0).isEmpty)
     }
 }
+
+@Suite struct TabsTests {
+    func tab(_ id: Int, _ path: String, edited: Bool = false, modified: Bool = false) -> FrameTab {
+        FrameTab(id: id, path: path, modified: modified, edited: edited)
+    }
+
+    @Test func `a tab says its file's name`() {
+        let tabs = [tab(1, "/w/a/one.swift"), tab(2, "/w/a/two.swift")]
+        #expect(Tabs.labels(tabs) == [1: "one.swift", 2: "two.swift"])
+    }
+
+    @Test func `the same name says where, with as few folders as tell them apart`() {
+        let tabs = [tab(1, "/w/a/index.ts"), tab(2, "/w/b/index.ts"), tab(3, "/w/x/other.ts")]
+        let labels = Tabs.labels(tabs)
+        #expect(labels[1] == "index.ts · a" && labels[2] == "index.ts · b" && labels[3] == "other.ts")
+        let deep = Tabs.labels([tab(1, "/w/a/src/index.ts"), tab(2, "/w/b/src/index.ts")])
+        #expect(deep[1] == "index.ts · a/src" && deep[2] == "index.ts · b/src")
+    }
+
+    @Test func `a preview is a tab nobody edited`() {
+        #expect(tab(1, "/a").isPreview)
+        #expect(!tab(1, "/a", edited: true).isPreview)
+        #expect(!tab(1, "/a", modified: true).isPreview)
+    }
+
+    @Test func `the next and previous tab go round`() {
+        let tabs = [tab(5, "/a"), tab(7, "/b"), tab(9, "/c")]
+        #expect(Tabs.neighbor(of: 5, in: tabs, by: 1) == 7)
+        #expect(Tabs.neighbor(of: 9, in: tabs, by: 1) == 5)
+        #expect(Tabs.neighbor(of: 5, in: tabs, by: -1) == 9)
+        #expect(Tabs.neighbor(of: nil, in: tabs, by: 1) == 5)
+        #expect(Tabs.neighbor(of: 7, in: [], by: 1) == nil)
+        #expect(Tabs.neighbor(of: 7, in: [tab(7, "/b")], by: 1) == 7)
+    }
+
+    @Test func `a numbered tab, the ninth being the last`() {
+        let tabs = [tab(5, "/a"), tab(7, "/b"), tab(9, "/c")]
+        #expect(Tabs.numbered(1, in: tabs) == 5 && Tabs.numbered(3, in: tabs) == 9)
+        #expect(Tabs.numbered(4, in: tabs) == nil && Tabs.numbered(9, in: tabs) == 9 && Tabs
+            .numbered(0, in: tabs) == nil)
+    }
+
+    @Test func `the placements say whether they are a strip`() {
+        #expect(TabsPlacement.top.isStrip && TabsPlacement.bottom.isStrip)
+        #expect(!TabsPlacement.right.isStrip && !TabsPlacement.tree.isStrip && !TabsPlacement.hidden.isStrip)
+        #expect(TabsPlacement(rawValue: "tree") == .tree && TabsPlacement(rawValue: "left") == nil)
+    }
+}

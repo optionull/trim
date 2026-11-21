@@ -1,4 +1,5 @@
 import AppKit
+import FrameModes
 import FrameTree
 import SillAgent
 import SillCore
@@ -116,6 +117,38 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task { await controller.shutDown() }
     }
 
+    /// The tabs' options as they are now: remembered between starts (not in the self-check), and the same in every
+    /// window.
+    var tabsMax = FrameApp.checking ? 10 : PaneLayout.tabsMax
+    var tabsAutoclose = FrameApp.checking ? true : PaneLayout.tabsAutoclose
+    /// Where the tabs were before they were hidden, for "show" to go back to.
+    var tabsLastShown = FrameApp.checking ? TabsPlacement.top : PaneLayout.tabsLastShown
+
+    /// Where the tabs are, in every window; hiding them remembers where they were.
+    func setTabs(placement: TabsPlacement) {
+        if placement != .hidden { tabsLastShown = placement }
+        if !Self.checking {
+            PaneLayout.tabsLastShown = tabsLastShown
+            PaneLayout.tabsPlacement = placement
+        }
+        for controller in controllers {
+            controller.view?.tabsPlacement = placement
+            controller.configureTabs()
+        }
+    }
+
+    func setTabsMax(_ limit: Int) {
+        tabsMax = limit
+        if !Self.checking { PaneLayout.tabsMax = limit }
+        controllers.forEach { $0.configureTabs() }
+    }
+
+    func setTabsAutoclose(_ on: Bool) {
+        tabsAutoclose = on
+        if !Self.checking { PaneLayout.tabsAutoclose = on }
+        controllers.forEach { $0.configureTabs() }
+    }
+
     /// Where the status bar sits, in every window, and for the next start.
     func setStatusPlacement(_ placement: StatusPlacement) {
         for controller in controllers {
@@ -207,6 +240,36 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             keyEquivalent: "o"
         )
         .keyEquivalentModifierMask = [.command, .shift]
+        goMenu.addItem(.separator())
+        // Control-Tab, as browsers and editors have it; the macOS pair too.
+        goMenu.addItem(withTitle: "Next Tab", action: #selector(Window.nextTab(_:)), keyEquivalent: "\t")
+            .keyEquivalentModifierMask = [.control]
+        goMenu.addItem(withTitle: "Previous Tab", action: #selector(Window.previousTab(_:)), keyEquivalent: "\t")
+            .keyEquivalentModifierMask = [.control, .shift]
+        // On a real keyboard Shift-Tab is the back-tab character.
+        let backTab = goMenu.addItem(
+            withTitle: "Previous Tab",
+            action: #selector(Window.previousTab(_:)),
+            keyEquivalent: "\u{19}"
+        )
+        backTab.keyEquivalentModifierMask = [.control, .shift]
+        backTab.isHidden = true
+        backTab.allowsKeyEquivalentWhenHidden = true
+        let nextAlternate = goMenu.addItem(
+            withTitle: "Next Tab",
+            action: #selector(Window.nextTab(_:)),
+            keyEquivalent: "]"
+        )
+        nextAlternate.keyEquivalentModifierMask = [.command, .shift]
+        nextAlternate.isHidden = true
+        nextAlternate.allowsKeyEquivalentWhenHidden = true
+        let previousAlternate = goMenu.addItem(
+            withTitle: "Previous Tab", action: #selector(Window.previousTab(_:)), keyEquivalent: "["
+        )
+        previousAlternate.keyEquivalentModifierMask = [.command, .shift]
+        previousAlternate.isHidden = true
+        previousAlternate.allowsKeyEquivalentWhenHidden = true
+        goMenu.addItem(withTitle: "Close Tab", action: #selector(Window.closeCurrentTab(_:)), keyEquivalent: "w")
         goItem.submenu = goMenu
         let viewItem = NSMenuItem()
         menu.addItem(viewItem)
@@ -216,6 +279,30 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             withTitle: "Status Bar Across Window", action: #selector(Window.toggleStatusAcrossWindow(_:)),
             keyEquivalent: ""
         )
+        let tabsItem = viewMenu.addItem(withTitle: "Tabs", action: nil, keyEquivalent: "")
+        let tabsMenu = NSMenu(title: "Tabs")
+        for placement in TabsPlacement.allCases {
+            let item = tabsMenu.addItem(
+                withTitle: placement.title, action: #selector(Window.chooseTabsPlacement(_:)), keyEquivalent: ""
+            )
+            item.representedObject = placement.rawValue
+        }
+        tabsMenu.addItem(.separator())
+        tabsMenu.addItem(
+            withTitle: "Close Unedited Tabs Past the Maximum", action: #selector(Window.toggleTabsAutoclose(_:)),
+            keyEquivalent: ""
+        )
+        let maxItem = tabsMenu.addItem(withTitle: "Maximum Tabs", action: nil, keyEquivalent: "")
+        let maxMenu = NSMenu(title: "Maximum Tabs")
+        for limit in [5, 8, 10, 15, 20, 0] {
+            let item = maxMenu.addItem(
+                withTitle: limit == 0 ? "No Limit" : String(limit), action: #selector(Window.chooseTabsMax(_:)),
+                keyEquivalent: ""
+            )
+            item.representedObject = limit
+        }
+        maxItem.submenu = maxMenu
+        tabsItem.submenu = tabsMenu
         viewMenu.addItem(withTitle: "Filter Files", action: #selector(Window.filterTree(_:)), keyEquivalent: "f")
             .keyEquivalentModifierMask = [.command, .option]
         let ignoredItem = viewMenu.addItem(

@@ -83,6 +83,7 @@ struct FrameCheck {
         await layoutSteps()
         await switchSteps()
         await statusSteps()
+        await tabsSteps()
         await windowSteps()
         await switcherSteps()
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -788,6 +789,186 @@ struct FrameCheck {
         step(":FrameStatusline hides the bar and gives nvim's own back; the grid ends where the bar begins")
     }
 
+    /// The tabs: the open files, in the places they can be, selected and closed by clicks and keys, and kept from being
+    /// too many.
+    private func tabsSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        let dir = RealPath.of(NSTemporaryDirectory()) + "frame-tabs-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt", "f.txt"] {
+            try? "\(name)\n".write(toFile: dir + "/" + name, atomically: true, encoding: .utf8)
+        }
+        func open(_ name: String) async { _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(dir)/\(name)'))") }
+        func names() -> [String] { shell.tabs.filter { $0.path.hasPrefix(dir) }.map(\.name) }
+        func current() -> String? { shell.tabs.first { $0.current }?.name }
+        func click(_ list: TabsView, tab name: String, close: Bool = false) {
+            guard let id = shell.tabs.first(where: { $0.name == name })?.id, let rect = list.frame(ofTab: id) else {
+                fail("no tab \(name) to click")
+            }
+            let point = NSPoint(x: close ? rect.maxX - 15 : rect.minX + 30, y: rect.midY)
+            let event = NSEvent.mouseEvent(
+                with: .leftMouseDown, location: list.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                windowNumber: shell.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+            )!
+            list.mouseDown(with: event)
+        }
+        func chord(_ characters: String, _ plain: String, _ flags: NSEvent.ModifierFlags) -> Bool {
+            let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: shell.window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: plain, isARepeat: false, keyCode: 0
+            )!
+            return NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
+        }
+        let strip = shell.tabStrip, list = shell.tabList, view = shell.view!, editor = shell.editor!
+        let sidebarList = shell.view.sidebar.openFiles
+        // From nothing: the buffers of the steps before are tabs too.
+        _ = await lua("vim.cmd('silent! %bwipeout!')")
+        await wait("no tabs to begin with") { shell.tabs.isEmpty }
+        shell.app.setTabsAutoclose(true)
+        shell.app.setTabsMax(10)
+        shell.app.setTabs(placement: .top)
+        await open("a.txt")
+        await open("b.txt")
+        await open("c.txt")
+        await wait("the three files as tabs") { names() == ["a.txt", "b.txt", "c.txt"] && current() == "c.txt" }
+        view.layoutSubtreeIfNeeded()
+        guard !strip.isHidden, strip.frame.maxY < editor.frame.minY, strip.frame.minX == editor.frame.minX,
+              strip.frame.width == editor.frame.width, list.isHidden
+        else { fail("the strip is not over the grid: \(strip.frame), the grid \(editor.frame)") }
+        step("the open files are tabs, in a strip over the grid")
+
+        // Selecting and closing, by click.
+        click(strip, tab: "a.txt")
+        await waitAsync("a click to show a.txt") {
+            await lua("return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ':t')")?.stringValue == "a.txt"
+        }
+        guard shell.window.firstResponder === editor else { fail("clicking a tab took the keyboard from the editor") }
+        click(strip, tab: "b.txt", close: true)
+        await wait("the close mark to close b.txt") { names() == ["a.txt", "c.txt"] }
+        step("a click on a tab shows it and the close mark closes it")
+
+        // Keys: Control-Tab and its pair, the macOS ones, and Command-W. Three tabs, so next and previous differ.
+        await open("d.txt")
+        await wait("three tabs") { names() == ["a.txt", "c.txt", "d.txt"] && current() == "d.txt" }
+        shell.focusEditor()
+        guard chord("\t", "\t", .control) else { fail("no menu item takes Control-Tab") }
+        await wait("Control-Tab for the next tab, round again") { current() == "a.txt" }
+        guard chord("\t", "\t", .control) else { fail("no menu item takes Control-Tab") }
+        await wait("Control-Tab for the next tab") { current() == "c.txt" }
+        // Shift-Tab arrives as the back-tab character.
+        guard chord("\u{19}", "\u{19}", [.control, .shift]) else { fail("no menu item takes Control-Shift-Tab") }
+        await wait("Control-Shift-Tab for the previous tab") { current() == "a.txt" }
+        guard chord("\u{19}", "\u{19}", [.control, .shift]) else { fail("no menu item takes Control-Shift-Tab") }
+        await wait("Control-Shift-Tab for the previous tab, round again") { current() == "d.txt" }
+        guard chord("}", "]", [.command, .shift]) else { fail("no menu item takes Command-Shift-]") }
+        await wait("Command-Shift-] for the next tab") { current() == "a.txt" }
+        guard chord("{", "[", [.command, .shift]) else { fail("no menu item takes Command-Shift-[") }
+        await wait("Command-Shift-[ for the previous tab") { current() == "d.txt" }
+        _ = await lua("vim.cmd('FrameTabs prev')")
+        await wait(":FrameTabs prev") { current() == "c.txt" }
+        _ = await lua("vim.cmd('FrameTabs 3')")
+        await wait(":FrameTabs 3") { current() == "d.txt" }
+        _ = await lua("vim.cmd('FrameTabs next')")
+        await wait(":FrameTabs next") { current() == "a.txt" }
+        _ = await lua("vim.cmd('FrameTabs 2')")
+        await wait(":FrameTabs 2") { current() == "c.txt" }
+        guard chord("w", "w", .command) else { fail("no menu item takes Command-W") }
+        await wait("Command-W to close the tab") { names() == ["a.txt", "d.txt"] }
+        step(
+            "Control-Tab and Control-Shift-Tab (and Command-Shift-] [) go round the tabs, Command-W closes one, `:FrameTabs` does too"
+        )
+
+        // The places: under the grid, beside it, in the sidebar, nowhere.
+        await open("b.txt")
+        await wait("three tabs") { names().count == 3 }
+        _ = await lua("vim.cmd('FrameTabs bottom')")
+        await wait("the strip under the grid") { view.tabsPlacement == .bottom }
+        view.layoutSubtreeIfNeeded()
+        guard !strip.isHidden, strip.frame.minY > editor.frame.maxY, strip.frame.maxY < shell.view.statusBar.frame.minY
+        else { fail("the strip is not under the grid: \(strip.frame), the grid \(editor.frame)") }
+        shell.app.setTabs(placement: .right)
+        view.layoutSubtreeIfNeeded()
+        guard strip.isHidden, !list.isHidden, list.frame.minX > editor.frame.maxX, list.frame.maxX <= view.bounds.width
+        else { fail("the list is not beside the grid: \(list.frame), the grid \(editor.frame)") }
+        shell.app.setTabs(placement: .tree)
+        view.layoutSubtreeIfNeeded()
+        shell.view.sidebar.layoutSubtreeIfNeeded()
+        guard strip.isHidden, list.isHidden, !sidebarList.isHidden, sidebarList.frame.height > 0,
+              sidebarList.frame.maxY <= shell.view.sidebar.bounds.height
+        else { fail("the list is not in the sidebar: \(sidebarList.frame)") }
+        click(sidebarList, tab: "a.txt")
+        await wait("a click in the sidebar's list") { current() == "a.txt" }
+        shell.app.setTabs(placement: .hidden)
+        view.layoutSubtreeIfNeeded()
+        guard strip.isHidden, list.isHidden, sidebarList.isHidden else { fail("hidden tabs are showing") }
+        _ = await lua("vim.cmd('FrameTabs show')")
+        await wait("show to bring them back") { view.tabsPlacement == .tree }
+        _ = await lua("vim.cmd('FrameTabs top')")
+        await wait("top again") { view.tabsPlacement == .top }
+        view.layoutSubtreeIfNeeded()
+        // For the picture: an edited tab (changed, not saved), and the rest quiet previews.
+        _ =
+            await lua(
+                "vim.cmd('edit ' .. vim.fn.fnameescape('\(dir)/b.txt')); vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'changed' }); vim.cmd('edit ' .. vim.fn.fnameescape('\(dir)/c.txt'))"
+            )
+        await wait("the changed tab") {
+            shell.tabs.contains { $0.name == "b.txt" && $0.modified } && current() == "c.txt"
+        }
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try? await Task.sleep(for: .milliseconds(300))
+            do { try shot(editor: editor, to: path.replacingOccurrences(of: ".png", with: "-tabs.png")) } catch {
+                fail("the tabs' shot: \(error)")
+            }
+        }
+        // The picture is taken; the changed tab is dropped, so the steps after start as they did.
+        _ = await lua("vim.cmd('silent! bwipeout! ' .. vim.fn.bufnr('\(dir)/b.txt'))")
+        await wait("the changed tab gone") { !names().contains("b.txt") }
+        step("tabs go top, bottom, right or in the sidebar, or are hidden, and come back where they were")
+
+        // Too many: past the maximum the tabs nobody edited are closed, the edited ones stay.
+        _ = await lua("""
+        vim.cmd('edit ' .. vim.fn.fnameescape('\(dir)/a.txt'))
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'edited' })
+        vim.cmd('write')
+        """)
+        shell.app.setTabsMax(3)
+        await waitAsync("the maximum in nvim") {
+            await lua("return require('frame.tabs').options().max")?.integerValue == 3
+        }
+        await open("d.txt")
+        await open("e.txt")
+        await open("f.txt")
+        await wait("the unedited tabs closed past the maximum") { names().count == 3 && current() == "f.txt" }
+        guard names().contains("a.txt"), current() == "f.txt" else {
+            fail("the edited tab or the current one was closed: \(names())")
+        }
+        shell.app.setTabsAutoclose(false)
+        await waitAsync("autoclose off in nvim") {
+            await lua("return require('frame.tabs').options().autoclose")?.boolValue == false
+        }
+        await open("b.txt")
+        await open("c.txt")
+        await wait("tabs past the maximum when autoclose is off") { names().count == 5 && current() == "c.txt" }
+        shell.app.setTabsAutoclose(true)
+        _ = await lua("vim.cmd('FrameTabs hide')")
+        await wait("hidden") { view.tabsPlacement == .hidden }
+        // Hidden, nvim is told not to close anything: what is not seen is not tidied.
+        await waitAsync("autoclose off while hidden") {
+            await lua("return require('frame.tabs').options().autoclose")?.boolValue == false
+        }
+        await open("d.txt")
+        await open("e.txt")
+        await wait("every open file still a tab while hidden") { names().count >= 5 && current() == "e.txt" }
+        _ = await lua("vim.cmd('FrameTabs top')")
+        shell.app.setTabsMax(10)
+        await wait("the strip back") { view.tabsPlacement == .top }
+        _ = await lua("vim.cmd('silent! %bwipeout!')")
+        await wait("no tabs") { names().isEmpty }
+        step("past the maximum the tabs never edited are closed, the edited stay; off, or hidden, nothing is closed")
+    }
+
     /// A window for each workspace: one folder, one window, found again by its real path; each with its own nvim in its
     /// own folder, and closing one leaves the other.
     private func windowSteps() async {
@@ -1153,6 +1334,22 @@ struct FrameCheck {
                 width: sidebar.frame.width,
                 height: sidebar.frame.height
             ))
+        }
+        for tabs in [shell.tabStrip, shell.tabList] where !tabs.isHidden {
+            if let pane = tabs.bitmapImageRepForCachingDisplay(in: tabs.bounds) {
+                if let backing = NSGraphicsContext(bitmapImageRep: pane) {
+                    NSGraphicsContext.saveGraphicsState()
+                    NSGraphicsContext.current = backing
+                    NSColor(rgb: editor.screen.defaultBackground).setFill()
+                    tabs.bounds.fill()
+                    NSGraphicsContext.restoreGraphicsState()
+                }
+                tabs.cacheDisplay(in: tabs.bounds, to: pane)
+                pane.draw(in: NSRect(
+                    x: pad + tabs.frame.minX, y: pad + size.height - tabs.frame.maxY, width: tabs.frame.width,
+                    height: tabs.frame.height
+                ))
+            }
         }
         let button = shell.chip
         if !button.isHidden, let pane = button.bitmapImageRepForCachingDisplay(in: button.bounds) {
