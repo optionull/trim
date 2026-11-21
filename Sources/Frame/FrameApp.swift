@@ -51,6 +51,7 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         EditorFont.load(Settings.shared.current)
         EditorFont.onChange = { [weak self] in self?.controllers.forEach { $0.fontChanged() } }
         buildMenu()
+        installTabKeys()
         let (folder, arguments) = Self.startingFolder()
         open(folder: folder, arguments: arguments)
     }
@@ -93,6 +94,30 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         controllers.append(controller)
         controller.start()
         return controller
+    }
+
+    // MARK: Control-Tab
+
+    private var keyMonitor: Any?
+
+    /// Control-Tab and Control-Shift-Tab, taken before anything else sees them: a menu's key equivalent for Tab does
+    /// not
+    /// get there (the window and nvim's grid take Tab first).
+    private func installTabKeys() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let handled = MainActor.assumeIsolated { self?.tabKey(event) == true }
+            return handled ? nil : event
+        }
+    }
+
+    /// Whether `event` is Control-Tab or Control-Shift-Tab, which then go to the next or previous tab of the window the
+    /// person is in (not while the switcher has the keyboard).
+    func tabKey(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.control, .command, .option, .shift])
+        guard event.keyCode == 48, modifiers.contains(.control), modifiers.isDisjoint(with: [.command, .option]),
+              let active, active.switcher == nil else { return false }
+        if modifiers.contains(.shift) { active.previousTab(nil) } else { active.nextTab(nil) }
+        return true
     }
 
     /// A workspace chosen in `controller`'s switcher: a window that is on it comes forward; otherwise it opens in this

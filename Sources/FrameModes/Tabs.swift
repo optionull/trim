@@ -23,17 +23,15 @@ public struct FrameTab: Equatable, Sendable, Identifiable {
     public var isPreview: Bool { !edited && !modified }
 }
 
-/// Where the tabs are: a strip over the grid, under it, a list beside it, a list in the sidebar above the tree, or
-/// not at all.
+/// Where the tabs are: a strip over the grid, under it, a list beside it, or not at all.
 public enum TabsPlacement: String, CaseIterable, Sendable {
-    case top, bottom, right, tree, hidden
+    case top, bottom, right, hidden
 
     public var title: String {
         switch self {
         case .top: "Top"
         case .bottom: "Bottom"
         case .right: "Right"
-        case .tree: "In the Sidebar"
         case .hidden: "Hidden"
         }
     }
@@ -43,6 +41,9 @@ public enum TabsPlacement: String, CaseIterable, Sendable {
 }
 
 public enum Tabs {
+    /// Whether the tabs show: not for the one file, nor when they are hidden.
+    public static func isShown(count: Int, placement: TabsPlacement) -> Bool { count > 1 && placement != .hidden }
+
     /// What each tab says: its file's name, and where it is when another tab has the same name (the folders above it,
     /// as few as tell them apart).
     public static func labels(_ tabs: [FrameTab]) -> [Int: String] {

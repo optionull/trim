@@ -550,17 +550,19 @@ workspace as its first segment. nvim's own status line, ruler and mode message a
 when it hides (`:FrameStatusline [toggle|show|hide]`); `vim.g.frame_statusline = false` keeps the bar away and your own
 status line (lualine and the like) as it is.
 
-The open files are tabs (nvim's buffers; tab pages, which are layouts of windows, are not shown). View ▸ Tabs puts
-them over the grid (the default), under it, as a list at its right, as an "Open files" list in the sidebar above the
-tree, or hides them; `:FrameTabs top|bottom|right|tree|hide|show|toggle` does the same, and the choice is remembered. A
-file never edited is in italics (a preview), one with changes has a dot. Past a maximum (View ▸ Tabs ▸ Maximum Tabs, or
-`:FrameTabs max N`, 10 by default, 0 for none) the tabs never edited are closed, the least recently used first (View ▸
-Tabs ▸ Close Unedited Tabs Past the Maximum, or `:FrameTabs autoclose [on|off]`); an edited tab, one with changes and
-the one showing are never closed, and nothing is closed while the tabs are hidden. A click shows a tab, its close mark
-or a middle click closes it. Keys: ⌃⇥ and ⌃⇧⇥ (also ⌘⇧] and ⌘⇧[) go to the next and previous tab, round again, ⌘W
-closes the current one, and `:FrameTabs next|prev|close|N` does the same from nvim. nvim's own keys are as they were:
-`:bnext` and `:bprevious` (LazyVim's `]b` and `[b`, `<S-l>` and `<S-h>`), `<C-^>` for the last file, `gt` and `gT` for tab
-pages.
+The open files are tabs (nvim's buffers; tab pages, which are layouts of windows, are not shown), and show only when
+more than one file is open. View ▸ Tabs puts them over the grid (the default), under it, as a list at its right, or hides
+them; `:FrameTabs top|bottom|right|hide|show|toggle` does the same, and the choice is remembered. They sit on nvim's own
+background, each with the file's icon in its colour as in the tree, the shown one on the colour scheme's selection colour
+(nvim's `Visual` background, or the group `vim.g.frame_selection_group` names), the same one the tree's selected row
+has. A file never edited is in italics (a preview), one with changes has a dot. Past a maximum (View ▸ Tabs ▸ Maximum
+Tabs, or `:FrameTabs max N`, 10 by default, 0 for none) the tabs never edited are closed, the least recently used first
+(View ▸ Tabs ▸ Close Unedited Tabs Past the Maximum, or `:FrameTabs autoclose [on|off]`); an edited tab, one with
+changes and the one showing are never closed, and nothing is closed while the tabs are hidden. A click shows a tab, its
+close mark or a middle click closes it. Keys: ⌃⇥ and ⌃⇧⇥ (also ⌘⇧] and ⌘⇧[) go to the next and previous tab, round
+again, ⌘W closes the current one, and `:FrameTabs next|prev|close|N` does the same from nvim. nvim's own keys are as they
+were: `:bnext` and `:bprevious` (LazyVim's `]b` and `[b`, `<S-l>` and `<S-h>`), `<C-^>` for the last file, `gt` and `gT`
+for tab pages.
 
 ### As git's merge and diff tool
 

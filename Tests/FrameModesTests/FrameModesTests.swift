@@ -199,7 +199,13 @@ import Testing
 
     @Test func `the placements say whether they are a strip`() {
         #expect(TabsPlacement.top.isStrip && TabsPlacement.bottom.isStrip)
-        #expect(!TabsPlacement.right.isStrip && !TabsPlacement.tree.isStrip && !TabsPlacement.hidden.isStrip)
-        #expect(TabsPlacement(rawValue: "tree") == .tree && TabsPlacement(rawValue: "left") == nil)
+        #expect(!TabsPlacement.right.isStrip && !TabsPlacement.hidden.isStrip)
+        #expect(TabsPlacement(rawValue: "right") == .right && TabsPlacement(rawValue: "tree") == nil)
+    }
+
+    @Test func `tabs show only when there is more than one file, and not when hidden`() {
+        #expect(!Tabs.isShown(count: 0, placement: .top) && !Tabs.isShown(count: 1, placement: .top))
+        #expect(Tabs.isShown(count: 2, placement: .top) && Tabs.isShown(count: 5, placement: .right))
+        #expect(!Tabs.isShown(count: 5, placement: .hidden))
     }
 }

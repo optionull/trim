@@ -120,13 +120,12 @@ final class FrameView: NSView {
     let statusBar: StatusBarView
     /// The workspace button under the sidebar, level with the status bar.
     let chip: WorkspaceChip
-    /// The tabs: a strip over or under the grid, or a list beside it (the sidebar's own list is in the sidebar).
+    /// The tabs: a strip over or under the grid, or a list beside it.
     let tabStrip: TabsView
     let tabList: TabsView
     var tabsPlacement: TabsPlacement = .top {
         didSet {
             needsLayout = true
-            sidebar.openFilesVisible = tabsPlacement == .tree
             if persisting { PaneLayout.tabsPlacement = tabsPlacement }
         }
     }
@@ -187,7 +186,6 @@ final class FrameView: NSView {
         sidebarVisible = persisting ? PaneLayout.sidebarVisible : true
         statusPlacement = persisting ? PaneLayout.statusPlacement : .editor
         tabsPlacement = persisting ? PaneLayout.tabsPlacement : .top
-        sidebar.openFilesVisible = tabsPlacement == .tree
         sidebarWidth = persisting ? PaneLayout.sidebarWidth : PaneLayout.defaultWidth
         super.init(frame: editor.frame)
         wantsLayer = true
@@ -241,7 +239,7 @@ final class FrameView: NSView {
 
         // The grid's column, and the tabs in it: a strip over or under the grid, or a list at its right.
         var column = NSRect(x: x, y: top, width: frame.maxX - x, height: max(0, frame.maxY - top - barStrip))
-        let tabsShown = !tabStrip.tabs.isEmpty
+        let tabsShown = Tabs.isShown(count: tabStrip.tabs.count, placement: tabsPlacement)
         let stripHeight = TabsView.stripHeight(for: statusBar.look)
         tabStrip.isHidden = !(tabsShown && tabsPlacement.isStrip)
         tabList.isHidden = !(tabsShown && tabsPlacement == .right)
@@ -408,11 +406,10 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     let tabList = TabsView(axis: .vertical)
     private(set) var tabs: [FrameTab] = [] {
         didSet {
-            for list in [tabStrip, tabList, sidebar.openFiles] {
+            for list in [tabStrip, tabList] {
                 list.tabs = tabs
             }
             view?.needsLayout = true
-            sidebar.needsLayout = true
         }
     }
 
@@ -455,7 +452,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         tree.onFilterChange = { [weak self] open in self?.modes.filterChanged(open: open) }
         tree.onFocused = { [weak self] in self?.modes.focused(.tree) }
         chip.onClick = { [weak self] in self?.switchWorkspace(nil) }
-        for list in [tabStrip, tabList, sidebar.openFiles] {
+        for list in [tabStrip, tabList] {
             list.onSelect = { [weak self] id in self?.selectTab(id) }
             list.onClose = { [weak self] id in self?.closeTab(id) }
         }
@@ -684,6 +681,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     require('frame.status').start()
     -- The tabs: the open files, and keeping there from being too many.
     require('frame.tabs').start()
+    -- The colour scheme's selection colour, for the tree and the tabs.
+    require('frame.theme').start()
     -- :FrameTree shows, hides or goes into the sidebar; <Plug> mappings to bind your own keys to.
     local actions = { 'toggle', 'show', 'hide', 'focus', 'filter', 'ignored', 'dotfiles' }
     vim.api.nvim_create_user_command('FrameTree', function(opts)
@@ -747,6 +746,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             .map { app.setStatusPlacement($0) }
         case "frame_status": if let map = args.first?.dictionaryValue { take(status: map) }
         case "frame_tabs": take(tabs: args.first?.arrayValue ?? [])
+        case "frame_theme":
+            tree.themeSelection = args.first?.dictionaryValue?[.string("selection")]?.integerValue.map { Int($0) }
         case "frame_tabs_option": tabsOption(args.first?.stringValue ?? "", args.dropFirst().first?.stringValue ?? "")
         case "frame_buffer":
             if let path = args.first?.stringValue { tree.reveal(path) }
@@ -887,10 +888,10 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         }
     }
 
-    /// `:FrameTabs top|bottom|right|tree|hide|show|toggle|autoclose [on|off]|max N`: what nvim cannot do itself.
+    /// `:FrameTabs top|bottom|right|hide|show|toggle|autoclose [on|off]|max N`: what nvim cannot do itself.
     private func tabsOption(_ word: String, _ argument: String) {
         switch word {
-        case "top", "bottom", "right", "tree": TabsPlacement(rawValue: word).map { app.setTabs(placement: $0) }
+        case "top", "bottom", "right": TabsPlacement(rawValue: word).map { app.setTabs(placement: $0) }
         case "hide", "hidden": app.setTabs(placement: .hidden)
         case "show": app.setTabs(placement: app.tabsLastShown)
         case "toggle": app.setTabs(placement: view?.tabsPlacement == .hidden ? app.tabsLastShown : .hidden)

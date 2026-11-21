@@ -21,9 +21,9 @@ struct TreeLook {
     var text: NSColor { NSColor(frameRGB: palette.foreground) }
     var muted: NSColor { NSColor(frameRGB: palette.muted) }
     var faint: NSColor { NSColor(frameRGB: palette.faint) }
-    /// The selected row: the text's colour, faintly; more while the tree has the keyboard.
-    var selection: NSColor { NSColor(frameRGB: palette.foreground, alpha: 0.10) }
-    var focusedSelection: NSColor { NSColor(frameRGB: palette.foreground, alpha: 0.20) }
+    /// The selected row: the colour scheme's selection colour, quieter while the pane does not have the keyboard.
+    var selection: NSColor { NSColor(frameRGB: palette.selectionDim) }
+    var focusedSelection: NSColor { NSColor(frameRGB: palette.selection) }
 
     /// The editor's font (the face, size and line height of the grid), for names; a little smaller for what is beside
     /// them.
@@ -181,12 +181,6 @@ final class SidebarView: NSView {
     }
 
     let scroll = NSScrollView()
-    /// The open files, above the tree, when the tabs are put there.
-    let openFiles = TabsView(axis: .vertical)
-    var openFilesVisible = false {
-        didSet { needsLayout = true }
-    }
-
     private let title = NSTextField(labelWithString: "")
     private let branch = NSTextField(labelWithString: "")
     /// At the top right: the filter, and what is shown (ignored files, dotfiles).
@@ -212,9 +206,6 @@ final class SidebarView: NSView {
         title.lineBreakMode = .byTruncatingMiddle
         branch.lineBreakMode = .byTruncatingTail
         applyLook()
-        openFiles.drawsIsland = false
-        openFiles.heading = "Open files"
-        openFiles.isHidden = true
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
@@ -223,7 +214,7 @@ final class SidebarView: NSView {
         filterBox.isHidden = true
         emptyNote.isHidden = true
         emptyNote.alignment = .center
-        for view in [scroll, title, branch, filterButton, visibilityButton, filterBox, emptyNote, openFiles] {
+        for view in [scroll, title, branch, filterButton, visibilityButton, filterBox, emptyNote] {
             addSubview(view)
         }
     }
@@ -243,7 +234,6 @@ final class SidebarView: NSView {
             button.look = look
         }
         filterBox.look = look
-        openFiles.look = look
         emptyNote.font = look.smallFont
         emptyNote.textColor = look.muted
         needsLayout = true
@@ -280,12 +270,6 @@ final class SidebarView: NSView {
             top += height
         }
 
-        // The open files, a list above the tree, at most eight rows of it, a thin line under.
-        let listHeight = openFilesVisible && !openFiles.tabs.isEmpty
-            ? min(openFiles.contentHeight, 8 * max(look.rowHeight + 4, 24) + (look.rowHeight + 6)) : 0
-        openFiles.isHidden = listHeight == 0
-        openFiles.frame = NSRect(x: 0, y: top, width: bounds.width, height: listHeight)
-        top += listHeight
         emptyNote.sizeToFit()
         emptyNote.frame = NSRect(x: inset, y: top + 12, width: bounds.width - 2 * inset, height: emptyNote.frame.height)
         scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top - 6))
@@ -638,8 +622,19 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     }
 
     /// The editor's colour scheme changed (or the first one arrived): the sidebar follows it.
+    /// The colour scheme's selection colour (nvim's `Visual`), once nvim has said it: the tree's selection, and the
+    /// tabs'.
+    var themeSelection: Int? {
+        didSet { if themeSelection != oldValue,
+                    let last = lastColours { follow(background: last.0, foreground: last.1) }
+        }
+    }
+
+    private var lastColours: (Int, Int)?
+
     func follow(background: Int, foreground: Int) {
-        let palette = TreePalette(background: background, foreground: foreground)
+        lastColours = (background, foreground)
+        let palette = TreePalette(background: background, foreground: foreground, selection: themeSelection)
         guard palette != look.palette else { return }
         look.palette = palette
         applyLook()

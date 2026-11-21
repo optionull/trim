@@ -450,3 +450,26 @@ struct TreeFilterTests {
         #expect(GitHead.info(at: folder(), levels: 0) == nil)
     }
 }
+
+@Suite struct TreeSelectionColourTests {
+    @Test func `the colour scheme's selection colour is the selection, and its quieter form is between it and the sidebar`(
+    ) {
+        let palette = TreePalette(background: 0x1A1B26, foreground: 0xC0CAF5, selection: 0x283457)
+        #expect(palette.selection == 0x283457)
+        #expect(palette.selectionDim == TreePalette.mix(palette.sidebar, 0x283457, 0.55))
+        #expect(palette.selectionDim != palette.selection)
+    }
+
+    @Test func `without one the selection is the foreground faintly over the background`() {
+        let palette = TreePalette(background: 0x000000, foreground: 0xFFFFFF)
+        #expect(palette.selection == TreePalette.mix(0x000000, 0xFFFFFF, 0.2))
+    }
+
+    @Test func `a different selection colour is a different palette`() {
+        #expect(TreePalette(background: 1, foreground: 2, selection: 3) != TreePalette(
+            background: 1,
+            foreground: 2,
+            selection: 4
+        ))
+    }
+}

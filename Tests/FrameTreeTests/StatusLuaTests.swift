@@ -81,3 +81,45 @@ struct StatusLuaTests {
         """)
     }
 }
+
+/// `runtime/lua/frame/theme.lua`: the selection colour, from the colour scheme's `Visual`, or the group a config names.
+@Suite("the theme's selection colour")
+struct ThemeLuaTests {
+    private static let runtime = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent("runtime").path
+
+    private func check(_ script: String) throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("frame-theme-\(UUID().uuidString).lua")
+        let source = "vim.opt.runtimepath:prepend('\(Self.runtime)')\n" + script + "\nio.stdout:write('PASSED')\n"
+        try source.write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["nvim", "--headless", "-u", "NONE", "-l", file.path]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        #expect(text.contains("PASSED"), "\(text)")
+    }
+
+    @Test("Visual's background, even when Visual is a link, and the group a config names instead")
+    func selection() throws {
+        try check("""
+        local theme = require('frame.theme')
+        vim.api.nvim_set_hl(0, 'Visual', { bg = 0x283457 })
+        assert(theme.selection() == 0x283457, 'visual')
+        vim.api.nvim_set_hl(0, 'MySelection', { bg = 0x112233 })
+        vim.api.nvim_set_hl(0, 'Visual', { link = 'MySelection' })
+        assert(theme.selection() == 0x112233, 'through a link')
+        vim.api.nvim_set_hl(0, 'PmenuSel', { bg = 0x445566 })
+        vim.g.frame_selection_group = 'PmenuSel'
+        assert(theme.selection() == 0x445566, 'the named group')
+        vim.api.nvim_set_hl(0, 'NoBackground', { fg = 0xFFFFFF })
+        vim.g.frame_selection_group = 'NoBackground'
+        assert(theme.selection() == nil, 'none when the scheme gives none')
+        """)
+    }
+}

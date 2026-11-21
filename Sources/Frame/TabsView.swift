@@ -24,11 +24,6 @@ final class TabsView: NSView {
         }
     }
 
-    /// A heading over a list ("Open files"), drawn when set.
-    var heading: String?
-    /// Whether the view paints its own island (the strip and the list beside the grid), or sits on what is under it
-    /// (the list in the sidebar).
-    var drawsIsland = true
     var onSelect: ((Int) -> Void)?
     var onClose: ((Int) -> Void)?
 
@@ -57,9 +52,14 @@ final class TabsView: NSView {
     static func stripHeight(for look: TreeLook) -> CGFloat { look.rowHeight + 12 }
 
     private var rowHeight: CGFloat { max(look.rowHeight + 4, 24) }
-    private var headingHeight: CGFloat { heading == nil ? 0 : look.rowHeight + 6 }
     /// What a list needs to show every tab.
-    var contentHeight: CGFloat { headingHeight + CGFloat(tabs.count) * rowHeight }
+    var contentHeight: CGFloat { CGFloat(tabs.count) * rowHeight }
+
+    /// The file's icon in its colour, as the tree draws it (a little quieter on a tab that is not the shown one).
+    static func iconColor(_ tab: FrameTab, look: TreeLook) -> NSColor {
+        let color = TreeCellView.color(FileIcons.icon(name: tab.name, isDirectory: false).tint, look: look)
+        return tab.current ? color : color.withAlphaComponent(0.75)
+    }
 
     private func font(for tab: FrameTab) -> NSFont {
         let base = look.smallFont.withSize(look.smallFont.pointSize + 1)
@@ -75,7 +75,7 @@ final class TabsView: NSView {
             return tabs.enumerated().map { index, tab in
                 (
                     tab,
-                    NSRect(x: 0, y: headingHeight + CGFloat(index) * rowHeight, width: bounds.width, height: rowHeight)
+                    NSRect(x: 0, y: CGFloat(index) * rowHeight, width: bounds.width, height: rowHeight)
                 )
             }
         case .horizontal:
@@ -125,9 +125,11 @@ final class TabsView: NSView {
     }
 
     override func draw(_: NSRect) {
-        if drawsIsland {
-            look.island.setFill()
-            NSBezierPath(roundedRect: bounds, xRadius: Design.islandRadius, yRadius: Design.islandRadius).fill()
+        // No ground of its own: the tabs sit on the editor's background, and a list has a hairline to tell it from the
+        // grid.
+        if axis == .vertical {
+            look.faint.withAlphaComponent(0.35).setFill()
+            NSRect(x: 0, y: 0, width: 1, height: bounds.height).fill()
         }
         let items = frames()
         if scrollToCurrent, let current = items.first(where: { $0.tab.current }) {
@@ -137,24 +139,13 @@ final class TabsView: NSView {
                 if current.frame.minX - offset < 0 { offset = current.frame.minX - 6 }
                 if current.frame.maxX - offset > bounds.width { offset = current.frame.maxX - bounds.width + 6 }
             case .vertical:
-                if current.frame.minY - offset < headingHeight { offset = current.frame.minY - headingHeight }
+                if current.frame.minY - offset < 0 { offset = current.frame.minY }
                 if current.frame.maxY - offset > bounds.height { offset = current.frame.maxY - bounds.height }
             }
         }
         offset = clamp(offset, items: items)
-        if let heading {
-            let text = NSAttributedString(
-                string: heading.uppercased(), attributes: [.font: look.smallFont, .foregroundColor: look.faint]
-            )
-            text.draw(at: NSPoint(x: 14, y: (headingHeight - text.size().height) / 2 + 1))
-        }
         NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(rect: NSRect(
-            x: 0,
-            y: axis == .vertical ? headingHeight : 0,
-            width: bounds.width,
-            height: bounds.height
-        )).addClip()
+        NSBezierPath(rect: bounds).addClip()
         for (tab, frame) in items {
             let rect = shifted(frame)
             guard rect.intersects(bounds) else { continue }
@@ -178,7 +169,7 @@ final class TabsView: NSView {
         let left = rect.minX + (axis == .vertical ? 16 : 10)
         (glyph as NSString).draw(
             at: NSPoint(x: left, y: rect.midY - iconSize.height / 2),
-            withAttributes: [.font: iconFont, .foregroundColor: tab.current ? look.muted : look.faint]
+            withAttributes: [.font: iconFont, .foregroundColor: Self.iconColor(tab, look: look)]
         )
         let textX = left + max(iconSize.width, look.iconSize) + 7
         let text = NSAttributedString(

@@ -1,4 +1,5 @@
 import AppKit
+import FrameModes
 import FrameTree
 import FrameWorkspaces
 import MessagePack
@@ -185,7 +186,7 @@ struct FrameCheck {
         }
         step("the tree is in the editor's font and size, a row a line of the grid")
         func expected(_ background: Int, _ foreground: Int) -> TreePalette {
-            TreePalette(background: background, foreground: foreground)
+            TreePalette(background: background, foreground: foreground, selection: tree.themeSelection)
         }
         let scheme = (editor.screen.defaultBackground, editor.screen.defaultForeground)
         guard sidebar.look.palette == expected(scheme.0, scheme.1)
@@ -813,6 +814,19 @@ struct FrameCheck {
             )!
             list.mouseDown(with: event)
         }
+        // Control-Tab as the keyboard sends it (a key code, before any menu), through the app's own handler.
+        func tabKey(shift: Bool = false, extra: NSEvent.ModifierFlags = []) -> Bool {
+            var flags: NSEvent.ModifierFlags = [.control]
+            if shift { flags.insert(.shift) }
+            flags.formUnion(extra)
+            let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: shell.window.windowNumber, context: nil,
+                characters: shift ? "\u{19}" : "\t", charactersIgnoringModifiers: shift ? "\u{19}" : "\t",
+                isARepeat: false, keyCode: 48
+            )!
+            return shell.app.tabKey(event)
+        }
         func chord(_ characters: String, _ plain: String, _ flags: NSEvent.ModifierFlags) -> Bool {
             let event = NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
@@ -822,7 +836,6 @@ struct FrameCheck {
             return NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
         }
         let strip = shell.tabStrip, list = shell.tabList, view = shell.view!, editor = shell.editor!
-        let sidebarList = shell.view.sidebar.openFiles
         // From nothing: the buffers of the steps before are tabs too.
         _ = await lua("vim.cmd('silent! %bwipeout!')")
         await wait("no tabs to begin with") { shell.tabs.isEmpty }
@@ -830,6 +843,14 @@ struct FrameCheck {
         shell.app.setTabsMax(10)
         shell.app.setTabs(placement: .top)
         await open("a.txt")
+        await wait("the one file") { names() == ["a.txt"] && current() == "a.txt" }
+        view.layoutSubtreeIfNeeded()
+        guard strip.isHidden, list.isHidden,
+              editor.frame.minY == shell.view.tabStrip.frame.minY || strip.isHidden
+        else {
+            fail("a single file has a strip")
+        }
+        step("one file is no tabs")
         await open("b.txt")
         await open("c.txt")
         await wait("the three files as tabs") { names() == ["a.txt", "b.txt", "c.txt"] && current() == "c.txt" }
@@ -853,14 +874,16 @@ struct FrameCheck {
         await open("d.txt")
         await wait("three tabs") { names() == ["a.txt", "c.txt", "d.txt"] && current() == "d.txt" }
         shell.focusEditor()
-        guard chord("\t", "\t", .control) else { fail("no menu item takes Control-Tab") }
+        guard tabKey() else { fail("Control-Tab is not taken") }
         await wait("Control-Tab for the next tab, round again") { current() == "a.txt" }
-        guard chord("\t", "\t", .control) else { fail("no menu item takes Control-Tab") }
+        guard tabKey() else { fail("Control-Tab is not taken") }
         await wait("Control-Tab for the next tab") { current() == "c.txt" }
-        // Shift-Tab arrives as the back-tab character.
-        guard chord("\u{19}", "\u{19}", [.control, .shift]) else { fail("no menu item takes Control-Shift-Tab") }
+        // Not Control-Command-Tab, nor with Option: those are other keys'.
+        guard !tabKey(extra: .command),
+              !tabKey(extra: .option) else { fail("Control-Tab with Command or Option was taken") }
+        guard tabKey(shift: true) else { fail("Control-Shift-Tab is not taken") }
         await wait("Control-Shift-Tab for the previous tab") { current() == "a.txt" }
-        guard chord("\u{19}", "\u{19}", [.control, .shift]) else { fail("no menu item takes Control-Shift-Tab") }
+        guard tabKey(shift: true) else { fail("Control-Shift-Tab is not taken") }
         await wait("Control-Shift-Tab for the previous tab, round again") { current() == "d.txt" }
         guard chord("}", "]", [.command, .shift]) else { fail("no menu item takes Command-Shift-]") }
         await wait("Command-Shift-] for the next tab") { current() == "a.txt" }
@@ -892,40 +915,63 @@ struct FrameCheck {
         view.layoutSubtreeIfNeeded()
         guard strip.isHidden, !list.isHidden, list.frame.minX > editor.frame.maxX, list.frame.maxX <= view.bounds.width
         else { fail("the list is not beside the grid: \(list.frame), the grid \(editor.frame)") }
-        shell.app.setTabs(placement: .tree)
-        view.layoutSubtreeIfNeeded()
-        shell.view.sidebar.layoutSubtreeIfNeeded()
-        guard strip.isHidden, list.isHidden, !sidebarList.isHidden, sidebarList.frame.height > 0,
-              sidebarList.frame.maxY <= shell.view.sidebar.bounds.height
-        else { fail("the list is not in the sidebar: \(sidebarList.frame)") }
-        click(sidebarList, tab: "a.txt")
-        await wait("a click in the sidebar's list") { current() == "a.txt" }
+        click(list, tab: "a.txt")
+        await wait("a click in the list") { current() == "a.txt" }
         shell.app.setTabs(placement: .hidden)
         view.layoutSubtreeIfNeeded()
-        guard strip.isHidden, list.isHidden, sidebarList.isHidden else { fail("hidden tabs are showing") }
+        guard strip.isHidden, list.isHidden else { fail("hidden tabs are showing") }
         _ = await lua("vim.cmd('FrameTabs show')")
-        await wait("show to bring them back") { view.tabsPlacement == .tree }
+        await wait("show to bring them back") { view.tabsPlacement == .right }
+        _ = await lua("vim.cmd('FrameTabs tree')")
+        try? await Task.sleep(for: .milliseconds(200))
+        guard view.tabsPlacement == .right else { fail("a placement that is gone was taken") }
         _ = await lua("vim.cmd('FrameTabs top')")
         await wait("top again") { view.tabsPlacement == .top }
         view.layoutSubtreeIfNeeded()
-        // For the picture: an edited tab (changed, not saved), and the rest quiet previews.
+        // For the picture: files of several kinds, one changed and not saved, the rest quiet previews.
+        for name in ["Order.cs", "Util.swift", "app.ts", "README.md"] {
+            try? "\(name)\n".write(toFile: dir + "/" + name, atomically: true, encoding: .utf8)
+            await open(name)
+        }
         _ =
             await lua(
-                "vim.cmd('edit ' .. vim.fn.fnameescape('\(dir)/b.txt')); vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'changed' }); vim.cmd('edit ' .. vim.fn.fnameescape('\(dir)/c.txt'))"
+                "vim.cmd('edit ' .. vim.fn.fnameescape('\(dir)/b.txt')); vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'changed' }); vim.cmd('edit ' .. vim.fn.fnameescape('\(dir)/Util.swift'))"
             )
         await wait("the changed tab") {
-            shell.tabs.contains { $0.name == "b.txt" && $0.modified } && current() == "c.txt"
+            shell.tabs.contains { $0.name == "b.txt" && $0.modified } && current() == "Util.swift"
         }
+        try? await Task.sleep(for: .milliseconds(300))
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
-            try? await Task.sleep(for: .milliseconds(300))
             do { try shot(editor: editor, to: path.replacingOccurrences(of: ".png", with: "-tabs.png")) } catch {
                 fail("the tabs' shot: \(error)")
             }
         }
-        // The picture is taken; the changed tab is dropped, so the steps after start as they did.
+        // The picture is taken; those tabs are dropped, so the steps after start as they did.
+        _ =
+            await lua(
+                "for _, n in ipairs({ 'Order.cs', 'Util.swift', 'app.ts', 'README.md' }) do vim.cmd('silent! bwipeout! ' .. vim.fn.bufnr('\(dir)/' .. n)) end"
+            )
+
         _ = await lua("vim.cmd('silent! bwipeout! ' .. vim.fn.bufnr('\(dir)/b.txt'))")
         await wait("the changed tab gone") { !names().contains("b.txt") }
-        step("tabs go top, bottom, right or in the sidebar, or are hidden, and come back where they were")
+        step("tabs go top, bottom or right, or are hidden, and come back where they were")
+
+        // The icons are the tree's, in colour; the selection is the colour scheme's, in the tabs and the tree.
+        let order = FrameTab(id: 1, path: "/x/Order.cs")
+        let plain = FrameTab(id: 2, path: "/x/notes.txt")
+        let treeLook = shell.tree.look
+        guard TabsView.iconColor(order, look: treeLook).withAlphaComponent(1) == TreeCellView.color(
+            .dotnet,
+            look: treeLook
+        ),
+            TabsView.iconColor(order, look: treeLook) != TabsView.iconColor(plain, look: treeLook)
+        else { fail("a tab's icon is not the tree's colour for its kind") }
+        _ = await lua("vim.api.nvim_set_hl(0, 'Visual', { bg = 0x336699 }); require('frame.theme').send()")
+        await wait("the colour scheme's selection colour") { shell.tree.look.palette.selection == 0x336699 }
+        guard strip.look.palette.selection == 0x336699, strip.look.focusedSelection == NSColor(frameRGB: 0x336699),
+              shell.tree.look.focusedSelection == NSColor(frameRGB: 0x336699)
+        else { fail("the tabs and the tree do not share the scheme's selection colour") }
+        step("a tab's icon is the tree's, in colour; the selection is the colour scheme's, in the tabs and in the tree")
 
         // Too many: past the maximum the tabs nobody edited are closed, the edited ones stay.
         _ = await lua("""
