@@ -11,6 +11,8 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var watcher: SettingsWatcher?
     private var quitting = false
     private let configMenu = NSMenu(title: "Config")
+    /// Where the switcher's workspaces come from (the self-check swaps it for a fixture).
+    var sources = WorkspaceSources.live
 
     static var checking: Bool { ProcessInfo.processInfo.environment["SILL_FRAME_CHECK"] == "1" }
 
@@ -80,6 +82,7 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             known.window.makeKeyAndOrderFront(nil)
             return known
         }
+        if !Self.checking { WorkspaceHistory.touch(real) }
         let controller = FrameWindowController(
             app: self, folder: real, arguments: arguments, isFirst: controllers.isEmpty
         )
@@ -99,7 +102,7 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task { await controller.shutDown() }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { !Self.checking }
 
     /// Quitting with unsaved changes asks first, window by window, as nvim's :qa would refuse.
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
@@ -172,6 +175,16 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editItem.submenu = editMenu
+        let goItem = NSMenuItem()
+        menu.addItem(goItem)
+        let goMenu = NSMenu(title: "Go")
+        goMenu.addItem(
+            withTitle: "Switch Workspace…",
+            action: #selector(Window.switchWorkspace(_:)),
+            keyEquivalent: "o"
+        )
+        .keyEquivalentModifierMask = [.command, .shift]
+        goItem.submenu = goMenu
         let viewItem = NSMenuItem()
         menu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")

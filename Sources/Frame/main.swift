@@ -276,6 +276,9 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// The tree, which stays through a switch of config: its view and its controller outlive any one nvim.
     private let sidebar = SidebarView()
     private(set) var tree: TreeController!
+    /// The workspace switcher while it is up, and where the keyboard was.
+    private(set) var switcher: SwitcherView?
+    private var beforeSwitcher: NSResponder?
 
     init(app: FrameApp, folder: String, arguments: [String], isFirst: Bool) {
         self.app = app
@@ -296,6 +299,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         )
         // Nothing of it is restored, so AppKit has no state of it to save (on the main thread, waiting on the disk).
         window.isRestorable = false
+        // ARC holds it: closing must not release it a second time.
+        window.isReleasedWhenClosed = false
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = false
@@ -364,6 +369,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
 
     /// A session, an editor on it and the view that holds them, in the window: what a switch of config makes anew.
     private func makeSurface() {
+        closeSwitcher(restoring: false)
         generation += 1
         let generation = generation
         session = EditorSession()
@@ -495,12 +501,19 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
       end,
       desc = 'Show, hide or go into the file tree; ignored and dotfiles show or hide those files',
     })
+    vim.api.nvim_create_user_command('FrameWorkspace', function() tell('frame_workspace', 'toggle') end,
+      { desc = 'Switch workspace: a repository or worktree, in a window of its own' })
+    vim.keymap.set('n', '<Plug>(frame-workspace)', function() tell('frame_workspace', 'toggle') end, { desc = 'Switch workspace' })
     vim.keymap.set('n', '<Plug>(frame-tree-toggle)', function() tell('frame_tree', 'toggle') end, { desc = 'Show or hide the file tree' })
     vim.keymap.set('n', '<Plug>(frame-tree-focus)', function() tell('frame_tree', 'focus') end, { desc = 'Go into the file tree' })
     -- Default keys, each only where the config has not bound it: <leader>e shows and enters the tree, or hides it;
-    -- <C-w>e enters it (showing it first).
-    for lhs, plug in pairs({ ['<leader>e'] = '<Plug>(frame-tree-toggle)', ['<C-w>e'] = '<Plug>(frame-tree-focus)' }) do
-      if vim.fn.maparg(lhs, 'n') == '' then vim.keymap.set('n', lhs, plug, { remap = true, desc = 'File tree' }) end
+    -- <C-w>e enters it (showing it first); <leader>fw switches workspace.
+    for _, key in ipairs({
+      { '<leader>e', '<Plug>(frame-tree-toggle)', 'File tree' },
+      { '<C-w>e', '<Plug>(frame-tree-focus)', 'File tree' },
+      { '<leader>fw', '<Plug>(frame-workspace)', 'Switch workspace' },
+    }) do
+      if vim.fn.maparg(key[1], 'n') == '' then vim.keymap.set('n', key[1], key[2], { remap = true, desc = key[3] }) end
     end
     -- <C-w>h from the leftmost window goes on into the tree (a mapping of the config's own is left alone).
     for _, lhs in ipairs({ '<C-w>h', '<C-w><C-h>' }) do
@@ -530,6 +543,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// What nvim asked of the frame (`:FrameConfig`).
     private func nvimAsked(_ method: String, _ args: [MessagePackValue]) {
         switch method {
+        case "frame_workspace": switchWorkspace(nil)
         case "frame_buffer":
             if let path = args.first?.stringValue { tree.reveal(path) }
             return
@@ -605,6 +619,43 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     }
 
     func focusEditor() { window.makeFirstResponder(editor) }
+
+    // MARK: The workspace switcher
+
+    /// ⌘⇧O, `:FrameWorkspace`: the switcher up, or down again.
+    @objc func switchWorkspace(_: Any?) {
+        if switcher == nil { showSwitcher() } else { closeSwitcher() }
+    }
+
+    func showSwitcher() {
+        guard switcher == nil, view != nil else { return }
+        let panel = SwitcherView(look: tree.look)
+        panel.frame = view.bounds
+        panel.autoresizingMask = [.width, .height]
+        panel.onDismiss = { [weak self] in self?.closeSwitcher() }
+        panel.onChoose = { [weak self] workspace in
+            guard let self else { return }
+            closeSwitcher()
+            app.open(folder: workspace.path)
+        }
+        beforeSwitcher = window.firstResponder
+        view.addSubview(panel)
+        switcher = panel
+        window.makeFirstResponder(panel.field)
+        app.loadWorkspaces { [weak panel] workspaces, done in
+            panel?.set(workspaces, loading: !done)
+        }
+    }
+
+    /// The switcher away; the keyboard goes back to where it was (the tree, if that is where it came from).
+    func closeSwitcher(restoring: Bool = true) {
+        guard let panel = switcher else { return }
+        switcher = nil
+        panel.removeFromSuperview()
+        guard restoring else { return }
+        let target = beforeSwitcher.flatMap { $0 is NSTextView ? nil : $0 } ?? editor
+        window.makeFirstResponder(target === window ? editor : target)
+    }
 
     /// A which-key.nvim window in the sidebar's colours: the colours go to nvim, which applies them whenever the colour
     /// scheme does.

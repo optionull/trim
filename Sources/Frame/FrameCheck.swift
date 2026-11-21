@@ -1,7 +1,9 @@
 import AppKit
 import FrameTree
+import FrameWorkspaces
 import MessagePack
 import Metal
+import SillAgent
 import SillCore
 import SillEditor
 import SillRender
@@ -81,6 +83,7 @@ struct FrameCheck {
         await layoutSteps()
         await switchSteps()
         await windowSteps()
+        await switcherSteps()
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             do {
                 try shot(editor: editor, to: path)
@@ -704,6 +707,149 @@ struct FrameCheck {
         step("closing one window leaves the other")
     }
 
+    /// The workspace switcher, against two repositories and a worktree that is not under the roots: the rows heed
+    /// names and the rows it does not, what a query finds, and where Return, a click and Escape go.
+    private func switcherSteps() async {
+        let base = RealPath.of(NSTemporaryDirectory()) + "frame-switcher-\(UUID().uuidString)"
+        let roots = base + "/projects", alpha = roots + "/alpha", beta = roots + "/beta"
+        let worktree = base + "/wt/alpha-blog"
+        for folder in [alpha, beta] {
+            try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+            try? "x\n".write(toFile: folder + "/file.txt", atomically: true, encoding: .utf8)
+            git(folder, "init", "-q", "-b", "main")
+            git(folder, "add", ".")
+            git(folder, "commit", "-q", "-m", "first")
+        }
+        try? FileManager.default.createDirectory(atPath: base + "/wt", withIntermediateDirectories: true)
+        git(alpha, "worktree", "add", "-q", "-b", "feature/blog-option", worktree)
+        let named = HeedSession(
+            id: "s1", title: "Add the blog option", agent: "claude", state: "working", needsYou: false,
+            directory: worktree, repo: "me/alpha", branch: "feature/blog-option", lastActivity: Date()
+        )
+        // This window's own folder, with a session that needs the person: it comes first, and is not where Return goes.
+        let here = HeedSession(
+            id: "s2", title: "This window", agent: "claude", state: "asking", needsYou: true,
+            directory: shell.tree.rootPath, repo: "me/work", branch: "main", lastActivity: Date()
+        )
+        // The fixture's roots, and heed as a stand-in: a session for the worktree, or no heed at all.
+        func sources(heed: [HeedSession]) -> WorkspaceSources {
+            WorkspaceSources(roots: { [roots] }, heed: { heed })
+        }
+        func rows(_ panel: SwitcherView) -> [String] { panel.matches.map(\.workspace.primary) }
+        func type(_ panel: SwitcherView, _ text: String) {
+            guard let editor = panel.field.currentEditor() as? NSTextView
+            else { fail("the search line is not being typed in") }
+            editor.string = text
+            editor.didChangeText()
+        }
+        let windows = app.controllers.count
+        let editor = shell.editor!
+
+        // Without heed: the worktree is its branch, the repositories their names; nothing waits on heed.
+        app.sources = sources(heed: [])
+        shell.showSwitcher()
+        guard let panel = shell.switcher else { fail("the switcher did not come up") }
+        await wait("the workspaces without heed") {
+            rows(panel).contains("feature/blog-option") && rows(panel).contains("beta")
+        }
+        guard rows(panel).contains("alpha"), !rows(panel).contains("Add the blog option") else {
+            fail("without heed, the rows are: \(rows(panel))")
+        }
+        guard shell.window.firstResponder === panel.field.currentEditor()
+        else { fail("the search line has no keyboard") }
+        step("the switcher lists repositories and worktrees, a worktree by its branch, with no heed")
+        shell.closeSwitcher()
+        guard shell.switcher == nil, shell.window.firstResponder === editor else {
+            fail(
+                "closing the switcher did not give the keyboard back: \(String(describing: shell.window.firstResponder))"
+            )
+        }
+
+        // With heed: the worktree is what the work is about, and a query finds it by that.
+        app.sources = sources(heed: [named, here])
+        shell.tree.focus()
+        shell.showSwitcher()
+        guard let withHeed = shell.switcher else { fail("the switcher did not come up again") }
+        await wait("heed's title") { rows(withHeed).contains("Add the blog option") }
+        guard let row = withHeed.matches.first(where: { $0.workspace.path == worktree }),
+              row.workspace.secondary.contains("alpha")
+        else { fail("the titled row is not the worktree, with its repository under it") }
+        guard withHeed.matches.first?.workspace.isCurrent == true,
+              withHeed.matches.first?.workspace.needsYou == true
+        else {
+            fail("the window that needs the person is not first: \(rows(withHeed))")
+        }
+        guard withHeed.selectedWorkspace?.isCurrent == false
+        else { fail("Return would go to the workspace already shown") }
+        step("heed names the worktree by what the work is about; the repository and branch stand under it")
+        step("those that need you come first; Return goes to the one before this, not the one shown")
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            do {
+                try shot(editor: editor, to: path.replacingOccurrences(of: ".png", with: "-switcher.png"))
+                step("saved the switcher's picture")
+            } catch { fail("the switcher's shot: \(error)") }
+        }
+        let field = withHeed.field
+        type(withHeed, "blog opt")
+        await wait("the query to find the worktree") { rows(withHeed) == ["Add the blog option"] }
+        guard withHeed.matches.first?.primaryHits.isEmpty == false else { fail("the match shows no characters found") }
+        type(withHeed, "zzzz")
+        await wait("no match") { withHeed.matches.isEmpty }
+        type(withHeed, "alpha")
+        await wait("both alpha's checkouts") { withHeed.matches.count == 2 }
+        step("a query finds a workspace by its title, branch or repository; none found shows none")
+
+        // Escape closes it and the keyboard goes back to the tree it came from.
+        field.currentEditor()?.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        guard shell.switcher == nil, shell.window.firstResponder === shell.tree.outline else {
+            fail("Escape did not close it into the tree: \(String(describing: shell.window.firstResponder))")
+        }
+        step("Escape closes it and the keyboard goes back to where it was")
+
+        // Return goes to the worktree: a window of its own, in its own folder.
+        shell.showSwitcher()
+        guard let third = shell.switcher else { fail("the switcher did not come up a third time") }
+        await wait("the rows") { rows(third).contains("Add the blog option") }
+        type(third, "blog")
+        await wait("the query") { rows(third) == ["Add the blog option"] }
+        third.field.currentEditor()?.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        await wait("a window for the worktree") { app.controllers.count == windows + 1 }
+        guard let opened = app.controllers.last,
+              opened.workspace == worktree else { fail("Return opened another folder") }
+        await waitAsync("its nvim in the worktree") {
+            await (try? opened.session.channel.lua("return vim.fn.getcwd()"))?.stringValue == worktree
+        }
+        guard shell.switcher == nil else { fail("the switcher stayed up after Return") }
+        step("Return opens the worktree in a window of its own, its nvim in its folder")
+
+        // An open workspace is gone to, not opened again; the one open now is marked as here.
+        opened.showSwitcher()
+        guard let fourth = opened.switcher else { fail("the switcher did not come up in the new window") }
+        await wait("the rows there") {
+            fourth.matches.contains { $0.workspace.path == worktree && $0.workspace.isCurrent }
+        }
+        guard fourth.matches.contains(where: { $0.workspace.isOpen && !$0.workspace.isCurrent }) else {
+            fail("the first window is not marked as open")
+        }
+        type(fourth, "alpha")
+        await wait("alpha") { fourth.matches.count == 2 }
+        guard let alphaRow = fourth.matches.firstIndex(where: { $0.workspace.path == alpha })
+        else { fail("no alpha row") }
+        fourth
+            .move(by: alphaRow -
+                (fourth.matches.firstIndex { $0.workspace.path == fourth.selectedWorkspace?.path } ?? 0))
+        guard fourth.selectedWorkspace?.path == alpha else { fail("the selection did not move to alpha") }
+        fourth.choose()
+        await wait("alpha's window") { app.controllers.count == windows + 2 }
+        step("a click or Return on a workspace opens it; ones with windows are marked")
+        // Back to the windows there were.
+        for controller in app.controllers.dropFirst(windows) {
+            app.close(controller)
+        }
+        await wait("the extra windows gone") { app.controllers.count == windows }
+        app.sources = .live
+    }
+
     private func shot(editor: EditorView, to path: String) throws {
         let size = shell.view.bounds.size, scale: CGFloat = 2
         guard let device = MTLCreateSystemDefaultDevice() else { throw ShotFailure() }
@@ -805,6 +951,10 @@ struct FrameCheck {
                 width: sidebar.frame.width,
                 height: sidebar.frame.height
             ))
+        }
+        if let panel = shell.switcher, let pane = panel.bitmapImageRepForCachingDisplay(in: panel.bounds) {
+            panel.cacheDisplay(in: panel.bounds, to: pane)
+            pane.draw(in: NSRect(x: pad, y: pad, width: panel.bounds.width, height: panel.bounds.height))
         }
         NSGraphicsContext.restoreGraphicsState()
         guard let data = rep.representation(using: .png, properties: [:]) else { throw ShotFailure() }
