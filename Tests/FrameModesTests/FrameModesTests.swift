@@ -130,3 +130,28 @@ import Testing
         #expect(modes.label(editorMode: "normal") == "SWITCH")
     }
 }
+
+@Suite struct StatusLineTests {
+    @Test func `where the window is in the buffer, as vim says it`() {
+        #expect(StatusLine.percent(line: 1, lines: 10, firstVisible: 1, lastVisible: 10) == "All")
+        #expect(StatusLine.percent(line: 3, lines: 100, firstVisible: 1, lastVisible: 40) == "Top")
+        #expect(StatusLine.percent(line: 95, lines: 100, firstVisible: 60, lastVisible: 100) == "Bot")
+        #expect(StatusLine.percent(line: 50, lines: 100, firstVisible: 30, lastVisible: 70) == "50%")
+        #expect(StatusLine.percent(line: 0, lines: 0) == "All")
+    }
+
+    @Test func `a path is relative inside the workspace, else with the home folder as a tilde`() {
+        #expect(StatusLine.displayPath("/w/proj/src/a.swift", root: "/w/proj", home: "/Users/me") == "src/a.swift")
+        #expect(StatusLine.displayPath("/Users/me/notes/x.md", root: "/w/proj", home: "/Users/me") == "~/notes/x.md")
+        #expect(StatusLine.displayPath("/etc/hosts", root: "/w/proj", home: "/Users/me") == "/etc/hosts")
+        #expect(StatusLine
+            .displayPath("/w/projects/a.swift", root: "/w/proj", home: "/Users/me") == "/w/projects/a.swift")
+        #expect(StatusLine.displayPath("", root: "/w/proj") == "")
+    }
+
+    @Test func `only the diagnostics there are`() {
+        let counts = StatusLine.counts(errors: 2, warnings: 0, infos: 0, hints: 1)
+        #expect(counts.map(\.kind) == ["error", "hint"] && counts.map(\.count) == [2, 1])
+        #expect(StatusLine.counts(errors: 0, warnings: 0, infos: 0, hints: 0).isEmpty)
+    }
+}

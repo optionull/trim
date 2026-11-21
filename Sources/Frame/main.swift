@@ -85,7 +85,13 @@ final class FrameView: NSView {
     let editor: EditorView
     let overlay: NSView
     let sidebar: SidebarView
+    let statusBar: StatusBarView
     let divider = DividerView()
+    /// Whether the bar shows under the grid (a config can keep its own status line instead).
+    var statusVisible = true {
+        didSet { needsLayout = true }
+    }
+
     /// Room for the title bar's buttons when it shows.
     var top: CGFloat = 0 {
         didSet { needsLayout = true }
@@ -112,10 +118,11 @@ final class FrameView: NSView {
     /// The gap between the sidebar and the grid, which is also what is grabbed to size it.
     static let dividerWidth: CGFloat = 8
 
-    init(editor: EditorView, overlay: NSView, sidebar: SidebarView, persisting: Bool) {
+    init(editor: EditorView, overlay: NSView, sidebar: SidebarView, statusBar: StatusBarView, persisting: Bool) {
         self.editor = editor
         self.overlay = overlay
         self.sidebar = sidebar
+        self.statusBar = statusBar
         self.persisting = persisting
         sidebarVisible = persisting ? PaneLayout.sidebarVisible : true
         sidebarWidth = persisting ? PaneLayout.sidebarWidth : PaneLayout.defaultWidth
@@ -126,6 +133,7 @@ final class FrameView: NSView {
         addSubview(divider)
         addSubview(editor)
         addSubview(overlay)
+        addSubview(statusBar)
     }
 
     @available(*, unavailable)
@@ -150,8 +158,13 @@ final class FrameView: NSView {
             window?.invalidateCursorRects(for: divider)
             x += width + Self.dividerWidth
         }
-        editor.frame = NSRect(x: x, y: y, width: frame.maxX - x, height: height)
+        // Under the grid, the bar: the grid is as tall as what is left.
+        let barHeight = StatusBarView.height(for: statusBar.look), gap: CGFloat = 6
+        statusBar.isHidden = !statusVisible
+        let gridHeight = statusVisible ? max(0, height - barHeight - gap) : height
+        editor.frame = NSRect(x: x, y: y, width: frame.maxX - x, height: gridHeight)
         overlay.frame = editor.frame
+        statusBar.frame = NSRect(x: x, y: y + height - barHeight, width: frame.maxX - x, height: barHeight)
     }
 
     override func draw(_: NSRect) {
@@ -280,7 +293,13 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// The workspace switcher while it is up, and where the keyboard was.
     private(set) var switcher: SwitcherView?
     /// Which surface has the keyboard, and what Escape does from each: the window's modes.
-    private(set) var modes = Modes()
+    private(set) var modes = Modes() {
+        didSet { if modes != oldValue { refreshStatus() } }
+    }
+
+    /// The bar under the grid: like the sidebar it outlives any one nvim, and says what it was last told.
+    private let statusBar = StatusBarView()
+    private var status = StatusState()
 
     init(app: FrameApp, folder: String, arguments: [String], isFirst: Bool) {
         self.app = app
@@ -319,7 +338,11 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         tree.onFilterChange = { [weak self] open in self?.modes.filterChanged(open: open) }
         tree.onFocused = { [weak self] in self?.modes.focused(.tree) }
         sidebar.chip.onClick = { [weak self] in self?.switchWorkspace(nil) }
-        tree.onPalette = { [weak self] palette in self?.styleWhichKey(palette) }
+        tree.onPalette = { [weak self] palette in
+            self?.styleWhichKey(palette)
+            self?.statusBar.look = self?.tree.look ?? TreeLook()
+            self?.view?.needsLayout = true
+        }
         tree.onForward = { [weak self] event in
             guard let self else { return }
             focusEditor()
@@ -381,7 +404,9 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         session = EditorSession()
         editor = EditorView(channel: session.channel)
         externalUI = ExternalUI(editor: editor)
-        view = FrameView(editor: editor, overlay: externalUI.overlay, sidebar: sidebar, persisting: !checking)
+        view = FrameView(
+            editor: editor, overlay: externalUI.overlay, sidebar: sidebar, statusBar: statusBar, persisting: !checking
+        )
         window.contentView = view
         apply()
         let session = session
@@ -392,6 +417,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         editor.onFocus = { [weak self] in self?.modes.focused(.editor, byClick: true) }
         // A fresh editor (the landing page) has not been entered from anywhere: the tree is where Escape goes.
         modes.editorRestarted()
+        status = StatusState()
         let updates = session.updates
         Task { [weak self] in
             for await update in updates {
@@ -399,6 +425,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
                 tree.follow(background: update.screen.defaultBackground, foreground: update.screen.defaultForeground)
                 editor.show(update.screen)
                 externalUI.update(update.screen)
+                refreshStatus()
                 view.needsDisplay = true
             }
             // nvim ended (:qa), unless it was a switch that ended it. There is nothing left to ask about unsaved
@@ -519,6 +546,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     vim.api.nvim_create_autocmd('DirChanged', { group = group, callback = function() tell('frame_cwd', vim.fn.getcwd()) end })
     tell('frame_cwd', vim.fn.getcwd())
     shown(vim.api.nvim_get_current_buf())
+    -- The status bar: what only nvim knows, sent to it; nvim's own status line steps aside while it shows.
+    require('frame.status').start()
     -- :FrameTree shows, hides or goes into the sidebar; <Plug> mappings to bind your own keys to.
     local actions = { 'toggle', 'show', 'hide', 'focus', 'filter', 'ignored', 'dotfiles' }
     vim.api.nvim_create_user_command('FrameTree', function(opts)
@@ -577,6 +606,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     private func nvimAsked(_ method: String, _ args: [MessagePackValue]) {
         switch method {
         case "frame_workspace": switchWorkspace(nil)
+        case "frame_statusline": view?.statusVisible = args.first?.stringValue != "off"
+        case "frame_status": if let map = args.first?.dictionaryValue { take(status: map) }
         case "frame_buffer":
             if let path = args.first?.stringValue { tree.reveal(path) }
             return
@@ -674,6 +705,44 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case .tree, .editor: window.makeFirstResponder(editor)
         case .switcher: if let panel = switcher { window.makeFirstResponder(panel.field) }
         }
+    }
+
+    /// What nvim told the bar (`frame_status`): the buffer's state, the cursor, the diagnostics, the servers.
+    private func take(status map: [MessagePackValue: MessagePackValue]) {
+        func text(_ key: String) -> String { map[.string(key)]?.stringValue ?? "" }
+        func number(_ key: String) -> Int { Int(map[.string(key)]?.integerValue ?? 0) }
+        func flag(_ key: String) -> Bool { map[.string(key)]?.boolValue ?? false }
+        let path = text("path")
+        let buftype = text("buftype")
+        status.path = path.isEmpty ? (buftype.isEmpty ? "[No name]" : "[\(buftype)]") : StatusLine.displayPath(
+            path,
+            root: tree.rootPath
+        )
+        status.name = path.isEmpty ? "" : (path as NSString).lastPathComponent
+        status.filetype = text("ft")
+        status.modified = flag("modified")
+        status.readonly = flag("readonly")
+        status.recording = text("recording")
+        status.line = number("line")
+        status.col = number("col")
+        status.lines = number("lines")
+        status.top = number("top")
+        status.bottom = number("bottom")
+        status.errors = number("errors")
+        status.warnings = number("warnings")
+        status.infos = number("infos")
+        status.hints = number("hints")
+        status.lsp = map[.string("lsp")]?.arrayValue?.compactMap(\.stringValue) ?? []
+        refreshStatus()
+    }
+
+    /// The bar says the mode the window is in (nvim's, or the tree's or the switcher's) and the branch, with the rest
+    /// as it was last told.
+    private func refreshStatus() {
+        guard editor != nil else { return }
+        status.mode = modes.label(editorMode: editor.screen.mode)
+        status.branch = sidebar.chip.branch
+        statusBar.state = status
     }
 
     func focusEditor() {

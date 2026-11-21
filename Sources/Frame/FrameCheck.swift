@@ -82,6 +82,7 @@ struct FrameCheck {
         await forwardSteps()
         await layoutSteps()
         await switchSteps()
+        await statusSteps()
         await windowSteps()
         await switcherSteps()
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -679,6 +680,46 @@ struct FrameCheck {
     }
 
     /// The window as it shows: its background, the grid at its margin, corners rounded by the window's radius.
+    /// The status bar: nvim's own is off while it shows, and it says the mode, the file and the position nvim has.
+    private func statusSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        let bar = shell.view.statusBar
+        await waitAsync("nvim's own status line, ruler and mode message to be off") {
+            await lua("return { vim.o.laststatus, vim.o.ruler, vim.o.showmode }")?.arrayValue.map {
+                $0.first?.integerValue == 0 && $0[1].boolValue == false && $0[2].boolValue == false
+            } ?? false
+        }
+        guard !bar.isHidden, shell.view.statusVisible else { fail("the bar is not showing") }
+        step("the bar shows, and nvim's own status line, ruler and mode message are off")
+        _ =
+            await lua(
+                "vim.cmd('enew'); vim.api.nvim_buf_set_lines(0, 0, -1, false, {'a', 'b', 'c'}); vim.api.nvim_win_set_cursor(0, {2, 0}); vim.bo.filetype = 'lua'"
+            )
+        await wait("the bar to say the position and the file type") {
+            bar.state.line == 2 && bar.state.filetype == "lua" && bar.state.modified
+        }
+        guard bar.state.mode == "NORMAL", bar.state.path == "[No name]" else { fail("the bar says \(bar.state)") }
+        shell.editor.keyDown(with: key("i"))
+        await wait("the bar to say INSERT") { bar.state.mode == "INSERT" }
+        shell.editor.keyDown(with: key("\u{1B}", code: 53))
+        await wait("the bar to say NORMAL again") { bar.state.mode == "NORMAL" }
+        shell.tree.focus()
+        await wait("the bar to say TREE") { bar.state.mode == "TREE" }
+        shell.focusEditor()
+        await wait("the bar to say NORMAL, out of the tree") { bar.state.mode == "NORMAL" }
+        step("the bar says the mode (nvim's, or the tree's), the position, the type and that the buffer is changed")
+        _ = await lua("vim.cmd('FrameStatusline hide')")
+        await wait("the bar to hide") { bar.isHidden && !shell.view.statusVisible }
+        await waitAsync("nvim's own status line back") { await lua("return vim.o.laststatus")?.integerValue != 0 }
+        _ = await lua("vim.cmd('FrameStatusline show')")
+        await wait("the bar to show again") { !bar.isHidden && shell.view.statusVisible }
+        let (_, gridRows) = shell.editor.gridSize
+        guard shell.editor.frame.maxY < bar.frame.minY, gridRows > 3 else { fail("the grid and the bar overlap") }
+        _ = await lua("vim.cmd('bwipeout!')")
+        step(":FrameStatusline hides the bar and gives nvim's own back; the grid ends where the bar begins")
+    }
+
     /// A window for each workspace: one folder, one window, found again by its real path; each with its own nvim in its
     /// own folder, and closing one leaves the other.
     private func windowSteps() async {
@@ -1011,6 +1052,21 @@ struct FrameCheck {
                 y: pad + size.height - sidebar.frame.maxY,
                 width: sidebar.frame.width,
                 height: sidebar.frame.height
+            ))
+        }
+        let bar = shell.view.statusBar
+        if !bar.isHidden, let pane = bar.bitmapImageRepForCachingDisplay(in: bar.bounds) {
+            if let backing = NSGraphicsContext(bitmapImageRep: pane) {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = backing
+                NSColor(rgb: editor.screen.defaultBackground).setFill()
+                bar.bounds.fill()
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            bar.cacheDisplay(in: bar.bounds, to: pane)
+            pane.draw(in: NSRect(
+                x: pad + bar.frame.minX, y: pad + size.height - bar.frame.maxY, width: bar.frame.width,
+                height: bar.frame.height
             ))
         }
         if let panel = shell.switcher, let pane = panel.bitmapImageRepForCachingDisplay(in: panel.bounds) {
