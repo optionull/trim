@@ -532,6 +532,8 @@ struct FrameCheck {
         tree.outline.keyDown(with: key(":"))
         guard window.firstResponder === editor else { fail(": did not go to the editor") }
         await waitAsync(": to open nvim's command line") { await lua("return vim.fn.mode()")?.stringValue == "c" }
+        // The grid's own mode follows nvim's by a notification: an Escape sent before it arrives would be the tree's.
+        await wait("the grid to show the command line") { editor.screen.mode != "normal" }
         editor.keyDown(with: key("\u{1B}", code: 53))
         await waitAsync("the command line to close") { await lua("return vim.fn.mode()")?.stringValue == "n" }
         tree.focus()
