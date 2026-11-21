@@ -386,6 +386,9 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         let session = session
         editor.onResize = { cols, rows in Task { await session.resize(cols: cols, rows: rows) } }
         editor.onKey = { [weak self] in self?.externalUI.keyPressed() }
+        editor.keyInterceptor = { [weak self] event in self?.escapeToTree(event) ?? false }
+        editor.onFocus = { [weak self] in self?.returnsToTree = false }
+        returnsToTree = false
         EditorFont.onChange = { [weak self] in
             self?.editor.fontChanged()
             self?.tree.fontChanged()
@@ -593,8 +596,25 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
                 """,
                 args: [.string(path)]
             )
-            if toEditor { focusEditor() }
+            if toEditor {
+                focusEditor()
+                returnsToTree = true
+            }
         }
+    }
+
+    /// Set when the tree handed the keyboard to the editor (Return on a file): Escape in normal mode takes it back.
+    var returnsToTree = false
+
+    /// Escape in the editor's normal mode, after a file was opened from the tree: back to the tree, and nvim does not
+    /// see the key.
+    func escapeToTree(_ event: NSEvent) -> Bool {
+        guard returnsToTree, event.keyCode == 53,
+              event.modifierFlags.intersection([.control, .command, .option]).isEmpty,
+              editor.screen.mode == "normal" else { return false }
+        returnsToTree = false
+        focusSidebar(nil)
+        return true
     }
 
     func focusEditor() { window.makeFirstResponder(editor) }

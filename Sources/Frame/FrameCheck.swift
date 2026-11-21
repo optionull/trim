@@ -332,6 +332,20 @@ struct FrameCheck {
         tree.outline.keyDown(with: key("\r", code: 36))
         await wait("Return to go on into the editor") { shell.window.firstResponder === shell.editor }
         step("l opens and stays; Return opens and goes into the editor")
+        // Escape in normal mode goes back to where the keyboard came from; in insert mode it is nvim's, and leaves it.
+        shell.editor.keyDown(with: key("i"))
+        await wait("insert mode") { editor.screen.mode == "insert" }
+        shell.editor.keyDown(with: key("\u{1B}", code: 53))
+        await wait("normal mode") { editor.screen.mode == "normal" }
+        guard shell.window.firstResponder === shell.editor else { fail("Escape in insert mode left the editor") }
+        shell.editor.keyDown(with: key("\u{1B}", code: 53))
+        await wait("Escape in normal mode to go back to the tree") { shell.window.firstResponder === tree.outline }
+        step("Escape in normal mode goes back to the tree the file was opened from; in insert mode it stays nvim's")
+        shell.window.makeFirstResponder(editor)
+        shell.editor.keyDown(with: key("\u{1B}", code: 53))
+        try? await Task.sleep(for: .milliseconds(200))
+        guard shell.window.firstResponder === shell.editor
+        else { fail("Escape went to the tree without a file from it") }
         do { _ = try await channel.command("edit " + folder + "/docs/guide.md") } catch { fail("edit: \(error)") }
         await wait("the tree to show the editor's file") { tree.selectedNode?.path == folder + "/docs/guide.md" }
         guard let docs = tree.tree?.node(at: folder + "/docs"),
