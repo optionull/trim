@@ -69,9 +69,19 @@ targets.append(.executableTarget(
 targets.append(.target(name: "FrameTree"))
 targets.append(.testTarget(name: "FrameTreeTests", dependencies: ["FrameTree"]))
 // Frame: Shim's host grown into a workspace of native panes around nvim (a working title). A copy of Shim that diverges.
+// Frame's workspace switcher: the repositories and worktrees to go to, what heed calls the work in them, and how a
+// query finds them. No UI, so it is tested alone.
+targets.append(.target(name: "FrameWorkspaces", dependencies: ["SillCore", "SillAgent", "FrameTree"]))
+targets.append(.testTarget(
+    name: "FrameWorkspacesTests",
+    dependencies: ["FrameWorkspaces", "FrameTree", "SillCore", "SillAgent"]
+))
 targets.append(.executableTarget(
     name: "Frame",
-    dependencies: ["SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", "FrameTree", messagePack]
+    dependencies: [
+        "SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", "SillAgent", "FrameTree", "FrameWorkspaces",
+        messagePack,
+    ]
 ))
 targets.append(.executableTarget(
     name: "SillApp",
