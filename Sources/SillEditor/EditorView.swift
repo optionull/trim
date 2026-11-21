@@ -27,6 +27,11 @@ package final class EditorView: NSView {
         didSet { if coveredGrids != oldValue { submit() } }
     }
 
+    /// Windows cover what is under them (see `Frame.windowsCover`).
+    package var windowsCover = false {
+        didSet { if windowsCover != oldValue { submit() } }
+    }
+
     private let metalLayer = CAMetalLayer()
     package private(set) var loop: RenderLoop?
     /// Tags the frames handed to the render loop, so a measurement can tell which screen reached the display.
@@ -189,6 +194,7 @@ package final class EditorView: NSView {
     /// What the render thread is drawing now.
     package var currentFrame: Frame {
         var frame = Frame(screen: screen, covered: coveredGrids, cursor: cursor)
+        frame.windowsCover = windowsCover
         frame.scrolls = currentScrolls()
         return frame
     }

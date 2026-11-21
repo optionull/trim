@@ -9,6 +9,10 @@ public struct Frame: Sendable {
     /// Grids not to draw: those under a terminal pane.
     public var covered: Set<Int>
     public var cursor: Cursor?
+    /// Windows paint their blank cells too, covering what grid 1 holds under them. Off, a window's blank cells are
+    /// left to what is under them, which is what a terminal pane drawn beneath relies on; on, nothing that was once
+    /// drawn on grid 1 (a status line that went away) can show through.
+    public var windowsCover = false
 
     /// The cursor as nvim's `mode_info_set` describes it for the current mode.
     public struct Cursor: Sendable, Equatable {
@@ -328,7 +332,7 @@ public final class GridRenderer {
             let backgroundStart = layers.rects.count, glyphStart = layers.glyphs.count
             decorations.removeAll(keepingCapacity: true)
             // Floats and the message grid cover what is under them, so their rows draw the default background too.
-            let covers = placement.kind != .window
+            let covers = placement.kind != .window || frame.windowsCover
             /// Adds a row of `source` (cached under `key`) at `y` pixels from the grid's top.
             func add(_ source: GridBuffer, row: Int, key: RowKey, y: Float) {
                 live.insert(key)

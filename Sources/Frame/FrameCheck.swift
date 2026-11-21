@@ -692,6 +692,15 @@ struct FrameCheck {
         }
         guard !bar.isHidden, shell.view.statusVisible else { fail("the bar is not showing") }
         step("the bar shows, and nvim's own status line, ruler and mode message are off")
+        // The row the status line was drawn in: nothing of it may show through the window that took it over.
+        let lastRow = (shell.editor.screen.grids[1]?.rows ?? 1) - 1
+        let background = shell.editor.screen.defaultBackground
+        let expected = (red: (background >> 16) & 0xFF, green: (background >> 8) & 0xFF, blue: background & 0xFF)
+        let seen = (try? pixel(shell.editor, row: lastRow, col: 30)) ?? (red: -1, green: -1, blue: -1)
+        guard abs(seen.red - expected.red) <= 3, abs(seen.green - expected.green) <= 3,
+              abs(seen.blue - expected.blue) <= 3
+        else { fail("the old status line shows through the last row: \(seen), the background is \(expected)") }
+        step("nothing of the status line that went away shows through the window")
         _ =
             await lua(
                 "vim.cmd('enew'); vim.api.nvim_buf_set_lines(0, 0, -1, false, {'a', 'b', 'c'}); vim.api.nvim_win_set_cursor(0, {2, 0}); vim.bo.filetype = 'lua'"
@@ -715,7 +724,14 @@ struct FrameCheck {
         _ = await lua("vim.cmd('FrameStatusline show')")
         await wait("the bar to show again") { !bar.isHidden && shell.view.statusVisible }
         let (_, gridRows) = shell.editor.gridSize
-        guard shell.editor.frame.maxY < bar.frame.minY, gridRows > 3 else { fail("the grid and the bar overlap") }
+        guard shell.editor.frame.maxY < bar.frame.minY, shell.view.sidebar.frame.maxY < bar.frame.minY,
+              gridRows > 3
+        else {
+            fail("the grid or the sidebar and the bar overlap")
+        }
+        guard bar.frame.minX == shell.view.sidebar.frame.minX, bar.frame.maxX == shell.editor.frame.maxX else {
+            fail("the bar does not span the window under the sidebar and the grid: \(bar.frame)")
+        }
         _ = await lua("vim.cmd('bwipeout!')")
         step(":FrameStatusline hides the bar and gives nvim's own back; the grid ends where the bar begins")
     }
@@ -950,6 +966,31 @@ struct FrameCheck {
         }
         await wait("the extra windows gone") { app.controllers.count == windows }
         app.sources = .live
+    }
+
+    /// The colour of one cell of the grid as it is drawn (the middle of its first pixel row), by rendering a frame.
+    private func pixel(_ editor: EditorView, row: Int, col: Int) throws -> (red: Int, green: Int, blue: Int) {
+        let scale: CGFloat = 1
+        guard let device = MTLCreateSystemDefaultDevice() else { throw ShotFailure() }
+        let renderer = try GridRenderer(
+            device: device, font: editor.metrics.regular, cellSize: editor.metrics.cellSize, scale: scale,
+            pixelFormat: .bgra8Unorm
+        )
+        let size = editor.bounds.size
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm, width: Int(size.width * scale), height: Int(size.height * scale), mipmapped: false
+        )
+        descriptor.usage = [.renderTarget, .shaderRead]
+        descriptor.storageMode = .shared
+        guard let texture = device.makeTexture(descriptor: descriptor),
+              let commands = renderer.render(editor.currentFrame, to: texture) else { throw ShotFailure() }
+        commands.waitUntilCompleted()
+        let cell = editor.metrics.cellSize
+        let x = min(Int((CGFloat(col) + 0.5) * CGFloat(cell.width) * scale), texture.width - 1)
+        let y = min(Int((CGFloat(row) + 0.5) * CGFloat(cell.height) * scale), texture.height - 1)
+        var bytes = [UInt8](repeating: 0, count: 4)
+        texture.getBytes(&bytes, bytesPerRow: 4, from: MTLRegionMake2D(x, y, 1, 1), mipmapLevel: 0)
+        return (Int(bytes[2]), Int(bytes[1]), Int(bytes[0]))
     }
 
     private func shot(editor: EditorView, to path: String) throws {

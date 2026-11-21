@@ -146,7 +146,12 @@ final class FrameView: NSView {
     override func layout() {
         super.layout()
         let frame = bounds.insetBy(dx: Self.margin, dy: Self.margin)
-        let y = frame.minY + top, height = frame.height - top
+        let y = frame.minY + top
+        // The bar spans the window's foot, under the sidebar and the grid, which make room for it.
+        let barHeight = StatusBarView.height(for: statusBar.look), gap: CGFloat = 6
+        statusBar.isHidden = !statusVisible
+        let height = statusVisible ? max(0, frame.height - top - barHeight - gap) : frame.height - top
+        statusBar.frame = NSRect(x: frame.minX, y: frame.maxY - barHeight, width: frame.width, height: barHeight)
         var x = frame.minX
         sidebar.isHidden = !sidebarVisible
         divider.isHidden = !sidebarVisible
@@ -158,13 +163,8 @@ final class FrameView: NSView {
             window?.invalidateCursorRects(for: divider)
             x += width + Self.dividerWidth
         }
-        // Under the grid, the bar: the grid is as tall as what is left.
-        let barHeight = StatusBarView.height(for: statusBar.look), gap: CGFloat = 6
-        statusBar.isHidden = !statusVisible
-        let gridHeight = statusVisible ? max(0, height - barHeight - gap) : height
-        editor.frame = NSRect(x: x, y: y, width: frame.maxX - x, height: gridHeight)
+        editor.frame = NSRect(x: x, y: y, width: frame.maxX - x, height: height)
         overlay.frame = editor.frame
-        statusBar.frame = NSRect(x: x, y: y + height - barHeight, width: frame.maxX - x, height: barHeight)
     }
 
     override func draw(_: NSRect) {
@@ -403,6 +403,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         let generation = generation
         session = EditorSession()
         editor = EditorView(channel: session.channel)
+        // A status line that went away must not show through the window that took its place.
+        editor.windowsCover = true
         externalUI = ExternalUI(editor: editor)
         view = FrameView(
             editor: editor, overlay: externalUI.overlay, sidebar: sidebar, statusBar: statusBar, persisting: !checking
