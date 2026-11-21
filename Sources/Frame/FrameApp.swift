@@ -116,6 +116,14 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task { await controller.shutDown() }
     }
 
+    /// Where the status bar sits, in every window, and for the next start.
+    func setStatusPlacement(_ placement: StatusPlacement) {
+        for controller in controllers {
+            controller.view?.statusPlacement = placement
+        }
+        if !Self.checking { PaneLayout.statusPlacement = placement }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { !Self.checking }
 
     /// Quitting with unsaved changes asks first, window by window, as nvim's :qa would refuse.
@@ -203,6 +211,10 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
         viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(Window.toggleSidebar(_:)), keyEquivalent: "b")
+        viewMenu.addItem(
+            withTitle: "Status Bar Across Window", action: #selector(Window.toggleStatusAcrossWindow(_:)),
+            keyEquivalent: ""
+        )
         viewMenu.addItem(withTitle: "Filter Files", action: #selector(Window.filterTree(_:)), keyEquivalent: "f")
             .keyEquivalentModifierMask = [.command, .option]
         let ignoredItem = viewMenu.addItem(

@@ -28,8 +28,18 @@ enum FrameRuntime {
     }
 }
 
+/// Where the status bar sits: under the grid next to the sidebar, or across the whole window under both.
+enum StatusPlacement: String {
+    case editor, window
+}
+
 /// How the window's panes are laid out, remembered between starts and across a switch of config.
 enum PaneLayout {
+    static var statusPlacement: StatusPlacement {
+        get { UserDefaults.standard.string(forKey: "statusPlacement").flatMap(StatusPlacement.init) ?? .editor }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "statusPlacement") }
+    }
+
     static let widthRange: ClosedRange<CGFloat> = 160 ... 520
     static let defaultWidth: CGFloat = 240
 
@@ -92,6 +102,14 @@ final class FrameView: NSView {
         didSet { needsLayout = true }
     }
 
+    /// Next to the sidebar (under the grid only), or across the window (the sidebar makes room for it too).
+    var statusPlacement: StatusPlacement = .editor {
+        didSet {
+            needsLayout = true
+            if persisting { PaneLayout.statusPlacement = statusPlacement }
+        }
+    }
+
     /// Room for the title bar's buttons when it shows.
     var top: CGFloat = 0 {
         didSet { needsLayout = true }
@@ -125,6 +143,7 @@ final class FrameView: NSView {
         self.statusBar = statusBar
         self.persisting = persisting
         sidebarVisible = persisting ? PaneLayout.sidebarVisible : true
+        statusPlacement = persisting ? PaneLayout.statusPlacement : .editor
         sidebarWidth = persisting ? PaneLayout.sidebarWidth : PaneLayout.defaultWidth
         super.init(frame: editor.frame)
         wantsLayer = true
@@ -147,24 +166,30 @@ final class FrameView: NSView {
         super.layout()
         let frame = bounds.insetBy(dx: Self.margin, dy: Self.margin)
         let y = frame.minY + top
-        // The bar spans the window's foot, under the sidebar and the grid, which make room for it.
+        // The status bar takes a strip of the foot: of the whole window (and the sidebar makes room for it) or only of
+        // the grid's column, beside the sidebar.
         let barHeight = StatusBarView.height(for: statusBar.look), gap: CGFloat = 6
+        let strip = statusVisible ? barHeight + gap : 0
+        let across = statusPlacement == .window
         statusBar.isHidden = !statusVisible
-        let height = statusVisible ? max(0, frame.height - top - barHeight - gap) : frame.height - top
-        statusBar.frame = NSRect(x: frame.minX, y: frame.maxY - barHeight, width: frame.width, height: barHeight)
+        let columnHeight = max(0, frame.height - top - (across ? strip : 0))
         var x = frame.minX
         sidebar.isHidden = !sidebarVisible
         divider.isHidden = !sidebarVisible
         if sidebarVisible {
             // Never more than half the window, so the grid is not squeezed out.
             let width = min(sidebarWidth, frame.width / 2)
-            sidebar.frame = NSRect(x: x, y: y, width: width, height: height)
-            divider.frame = NSRect(x: x + width, y: y, width: Self.dividerWidth, height: height)
+            sidebar.frame = NSRect(x: x, y: y, width: width, height: columnHeight)
+            divider.frame = NSRect(x: x + width, y: y, width: Self.dividerWidth, height: columnHeight)
             window?.invalidateCursorRects(for: divider)
             x += width + Self.dividerWidth
         }
-        editor.frame = NSRect(x: x, y: y, width: frame.maxX - x, height: height)
+        editor.frame = NSRect(
+            x: x, y: y, width: frame.maxX - x, height: max(0, across ? columnHeight : columnHeight - strip)
+        )
         overlay.frame = editor.frame
+        let barX = across ? frame.minX : x
+        statusBar.frame = NSRect(x: barX, y: frame.maxY - barHeight, width: frame.maxX - barX, height: barHeight)
     }
 
     override func draw(_: NSRect) {
@@ -609,6 +634,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         switch method {
         case "frame_workspace": switchWorkspace(nil)
         case "frame_statusline": view?.statusVisible = args.first?.stringValue != "off"
+        case "frame_statusbar": StatusPlacement(rawValue: args.first?.stringValue ?? "")
+            .map { app.setStatusPlacement($0) }
         case "frame_status": if let map = args.first?.dictionaryValue { take(status: map) }
         case "frame_buffer":
             if let path = args.first?.stringValue { tree.reveal(path) }
@@ -923,6 +950,10 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     }
 
     @objc func toggleSidebar(_: Any?) { setSidebar(visible: !view.sidebarVisible) }
+    @objc func toggleStatusAcrossWindow(_: Any?) {
+        app.setStatusPlacement(view.statusPlacement == .window ? .editor : .window)
+    }
+
     @objc func filterTree(_: Any?) {
         setSidebar(visible: true)
         tree.openFilter()
@@ -936,6 +967,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case #selector(toggleIgnoredFiles(_:)): item.state = tree.showIgnored ? .on : .off
         case #selector(toggleDotfiles(_:)): item.state = tree.showDotfiles ? .on : .off
         case #selector(toggleSidebar(_:)): item.state = view.sidebarVisible ? .on : .off
+        case #selector(toggleStatusAcrossWindow(_:)): item.state = view.statusPlacement == .window ? .on : .off
         default: break
         }
         return true

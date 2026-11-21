@@ -99,11 +99,12 @@ function M.start()
     local arg = opts.args
     if arg == 'show' then M.enable(true)
     elseif arg == 'hide' then M.enable(false)
+    elseif arg == 'editor' or arg == 'window' then notify('frame_statusbar', arg)
     else M.enable(not enabled) end
   end, {
     nargs = '?',
-    complete = function() return { 'toggle', 'show', 'hide' } end,
-    desc = "Show or hide Frame's status bar (nvim's own comes back while it is hidden)",
+    complete = function() return { 'toggle', 'show', 'hide', 'editor', 'window' } end,
+    desc = "Show or hide Frame's status bar (nvim's own comes back while it is hidden); `editor` puts it under the grid beside the sidebar, `window` across the window",
   })
   M.enable(vim.g.frame_statusline ~= false)
 end

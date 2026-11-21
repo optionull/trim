@@ -724,14 +724,39 @@ struct FrameCheck {
         _ = await lua("vim.cmd('FrameStatusline show')")
         await wait("the bar to show again") { !bar.isHidden && shell.view.statusVisible }
         let (_, gridRows) = shell.editor.gridSize
-        guard shell.editor.frame.maxY < bar.frame.minY, shell.view.sidebar.frame.maxY < bar.frame.minY,
-              gridRows > 3
-        else {
-            fail("the grid or the sidebar and the bar overlap")
-        }
-        guard bar.frame.minX == shell.view.sidebar.frame.minX, bar.frame.maxX == shell.editor.frame.maxX else {
-            fail("the bar does not span the window under the sidebar and the grid: \(bar.frame)")
-        }
+        let sidebar = shell.view.sidebar, editor = shell.editor!
+        guard gridRows > 3 else { fail("no grid") }
+        // By default the bar is under the grid, beside the sidebar, which keeps the whole height.
+        guard shell.view.statusPlacement == .editor, editor.frame.maxY < bar.frame.minY,
+              bar.frame.minX == editor.frame.minX, bar.frame.maxX == editor.frame.maxX,
+              sidebar.frame.maxY > bar.frame.minY
+        else { fail("the bar is not under the grid beside the sidebar: \(bar.frame), the sidebar \(sidebar.frame)") }
+        step("the bar is under the grid, next to the sidebar, which keeps the window's height")
+        // `:FrameStatusline window`, and the menu, put it across the window: the sidebar makes room.
+        _ = await lua("vim.cmd('FrameStatusline window')")
+        await wait("the bar across the window") { shell.view.statusPlacement == .window }
+        shell.view.layoutSubtreeIfNeeded()
+        guard bar.frame.minX == sidebar.frame.minX, bar.frame.maxX == editor.frame.maxX,
+              sidebar.frame.maxY < bar.frame.minY, editor.frame.maxY < bar.frame.minY
+        else { fail("the bar does not span the window under the sidebar and the grid: \(bar.frame)") }
+        let item = NSMenuItem(
+            title: "",
+            action: #selector(FrameWindowController.toggleStatusAcrossWindow(_:)),
+            keyEquivalent: ""
+        )
+        _ = shell.validateMenuItem(item)
+        guard item.state == .on else { fail("the menu item does not say it is across the window") }
+        shell.toggleStatusAcrossWindow(nil)
+        guard shell.view.statusPlacement == .editor else { fail("the menu item did not put it back") }
+        _ = shell.validateMenuItem(item)
+        guard item.state == .off else { fail("the menu item still says it is across the window") }
+        _ = await lua("vim.cmd('FrameStatusline window')")
+        await wait("across again") { shell.view.statusPlacement == .window }
+        _ = await lua("vim.cmd('FrameStatusline editor')")
+        await wait("under the grid again") { shell.view.statusPlacement == .editor }
+        step(
+            "the bar can go across the window or beside the sidebar: from `:FrameStatusline editor|window` and the View menu"
+        )
         _ = await lua("vim.cmd('bwipeout!')")
         step(":FrameStatusline hides the bar and gives nvim's own back; the grid ends where the bar begins")
     }

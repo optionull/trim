@@ -540,7 +540,7 @@ Return opens a workspace in this window (nvim starts again in its folder, the tr
 are asked about first), ⇧Return in a new window, and a workspace that already has a window is brought forward, never
 opened twice. Escape closes the switcher and the keyboard goes back to where it was.
 
-A status bar sits under the grid: the mode (nvim's, or TREE, FILTER or SWITCH while the keyboard is in the tree or
+A status bar sits under the grid, next to the sidebar (View ▸ Status Bar Across Window, or `:FrameStatusline window`, puts it across the whole window instead, the sidebar making room; `:FrameStatusline editor` puts it back): the mode (nvim's, or TREE, FILTER or SWITCH while the keyboard is in the tree or
 the switcher), the branch, the file (relative to the workspace, with its icon and a mark when it is changed) and, on
 the right, the diagnostics, the language servers, the file type and the position. nvim's own status line, ruler and
 mode message are off while it shows, and put back when it hides (`:FrameStatusline [toggle|show|hide]`);
