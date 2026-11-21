@@ -585,12 +585,19 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
     }
 
-    /// Typing in the filter: Escape closes it, Return and Tab go to what it found, the arrows move through it.
+    /// Typing in the filter: Escape closes it, Return opens what it found, Tab goes to the results, the arrows move
+    /// through it.
     func control(_: NSControl, textView _: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.cancelOperation(_:)):
             closeFilter()
-        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
+        case #selector(NSResponder.insertNewline(_:)):
+            // Return opens what the filter found: the file selected with the arrows, or else the first one.
+            outline.window?.makeFirstResponder(outline)
+            if selectedNode == nil || selectedNode?.isDirectory == true { selectFirstFile() }
+            if let node = selectedNode, !node.isDirectory { activate(node, toEditor: true) }
+        case #selector(NSResponder.insertTab(_:)):
+            // Tab goes to the results to walk them.
             outline.window?.makeFirstResponder(outline)
             if selectedNode == nil || selectedNode?.isDirectory == true { selectFirstFile() }
         case #selector(NSResponder.moveDown(_:)): move(by: 1)

@@ -269,11 +269,29 @@ struct FrameCheck {
         await wait("another match") { names() == ["docs", "guide.md"] }
         command(#selector(NSResponder.moveDown(_:)))
         guard tree.selectedNode?.name == "guide.md" else { fail("the arrow did not move through the results") }
-        command(#selector(NSResponder.insertNewline(_:)))
+        command(#selector(NSResponder.insertTab(_:)))
         guard shell.window.firstResponder === tree.outline, tree.selectedNode?.name == "guide.md" else {
-            fail("Return did not go to the results: \(String(describing: shell.window.firstResponder))")
+            fail("Tab did not go to the results: \(String(describing: shell.window.firstResponder))")
         }
-        step("the filter narrows the tree to the paths that hold the text, live, and Return goes to the results")
+        shell.window.makeFirstResponder(box.field)
+        command(#selector(NSResponder.insertNewline(_:)))
+        await waitAsync("Return to open the file the arrows chose") {
+            let name = await (try? shell.session.channel.lua("return vim.api.nvim_buf_get_name(0)"))?.stringValue
+            return name == folder + "/docs/guide.md"
+        }
+        await wait("the keyboard in the editor") { shell.window.firstResponder === shell.editor }
+        shell.window.makeFirstResponder(box.field)
+        type("ord")
+        await wait("the filter on ord") { names() == ["src", "Order.cs"] }
+        tree.outline.deselectAll(nil)
+        command(#selector(NSResponder.insertNewline(_:)))
+        await waitAsync("Return to open the first file when none is chosen") {
+            let name = await (try? shell.session.channel.lua("return vim.api.nvim_buf_get_name(0)"))?.stringValue
+            return name == folder + "/src/Order.cs"
+        }
+        step(
+            "the filter narrows the tree to the paths that hold the text, live, Tab goes to the results, Return opens the file"
+        )
         tree.outline.keyDown(with: key("/"))
         guard box.field.currentEditor() != nil else { fail("/ in the tree did not go to the filter") }
         // End on a filter that opens src, not the docs that were open: both must be put right when it closes.
