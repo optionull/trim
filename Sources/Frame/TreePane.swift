@@ -82,8 +82,8 @@ final class FilterBox: NSView {
     }
 }
 
-/// At the sidebar's foot: the git root the folder belongs to and its branch, and a click goes to the workspace
-/// switcher. The keyboard stays where it was.
+/// Under the sidebar, level with the status bar: the git root the folder belongs to and its branch, and a click goes to
+/// the workspace switcher. The keyboard stays where it was.
 final class WorkspaceChip: NSView {
     var look = TreeLook() {
         didSet { needsDisplay = true }
@@ -127,8 +127,13 @@ final class WorkspaceChip: NSView {
     }
 
     override func draw(_: NSRect) {
-        look.text.withAlphaComponent(hovering ? 0.12 : 0.07).setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
+        // An island like the sidebar's and the status bar's, a shade lighter under the pointer.
+        look.island.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: Design.islandRadius, yRadius: Design.islandRadius).fill()
+        if hovering {
+            look.text.withAlphaComponent(0.08).setFill()
+            NSBezierPath(roundedRect: bounds, xRadius: Design.islandRadius, yRadius: Design.islandRadius).fill()
+        }
         let iconFont = NerdFont.font(size: look.iconSize) ?? look.font
         let glyph = isWorktree ? "\u{E0A0}" : "\u{F401}"
         let iconSize = (glyph as NSString).size(withAttributes: [.font: iconFont])
@@ -176,8 +181,6 @@ final class SidebarView: NSView {
     }
 
     let scroll = NSScrollView()
-    /// At the foot: the git root and branch; a click opens the workspace switcher.
-    let chip = WorkspaceChip()
     private let title = NSTextField(labelWithString: "")
     private let branch = NSTextField(labelWithString: "")
     /// At the top right: the filter, and what is shown (ignored files, dotfiles).
@@ -211,7 +214,7 @@ final class SidebarView: NSView {
         filterBox.isHidden = true
         emptyNote.isHidden = true
         emptyNote.alignment = .center
-        for view in [scroll, title, branch, filterButton, visibilityButton, filterBox, emptyNote, chip] {
+        for view in [scroll, title, branch, filterButton, visibilityButton, filterBox, emptyNote] {
             addSubview(view)
         }
     }
@@ -231,7 +234,6 @@ final class SidebarView: NSView {
             button.look = look
         }
         filterBox.look = look
-        chip.look = look
         emptyNote.font = look.smallFont
         emptyNote.textColor = look.muted
         needsLayout = true
@@ -269,9 +271,7 @@ final class SidebarView: NSView {
         }
         emptyNote.sizeToFit()
         emptyNote.frame = NSRect(x: inset, y: top + 12, width: bounds.width - 2 * inset, height: emptyNote.frame.height)
-        let chipHeight = look.rowHeight + 10
-        chip.frame = NSRect(x: 8, y: bounds.height - chipHeight - 8, width: bounds.width - 16, height: chipHeight)
-        scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, chip.frame.minY - 6 - top))
+        scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top - 6))
         // The one column is as wide as what shows, so the badges at a row's right edge are not beyond it.
         if let table = scroll.documentView as? NSTableView, let column = table.tableColumns.first {
             column.minWidth = 0
@@ -556,6 +556,8 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     var filterText: String { sidebar.filterBox.field.stringValue }
     /// A file is opened: the path, for the editor to show, and whether the keyboard goes to the editor with it.
     var onOpen: ((String, Bool) -> Void)?
+    /// The workspace the tree is rooted in, as the chip says it: the git root's name, the branch, whether a worktree.
+    var onChip: ((_ name: String, _ branch: String, _ isWorktree: Bool) -> Void)?
     /// Tab: on to the editor.
     var onEscape: (() -> Void)?
     /// Escape, in the tree or in its filter: the window's modes say what it does.
@@ -839,9 +841,9 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     /// repository.
     func showChip(for path: String) {
         if let info = GitHead.info(at: path) {
-            sidebar.chip.show(name: info.rootName, branch: info.branch, isWorktree: info.isWorktree)
+            onChip?(info.rootName, info.branch, info.isWorktree)
         } else {
-            sidebar.chip.show(name: (path as NSString).lastPathComponent, branch: "", isWorktree: false)
+            onChip?((path as NSString).lastPathComponent, "", false)
         }
     }
 

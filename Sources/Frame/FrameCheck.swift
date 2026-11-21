@@ -724,20 +724,47 @@ struct FrameCheck {
         _ = await lua("vim.cmd('FrameStatusline show')")
         await wait("the bar to show again") { !bar.isHidden && shell.view.statusVisible }
         let (_, gridRows) = shell.editor.gridSize
-        let sidebar = shell.view.sidebar, editor = shell.editor!
+        let sidebar = shell.view.sidebar, editor = shell.editor!, chip = shell.chip
         guard gridRows > 3 else { fail("no grid") }
-        // By default the bar is under the grid, beside the sidebar, which keeps the whole height.
-        guard shell.view.statusPlacement == .editor, editor.frame.maxY < bar.frame.minY,
+        shell.view.layoutSubtreeIfNeeded()
+        // By default the foot is two islands level with each other: the workspace button under the sidebar, the bar
+        // under the grid; the sidebar and the grid both end above them.
+        guard shell.view.statusPlacement == .editor, !chip.isHidden, chip.frame.minY == bar.frame.minY,
+              chip.frame.height == bar.frame.height, chip.frame.minX == sidebar.frame.minX,
+              chip.frame.width == sidebar.frame.width, sidebar.frame.maxY < chip.frame.minY,
               bar.frame.minX == editor.frame.minX, bar.frame.maxX == editor.frame.maxX,
-              sidebar.frame.maxY > bar.frame.minY
-        else { fail("the bar is not under the grid beside the sidebar: \(bar.frame), the sidebar \(sidebar.frame)") }
-        step("the bar is under the grid, next to the sidebar, which keeps the window's height")
-        // `:FrameStatusline window`, and the menu, put it across the window: the sidebar makes room.
+              editor.frame.maxY < bar.frame.minY
+        else {
+            fail(
+                "the foot is not a button under the sidebar and the bar under the grid: chip \(chip.frame), bar \(bar.frame)"
+            )
+        }
+        step("the workspace button sits under the sidebar, level with the status bar under the grid")
+        // The sidebar says the branch, so the bar does not; without the sidebar the bar does.
+        guard bar.state.branch.isEmpty,
+              !bar.state.showsWorkspace else { fail("the bar says the branch beside the sidebar") }
+        shell.setSidebar(visible: false)
+        shell.view.layoutSubtreeIfNeeded()
+        await wait("the bar to say the branch") { bar.state.branch == shell.chip.branch }
+        guard chip.isHidden, bar.frame.minX == shell.view.sidebar.frame.minX || bar.frame.minX == 8 else {
+            fail("the button stayed with no sidebar: \(chip.frame), the bar \(bar.frame)")
+        }
+        shell.setSidebar(visible: true)
+        await wait("the bar to leave the branch to the sidebar") { bar.state.branch.isEmpty }
+        step("the bar says the branch only while the sidebar is away; the button goes with the sidebar")
+        // `:FrameStatusline window`, and the menu, put one bar across the window: the workspace is its first segment.
         _ = await lua("vim.cmd('FrameStatusline window')")
         await wait("the bar across the window") { shell.view.statusPlacement == .window }
         shell.view.layoutSubtreeIfNeeded()
-        guard bar.frame.minX == sidebar.frame.minX, bar.frame.maxX == editor.frame.maxX,
-              sidebar.frame.maxY < bar.frame.minY, editor.frame.maxY < bar.frame.minY
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try? await Task.sleep(for: .milliseconds(300))
+            do { try shot(editor: editor, to: path.replacingOccurrences(of: ".png", with: "-across.png")) } catch {
+                fail("the across shot: \(error)")
+            }
+        }
+        guard chip.isHidden, bar.state.showsWorkspace, bar.frame.minX == sidebar.frame.minX,
+              bar.frame.maxX == editor.frame.maxX, sidebar.frame.maxY < bar.frame.minY,
+              editor.frame.maxY < bar.frame.minY
         else { fail("the bar does not span the window under the sidebar and the grid: \(bar.frame)") }
         let item = NSMenuItem(
             title: "",
@@ -755,7 +782,7 @@ struct FrameCheck {
         _ = await lua("vim.cmd('FrameStatusline editor')")
         await wait("under the grid again") { shell.view.statusPlacement == .editor }
         step(
-            "the bar can go across the window or beside the sidebar: from `:FrameStatusline editor|window` and the View menu"
+            "the bar can go across the window (the workspace its first segment) or beside the button: `:FrameStatusline editor|window` and the View menu"
         )
         _ = await lua("vim.cmd('bwipeout!')")
         step(":FrameStatusline hides the bar and gives nvim's own back; the grid ends where the bar begins")
@@ -918,7 +945,7 @@ struct FrameCheck {
         step("Escape closes it and the keyboard goes back to where it was")
 
         // The chip at the sidebar's foot: outside a repository it is the folder's name; it opens the switcher.
-        let chip = shell.view.sidebar.chip
+        let chip = shell.chip
         guard chip.name == ((shell.tree.rootPath ?? "") as NSString).lastPathComponent, chip.branch.isEmpty,
               !chip.isWorktree
         else {
@@ -928,7 +955,7 @@ struct FrameCheck {
         guard let chipped = shell.switcher else { fail("the chip did not open the switcher") }
         shell.closeSwitcher()
         _ = chipped
-        step("the chip at the sidebar's foot names the git root and its branch, and opens the switcher")
+        step("the chip under the sidebar names the git root and its branch, and opens the switcher")
 
         // Return goes to the worktree in this window: nvim starts again in its folder, the tree is rooted there.
         shell.showSwitcher()
@@ -947,6 +974,13 @@ struct FrameCheck {
         await wait("the chip to name the repository, not the worktree's folder") {
             chip.name == "alpha" && chip.branch == "feature/blog-option" && chip.isWorktree
         }
+        // With a branch to say: beside the sidebar the bar leaves it to the sidebar; without the sidebar it says it.
+        let statusBar = shell.view.statusBar
+        await wait("the bar to leave the branch to the sidebar") { statusBar.state.branch.isEmpty }
+        shell.setSidebar(visible: false)
+        await wait("the bar to say the branch with no sidebar") { statusBar.state.branch == "feature/blog-option" }
+        shell.setSidebar(visible: true)
+        await wait("the branch back with the sidebar") { statusBar.state.branch.isEmpty }
         step(
             "Return opens the workspace in this window: nvim in its folder, the tree rooted there, the chip on its repository"
         )
@@ -1118,6 +1152,21 @@ struct FrameCheck {
                 y: pad + size.height - sidebar.frame.maxY,
                 width: sidebar.frame.width,
                 height: sidebar.frame.height
+            ))
+        }
+        let button = shell.chip
+        if !button.isHidden, let pane = button.bitmapImageRepForCachingDisplay(in: button.bounds) {
+            if let backing = NSGraphicsContext(bitmapImageRep: pane) {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = backing
+                NSColor(rgb: editor.screen.defaultBackground).setFill()
+                button.bounds.fill()
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            button.cacheDisplay(in: button.bounds, to: pane)
+            pane.draw(in: NSRect(
+                x: pad + button.frame.minX, y: pad + size.height - button.frame.maxY, width: button.frame.width,
+                height: button.frame.height
             ))
         }
         let bar = shell.view.statusBar

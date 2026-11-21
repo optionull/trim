@@ -120,6 +120,7 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func setStatusPlacement(_ placement: StatusPlacement) {
         for controller in controllers {
             controller.view?.statusPlacement = placement
+            controller.refreshStatus()
         }
         if !Self.checking { PaneLayout.statusPlacement = placement }
     }

@@ -7,7 +7,12 @@ import SillEditor
 struct StatusState: Equatable {
     /// The mode as a word: nvim's, or Frame's own while the keyboard is in the tree or the switcher.
     var mode = "NORMAL"
+    /// The branch, empty while the sidebar shows it.
     var branch = ""
+    /// With the bar across the window the workspace is its first segment (the chip, which is its own island otherwise).
+    var workspace = ""
+    var workspaceIsWorktree = false
+    var showsWorkspace = false
     /// The file as it is shown (relative to the workspace), and its name for the icon.
     var path = ""
     var name = ""
@@ -34,8 +39,20 @@ final class StatusBarView: NSView {
         didSet { if state != oldValue { needsDisplay = true } }
     }
 
+    /// A click on the workspace segment: the switcher.
+    var onWorkspaceClick: (() -> Void)?
+    private var workspaceRect = NSRect.zero
+
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
+    override var acceptsFirstResponder: Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        if state.showsWorkspace, workspaceRect.contains(convert(event.locationInWindow, from: nil)) {
+            onWorkspaceClick?()
+        }
+    }
 
     /// A line of the grid, with room above and below.
     static func height(for look: TreeLook) -> CGFloat { look.rowHeight + 12 }
@@ -106,6 +123,33 @@ final class StatusBarView: NSView {
         }
         // The left side: the mode, the branch, then the file, which gives way when there is no room.
         var x: CGFloat = 8
+        workspaceRect = .zero
+        if state.showsWorkspace, !state.workspace.isEmpty {
+            let text = NSMutableAttributedString(attributedString: icon(
+                state.workspaceIsWorktree ? "\u{E0A0}" : "\u{F401}",
+                look.muted
+            ))
+            text.append(attributed(
+                "  " + state.workspace,
+                look.text,
+                font: look.boldFont.withSize(look.smallFont.pointSize + 1)
+            ))
+            let width = min(ceil(text.size().width), max(0, (edge - x) * 0.3))
+            let pill = NSRect(x: x, y: 6, width: width + 20, height: bounds.height - 12)
+            look.text.withAlphaComponent(0.08).setFill()
+            NSBezierPath(roundedRect: pill, xRadius: 5, yRadius: 5).fill()
+            text.draw(
+                with: NSRect(
+                    x: pill.minX + 10,
+                    y: midY - text.size().height / 2,
+                    width: width,
+                    height: text.size().height
+                ),
+                options: [.truncatesLastVisibleLine, .usesLineFragmentOrigin]
+            )
+            workspaceRect = pill
+            x = pill.maxX + 8
+        }
         let label = attributed(
             state.mode, NSColor(frameRGB: look.palette.background),
             font: look.boldFont.withSize(look.smallFont.pointSize)

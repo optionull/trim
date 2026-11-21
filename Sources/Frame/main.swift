@@ -96,6 +96,8 @@ final class FrameView: NSView {
     let overlay: NSView
     let sidebar: SidebarView
     let statusBar: StatusBarView
+    /// The workspace button under the sidebar, level with the status bar.
+    let chip: WorkspaceChip
     let divider = DividerView()
     /// Whether the bar shows under the grid (a config can keep its own status line instead).
     var statusVisible = true {
@@ -136,11 +138,15 @@ final class FrameView: NSView {
     /// The gap between the sidebar and the grid, which is also what is grabbed to size it.
     static let dividerWidth: CGFloat = 8
 
-    init(editor: EditorView, overlay: NSView, sidebar: SidebarView, statusBar: StatusBarView, persisting: Bool) {
+    init(
+        editor: EditorView, overlay: NSView, sidebar: SidebarView, statusBar: StatusBarView, chip: WorkspaceChip,
+        persisting: Bool
+    ) {
         self.editor = editor
         self.overlay = overlay
         self.sidebar = sidebar
         self.statusBar = statusBar
+        self.chip = chip
         self.persisting = persisting
         sidebarVisible = persisting ? PaneLayout.sidebarVisible : true
         statusPlacement = persisting ? PaneLayout.statusPlacement : .editor
@@ -153,6 +159,7 @@ final class FrameView: NSView {
         addSubview(editor)
         addSubview(overlay)
         addSubview(statusBar)
+        addSubview(chip)
     }
 
     @available(*, unavailable)
@@ -166,30 +173,35 @@ final class FrameView: NSView {
         super.layout()
         let frame = bounds.insetBy(dx: Self.margin, dy: Self.margin)
         let y = frame.minY + top
-        // The status bar takes a strip of the foot: of the whole window (and the sidebar makes room for it) or only of
-        // the grid's column, beside the sidebar.
+        // The foot is a strip, the height of the status bar: the bar, and the workspace button where there is a sidebar
+        // to put it under. The sidebar's island and the grid make room above them.
         let barHeight = StatusBarView.height(for: statusBar.look), gap: CGFloat = 6
-        let strip = statusVisible ? barHeight + gap : 0
         let across = statusPlacement == .window
+        let barStrip = statusVisible ? barHeight + gap : 0
+        // The button is the sidebar's, under it; with the bar across the window it is the bar's first segment instead.
+        let chipShown = sidebarVisible && !across
+        let sidebarStrip = across ? barStrip : (chipShown ? barHeight + gap : 0)
         statusBar.isHidden = !statusVisible
-        let columnHeight = max(0, frame.height - top - (across ? strip : 0))
+        chip.isHidden = !chipShown
+        let top = frame.minY + top
         var x = frame.minX
         sidebar.isHidden = !sidebarVisible
         divider.isHidden = !sidebarVisible
+        let footY = frame.maxY - barHeight
         if sidebarVisible {
             // Never more than half the window, so the grid is not squeezed out.
             let width = min(sidebarWidth, frame.width / 2)
-            sidebar.frame = NSRect(x: x, y: y, width: width, height: columnHeight)
-            divider.frame = NSRect(x: x + width, y: y, width: Self.dividerWidth, height: columnHeight)
+            let height = max(0, frame.maxY - top - sidebarStrip)
+            sidebar.frame = NSRect(x: x, y: top, width: width, height: height)
+            divider.frame = NSRect(x: x + width, y: top, width: Self.dividerWidth, height: height)
+            chip.frame = NSRect(x: x, y: footY, width: width, height: barHeight)
             window?.invalidateCursorRects(for: divider)
             x += width + Self.dividerWidth
         }
-        editor.frame = NSRect(
-            x: x, y: y, width: frame.maxX - x, height: max(0, across ? columnHeight : columnHeight - strip)
-        )
+        editor.frame = NSRect(x: x, y: top, width: frame.maxX - x, height: max(0, frame.maxY - top - barStrip))
         overlay.frame = editor.frame
-        let barX = across ? frame.minX : x
-        statusBar.frame = NSRect(x: barX, y: frame.maxY - barHeight, width: frame.maxX - barX, height: barHeight)
+        let barX = across || !chipShown ? frame.minX : x
+        statusBar.frame = NSRect(x: barX, y: footY, width: frame.maxX - barX, height: barHeight)
     }
 
     override func draw(_: NSRect) {
@@ -324,6 +336,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
 
     /// The bar under the grid: like the sidebar it outlives any one nvim, and says what it was last told.
     private let statusBar = StatusBarView()
+    /// The workspace button under the sidebar; it, too, outlives any one nvim.
+    let chip = WorkspaceChip()
     private var status = StatusState()
 
     init(app: FrameApp, folder: String, arguments: [String], isFirst: Bool) {
@@ -362,10 +376,16 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         tree.onCancel = { [weak self] in self?.escape() }
         tree.onFilterChange = { [weak self] open in self?.modes.filterChanged(open: open) }
         tree.onFocused = { [weak self] in self?.modes.focused(.tree) }
-        sidebar.chip.onClick = { [weak self] in self?.switchWorkspace(nil) }
+        chip.onClick = { [weak self] in self?.switchWorkspace(nil) }
+        statusBar.onWorkspaceClick = { [weak self] in self?.switchWorkspace(nil) }
+        tree.onChip = { [weak self] name, branch, isWorktree in
+            self?.chip.show(name: name, branch: branch, isWorktree: isWorktree)
+            self?.refreshStatus()
+        }
         tree.onPalette = { [weak self] palette in
             self?.styleWhichKey(palette)
             self?.statusBar.look = self?.tree.look ?? TreeLook()
+            self?.chip.look = self?.tree.look ?? TreeLook()
             self?.view?.needsLayout = true
         }
         tree.onForward = { [weak self] event in
@@ -432,7 +452,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         editor.windowsCover = true
         externalUI = ExternalUI(editor: editor)
         view = FrameView(
-            editor: editor, overlay: externalUI.overlay, sidebar: sidebar, statusBar: statusBar, persisting: !checking
+            editor: editor, overlay: externalUI.overlay, sidebar: sidebar, statusBar: statusBar, chip: chip,
+            persisting: !checking
         )
         window.contentView = view
         apply()
@@ -767,10 +788,14 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
 
     /// The bar says the mode the window is in (nvim's, or the tree's or the switcher's) and the branch, with the rest
     /// as it was last told.
-    private func refreshStatus() {
+    func refreshStatus() {
         guard editor != nil else { return }
         status.mode = modes.label(editorMode: editor.screen.mode)
-        status.branch = sidebar.chip.branch
+        // The sidebar says the branch (under the folder's name, and in the chip), so the bar does when it is not there.
+        status.branch = view.sidebarVisible ? "" : chip.branch
+        status.workspace = chip.name
+        status.workspaceIsWorktree = chip.isWorktree
+        status.showsWorkspace = view.statusPlacement == .window
         statusBar.state = status
     }
 
@@ -945,6 +970,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// Shows or hides the sidebar. Hidden while it has the keyboard, the keyboard goes back to the editor.
     func setSidebar(visible: Bool) {
         view.sidebarVisible = visible
+        refreshStatus()
         if !visible { modes.sidebarHidden() }
         if !visible, window.firstResponder === tree.outline { focusEditor() }
     }
