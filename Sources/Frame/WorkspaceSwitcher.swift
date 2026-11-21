@@ -11,6 +11,13 @@ final class FlippedView: NSView {
 /// A table that never takes the keyboard from the search field above it.
 final class SwitcherTable: NSTableView {
     override var acceptsFirstResponder: Bool { false }
+
+    /// A row is a click, so over the rows the pointer is a hand.
+    func pointerRects() -> [NSRect] { [visibleRect] }
+
+    override func resetCursorRects() {
+        pointerRects().forEach { addCursorRect($0, cursor: .pointingHand) }
+    }
 }
 
 /// A row: the selected one a rounded fill in the editor's colour.

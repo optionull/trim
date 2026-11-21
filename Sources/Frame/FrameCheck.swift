@@ -768,6 +768,12 @@ struct FrameCheck {
               bar.frame.maxX == editor.frame.maxX, sidebar.frame.maxY < bar.frame.minY,
               editor.frame.maxY < bar.frame.minY
         else { fail("the bar does not span the window under the sidebar and the grid: \(bar.frame)") }
+        shell.view.statusBar.display()
+        guard !shell.view.statusBar.pointerRects().isEmpty
+        else { fail("the pointer is not a hand over the workspace segment") }
+        shell.view.statusBar.setHoveringWorkspace(true)
+        guard shell.view.statusBar.hoveringWorkspace else { fail("the workspace segment does not light") }
+        shell.view.statusBar.setHoveringWorkspace(false)
         let item = NSMenuItem(
             title: "",
             action: #selector(FrameWindowController.toggleStatusAcrossWindow(_:)),
@@ -870,6 +876,49 @@ struct FrameCheck {
         await wait("the close mark to close b.txt") { names() == ["a.txt", "c.txt"] }
         step("a click on a tab shows it and the close mark closes it")
 
+        // The pointer: over a tab it is a hand and the tab lights, over its close mark the mark has a square of its
+        // own.
+        func moved(_ list: TabsView, to point: NSPoint) {
+            list.mouseMoved(with: NSEvent.mouseEvent(
+                with: .mouseMoved, location: list.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                windowNumber: shell.window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0
+            )!)
+        }
+        guard let first = shell.tabs.first(where: { $0.path.hasPrefix(dir) }),
+              let rect = strip.frame(ofTab: first.id)
+        else {
+            fail("no tab to point at")
+        }
+        moved(strip, to: NSPoint(x: rect.minX + 30, y: rect.midY))
+        guard strip.hover.id == first.id, !strip.hover.onClose else { fail("the pointer over a tab does not light it") }
+        moved(strip, to: NSPoint(x: rect.maxX - 15, y: rect.midY))
+        guard strip.hover.id == first.id,
+              strip.hover.onClose else { fail("the pointer over the close mark does not say so") }
+        strip.mouseExited(with: NSEvent.mouseEvent(
+            with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            eventNumber: 0, clickCount: 0, pressure: 0
+        )!)
+        guard strip.hover.id == nil, !strip.hover.onClose else { fail("the tab stays lit when the pointer leaves") }
+        let hands = strip.pointerRects()
+        let count = shell.tabs.count(where: { $0.path.hasPrefix(dir) })
+        guard hands.count == count, hands.contains(where: { $0.contains(NSPoint(x: rect.midX, y: rect.midY)) }) else {
+            fail("the pointer is not a hand over each tab: \(hands)")
+        }
+        // The tree's header icons and the workspace button are clicks too.
+        let header = shell.view.sidebar
+        for button in [header.filterButton, header.visibilityButton] {
+            guard button.pointerRects() == [button.bounds] else { fail("the pointer is not a hand over a header icon") }
+            button.setHovering(true)
+            guard button.isHovering else { fail("a header icon does not light under the pointer") }
+            button.setHovering(false)
+            guard !button.isHovering else { fail("a header icon stays lit") }
+        }
+        guard shell.chip.pointerRects() == [shell.chip.bounds]
+        else { fail("the pointer is not a hand over the workspace button") }
+        step(
+            "tabs, their close marks, the tree's header icons and the workspace button light under the pointer, a hand over them"
+        )
+
         // Keys: Control-Tab and its pair, the macOS ones, and Command-W. Three tabs, so next and previous differ.
         await open("d.txt")
         await wait("three tabs") { names() == ["a.txt", "c.txt", "d.txt"] && current() == "d.txt" }
@@ -941,11 +990,17 @@ struct FrameCheck {
             shell.tabs.contains { $0.name == "b.txt" && $0.modified } && current() == "Util.swift"
         }
         try? await Task.sleep(for: .milliseconds(300))
+        // The pointer on the shown tab's close mark and on the filter icon, for the picture.
+        if let shown = shell.tabs.first(where: \.current), let frame = strip.frame(ofTab: shown.id) {
+            moved(strip, to: NSPoint(x: frame.maxX - 15, y: frame.midY))
+        }
+        shell.view.sidebar.filterButton.setHovering(true)
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             do { try shot(editor: editor, to: path.replacingOccurrences(of: ".png", with: "-tabs.png")) } catch {
                 fail("the tabs' shot: \(error)")
             }
         }
+        shell.view.sidebar.filterButton.setHovering(false)
         // The picture is taken; those tabs are dropped, so the steps after start as they did.
         _ =
             await lua(

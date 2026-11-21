@@ -21,6 +21,7 @@ final class TabsView: NSView {
             labels = Tabs.labels(tabs)
             scrollToCurrent = true
             needsDisplay = true
+            window?.invalidateCursorRects(for: self)
         }
     }
 
@@ -122,6 +123,7 @@ final class TabsView: NSView {
     override func layout() {
         super.layout()
         needsDisplay = true
+        window?.invalidateCursorRects(for: self)
     }
 
     override func draw(_: NSRect) {
@@ -132,6 +134,7 @@ final class TabsView: NSView {
             NSRect(x: 0, y: 0, width: 1, height: bounds.height).fill()
         }
         let items = frames()
+        let offsetBefore = offset
         if scrollToCurrent, let current = items.first(where: { $0.tab.current }) {
             scrollToCurrent = false
             switch axis {
@@ -144,6 +147,8 @@ final class TabsView: NSView {
             }
         }
         offset = clamp(offset, items: items)
+        // The tabs moved under the pointer: where it is a hand moved with them.
+        if offset != offsetBefore { window?.invalidateCursorRects(for: self) }
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: bounds).addClip()
         for (tab, frame) in items {
@@ -182,6 +187,11 @@ final class TabsView: NSView {
         )
         // The mark at the right: a dot while it has changes, a cross under the pointer (and on the shown tab).
         let mark = closeRect(in: rect)
+        // Under the pointer the close mark has a soft square of its own, so it reads as a button.
+        if hovering, hoveredClose {
+            look.text.withAlphaComponent(0.16).setFill()
+            NSBezierPath(roundedRect: mark.insetBy(dx: 1, dy: 1), xRadius: 4, yRadius: 4).fill()
+        }
         if hovering || tab.current || tab.modified {
             let showsClose = hovering && (hoveredClose || !tab.modified) || (tab.current && !tab.modified)
             let glyph = showsClose ? "✕" : "●"
@@ -224,7 +234,10 @@ final class TabsView: NSView {
             ? event.scrollingDeltaX : event.scrollingDeltaY
         let before = offset
         offset = clamp(offset - delta * (event.hasPreciseScrollingDeltas ? 1 : 8), items: frames())
-        if offset != before { needsDisplay = true }
+        if offset != before {
+            needsDisplay = true
+            window?.invalidateCursorRects(for: self)
+        }
     }
 
     override func updateTrackingAreas() {
@@ -250,6 +263,18 @@ final class TabsView: NSView {
         hovered = nil
         hoveredClose = false
         needsDisplay = true
+    }
+
+    /// What the pointer is over, for the self-check: a tab, and whether its close mark.
+    var hover: (id: Int?, onClose: Bool) { (hovered, hoveredClose) }
+
+    /// Where the pointer is a hand: each tab, as far as it shows.
+    func pointerRects() -> [NSRect] {
+        frames().map { shifted($0.frame).intersection(bounds) }.filter { !$0.isNull && !$0.isEmpty }
+    }
+
+    override func resetCursorRects() {
+        pointerRects().forEach { addCursorRect($0, cursor: .pointingHand) }
     }
 
     /// The tab at a point, for the self-check (a click without a window server).

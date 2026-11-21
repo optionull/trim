@@ -559,7 +559,7 @@ has. A file never edited is in italics (a preview), one with changes has a dot. 
 Tabs, or `:FrameTabs max N`, 10 by default, 0 for none) the tabs never edited are closed, the least recently used first
 (View ▸ Tabs ▸ Close Unedited Tabs Past the Maximum, or `:FrameTabs autoclose [on|off]`); an edited tab, one with
 changes and the one showing are never closed, and nothing is closed while the tabs are hidden. A click shows a tab, its
-close mark or a middle click closes it. Keys: ⌃⇥ and ⌃⇧⇥ (also ⌘⇧] and ⌘⇧[) go to the next and previous tab, round
+close mark or a middle click closes it. Everything clickable (tabs, their close marks, the tree's header icons, the workspace button) lights under the pointer, and the pointer is a hand over it. Keys: ⌃⇥ and ⌃⇧⇥ (also ⌘⇧] and ⌘⇧[) go to the next and previous tab, round
 again, ⌘W closes the current one, and `:FrameTabs next|prev|close|N` does the same from nvim. nvim's own keys are as they
 were: `:bnext` and `:bprevious` (LazyVim's `]b` and `[b`, `<S-l>` and `<S-h>`), `<C-^>` for the last file, `gt` and `gT`
 for tab pages.

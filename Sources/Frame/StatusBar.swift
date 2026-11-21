@@ -41,7 +41,38 @@ final class StatusBarView: NSView {
 
     /// A click on the workspace segment: the switcher.
     var onWorkspaceClick: (() -> Void)?
-    private var workspaceRect = NSRect.zero
+    private var workspaceRect = NSRect.zero {
+        didSet { if workspaceRect != oldValue { window?.invalidateCursorRects(for: self) } }
+    }
+
+    private(set) var hoveringWorkspace = false
+
+    /// Where the pointer is a hand: the workspace segment, when it is there.
+    func pointerRects() -> [NSRect] { state.showsWorkspace && !workspaceRect.isEmpty ? [workspaceRect] : [] }
+
+    override func resetCursorRects() {
+        pointerRects().forEach { addCursorRect($0, cursor: .pointingHand) }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self
+        ))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        setHoveringWorkspace(state.showsWorkspace && workspaceRect.contains(convert(event.locationInWindow, from: nil)))
+    }
+
+    override func mouseExited(with _: NSEvent) { setHoveringWorkspace(false) }
+
+    func setHoveringWorkspace(_ hovering: Bool) {
+        guard hovering != hoveringWorkspace else { return }
+        hoveringWorkspace = hovering
+        needsDisplay = true
+    }
 
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
@@ -136,7 +167,7 @@ final class StatusBarView: NSView {
             ))
             let width = min(ceil(text.size().width), max(0, (edge - x) * 0.3))
             let pill = NSRect(x: x, y: 6, width: width + 20, height: bounds.height - 12)
-            look.text.withAlphaComponent(0.08).setFill()
+            look.text.withAlphaComponent(hoveringWorkspace ? 0.18 : 0.08).setFill()
             NSBezierPath(roundedRect: pill, xRadius: 5, yRadius: 5).fill()
             text.draw(
                 with: NSRect(

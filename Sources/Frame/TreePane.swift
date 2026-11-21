@@ -116,6 +116,18 @@ final class WorkspaceChip: NSView {
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self))
     }
 
+    /// The whole button is a click, so the pointer says so.
+    func pointerRects() -> [NSRect] { [bounds] }
+
+    override func resetCursorRects() {
+        pointerRects().forEach { addCursorRect($0, cursor: .pointingHand) }
+    }
+
+    override func layout() {
+        super.layout()
+        window?.invalidateCursorRects(for: self)
+    }
+
     override func mouseEntered(with _: NSEvent) {
         hovering = true
         needsDisplay = true
@@ -317,6 +329,46 @@ final class HeaderButton: NSButton {
     override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
     /// Clicking an icon does not take the keyboard from where it was.
     override var acceptsFirstResponder: Bool { false }
+
+    /// Under the pointer: a soft fill behind the icon, and the hand that says it can be clicked.
+    private(set) var isHovering = false
+
+    /// Where the pointer is a hand: all of it.
+    func pointerRects() -> [NSRect] { [bounds] }
+
+    override func resetCursorRects() {
+        pointerRects().forEach { addCursorRect($0, cursor: .pointingHand) }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self
+        ))
+    }
+
+    override func mouseEntered(with _: NSEvent) { setHovering(true) }
+    override func mouseExited(with _: NSEvent) { setHovering(false) }
+
+    func setHovering(_ hovering: Bool) {
+        guard hovering != isHovering else { return }
+        isHovering = hovering
+        needsDisplay = true
+    }
+
+    override func layout() {
+        super.layout()
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if isHovering {
+            look.text.withAlphaComponent(0.12).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 5, yRadius: 5).fill()
+        }
+        super.draw(dirtyRect)
+    }
 
     func refresh() {
         let font = NerdFont.font(size: look.iconSize) ?? look.font
