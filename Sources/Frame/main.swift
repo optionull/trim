@@ -391,7 +391,8 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         editor.onKey = { [weak self] in self?.externalUI.keyPressed() }
         editor.keyInterceptor = { [weak self] event in self?.escapeToTree(event) ?? false }
         editor.onFocus = { [weak self] in self?.returnsToTree = false }
-        returnsToTree = false
+        // A fresh editor (the landing page) has not been entered from anywhere: the tree is where Escape goes.
+        returnsToTree = true
         EditorFont.onChange = { [weak self] in
             self?.editor.fontChanged()
             self?.tree.fontChanged()
@@ -606,13 +607,14 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         }
     }
 
-    /// Set when the tree handed the keyboard to the editor (Return on a file): Escape in normal mode takes it back.
+    /// Set when the tree handed the keyboard to the editor (Return on a file), and on a fresh editor: Escape in normal
+    /// mode takes it to the tree. A click in the editor clears it.
     var returnsToTree = false
 
     /// Escape in the editor's normal mode, after a file was opened from the tree: back to the tree, and nvim does not
     /// see the key.
     func escapeToTree(_ event: NSEvent) -> Bool {
-        guard returnsToTree, event.keyCode == 53,
+        guard returnsToTree, view.sidebarVisible, event.keyCode == 53,
               event.modifierFlags.isDisjoint(with: [.control, .command, .option]),
               editor.screen.mode == "normal" else { return false }
         returnsToTree = false

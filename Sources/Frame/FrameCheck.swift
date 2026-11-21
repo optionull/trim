@@ -53,6 +53,13 @@ struct FrameCheck {
                 .contains { grid in (0 ..< grid.rows).contains { grid.line($0).contains("hello from the frame") } }
         }
         step("typed keys reach nvim and come back as the grid")
+        // The landing page, before anything was opened from the tree: Escape in normal mode is the tree's.
+        guard window.firstResponder === editor,
+              shell.view.sidebarVisible else { fail("no editor, or no tree, at the start") }
+        editor.keyDown(with: key("\u{1B}", code: 53))
+        await wait("Escape on the landing page to go to the tree") { window.firstResponder === shell.tree.outline }
+        window.makeFirstResponder(editor)
+        step("Escape in normal mode from a fresh editor goes to the tree")
         let hidden = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
             .allSatisfy { window.standardWindowButton($0)?.isHidden ?? true }
         guard hidden, window.styleMask.contains(.titled), window.titlebarAppearsTransparent,
