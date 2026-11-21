@@ -610,7 +610,7 @@ final class FrameDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     /// see the key.
     func escapeToTree(_ event: NSEvent) -> Bool {
         guard returnsToTree, event.keyCode == 53,
-              event.modifierFlags.intersection([.control, .command, .option]).isEmpty,
+              event.modifierFlags.isDisjoint(with: [.control, .command, .option]),
               editor.screen.mode == "normal" else { return false }
         returnsToTree = false
         focusSidebar(nil)
