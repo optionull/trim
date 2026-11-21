@@ -23,6 +23,8 @@ struct StatusState: Equatable {
     var lsp: [String] = []
     var filetype = ""
     var line = 0, col = 0, lines = 0, top = 0, bottom = 0
+    /// With the tabs in the status bar and more than one file open: how many, the file's name being the way to them.
+    var picker = 0
 
     /// Where the window is in the buffer: Top, Bot, All or a percentage.
     var scroll: String { StatusLine.percent(line: line, lines: lines, firstVisible: top, lastVisible: bottom) }
@@ -46,9 +48,21 @@ final class StatusBarView: NSView {
     }
 
     private(set) var hoveringWorkspace = false
+    /// A click on the file's name, when the tabs are in the status bar: the list of open files.
+    var onFileClick: (() -> Void)?
+    private var fileRect = NSRect.zero {
+        didSet { if fileRect != oldValue { window?.invalidateCursorRects(for: self) } }
+    }
+
+    private(set) var hoveringFile = false
 
     /// Where the pointer is a hand: the workspace segment, when it is there.
-    func pointerRects() -> [NSRect] { state.showsWorkspace && !workspaceRect.isEmpty ? [workspaceRect] : [] }
+    func pointerRects() -> [NSRect] {
+        var rects: [NSRect] = []
+        if state.showsWorkspace, !workspaceRect.isEmpty { rects.append(workspaceRect) }
+        if state.picker > 0, !fileRect.isEmpty { rects.append(fileRect) }
+        return rects
+    }
 
     override func resetCursorRects() {
         pointerRects().forEach { addCursorRect($0, cursor: .pointingHand) }
@@ -63,10 +77,21 @@ final class StatusBarView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        setHoveringWorkspace(state.showsWorkspace && workspaceRect.contains(convert(event.locationInWindow, from: nil)))
+        let point = convert(event.locationInWindow, from: nil)
+        setHoveringWorkspace(state.showsWorkspace && workspaceRect.contains(point))
+        setHoveringFile(state.picker > 0 && fileRect.contains(point))
     }
 
-    override func mouseExited(with _: NSEvent) { setHoveringWorkspace(false) }
+    override func mouseExited(with _: NSEvent) {
+        setHoveringWorkspace(false)
+        setHoveringFile(false)
+    }
+
+    func setHoveringFile(_ hovering: Bool) {
+        guard hovering != hoveringFile else { return }
+        hoveringFile = hovering
+        needsDisplay = true
+    }
 
     func setHoveringWorkspace(_ hovering: Bool) {
         guard hovering != hoveringWorkspace else { return }
@@ -80,8 +105,11 @@ final class StatusBarView: NSView {
     override var acceptsFirstResponder: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
-        if state.showsWorkspace, workspaceRect.contains(convert(event.locationInWindow, from: nil)) {
+        let point = convert(event.locationInWindow, from: nil)
+        if state.showsWorkspace, workspaceRect.contains(point) {
             onWorkspaceClick?()
+        } else if state.picker > 0, fileRect.contains(point) {
+            onFileClick?()
         }
     }
 
@@ -206,6 +234,7 @@ final class StatusBarView: NSView {
             text.draw(at: NSPoint(x: x, y: midY - text.size().height / 2))
             x += ceil(text.size().width) + 12
         }
+        fileRect = .zero
         guard !state.path.isEmpty else { return }
         let file = NSMutableAttributedString()
         if !state.name.isEmpty {
@@ -213,13 +242,35 @@ final class StatusBarView: NSView {
             file.append(icon(glyph, look.muted))
             file.append(attributed(" ", look.muted))
         }
-        file.append(attributed(state.path, look.text, font: look.font.withSize(look.smallFont.pointSize + 1)))
+        // The name is what matters: a path too long for the room loses its front folders, not its end.
+        let pathFont = look.font.withSize(look.smallFont.pointSize + 1)
+        let room = max(0, edge - x - 96)
+        let shownPath = StatusLine.fitted(state.path, width: room) { text in
+            ceil((text as NSString).size(withAttributes: [.font: pathFont]).width)
+        }
+        file.append(attributed(shownPath, look.text, font: pathFont))
         if state.readonly { file.append(icon("  \u{F023}", look.muted)) }
         if state.modified { file.append(attributed("  ●", NSColor(frameRGB: 0xE5C07B))) }
-        let width = max(0, edge - x)
+        // With the tabs here, the name is the way to the other files: how many there are, and a mark that it opens.
+        let picker = state.picker > 0
+            ? attributed("  ▾ \(state.picker)", look.muted, font: look.smallFont) : NSAttributedString()
+        let width = max(0, edge - x - ceil(picker.size().width))
+        let shown = min(ceil(file.size().width), width)
+        if picker.length > 0 {
+            let button = NSRect(
+                x: x - 6,
+                y: 5,
+                width: shown + ceil(picker.size().width) + 12,
+                height: bounds.height - 10
+            )
+            fileRect = button
+            look.text.withAlphaComponent(hoveringFile ? 0.14 : 0.0).setFill()
+            NSBezierPath(roundedRect: button, xRadius: 5, yRadius: 5).fill()
+        }
         file.draw(
             with: NSRect(x: x, y: midY - file.size().height / 2, width: width, height: file.size().height),
             options: [.truncatesLastVisibleLine, .usesLineFragmentOrigin]
         )
+        picker.draw(at: NSPoint(x: x + shown, y: midY - picker.size().height / 2))
     }
 }

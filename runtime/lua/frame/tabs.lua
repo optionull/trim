@@ -176,9 +176,9 @@ function M.start()
   end, {
     nargs = '*',
     complete = function()
-      return { 'next', 'prev', 'close', 'top', 'bottom', 'right', 'tree', 'hide', 'show', 'toggle', 'autoclose', 'max' }
+      return { 'next', 'prev', 'close', 'top', 'bottom', 'right', 'statusbar', 'hide', 'show', 'toggle', 'autoclose', 'max' }
     end,
-    desc = 'Tabs: next, prev, close, N; top|bottom|right|tree|hide|show|toggle; autoclose on|off; max N',
+    desc = 'Tabs: next, prev, close, N; top|bottom|right|statusbar|hide|show|toggle; autoclose on|off; max N',
   })
   soon()
 end

@@ -159,6 +159,7 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for controller in controllers {
             controller.view?.tabsPlacement = placement
             controller.configureTabs()
+            controller.refreshStatus()
         }
     }
 

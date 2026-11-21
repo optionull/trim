@@ -22,6 +22,21 @@ public enum StatusLine {
         return path
     }
 
+    /// A path cut to fit `width` (as `measure` says how wide a text is) by dropping folders from the front, `…/` in
+    /// their
+    /// place; the file's name is kept whole (whatever is left of the room, it is not cut).
+    public static func fitted(_ path: String, width: CGFloat, measure: (String) -> CGFloat) -> String {
+        guard measure(path) > width else { return path }
+        var parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard parts.count > 1 else { return path }
+        while parts.count > 1 {
+            parts.removeFirst()
+            let candidate = "…/" + parts.joined(separator: "/")
+            if measure(candidate) <= width || parts.count == 1 { return candidate }
+        }
+        return "…/" + (parts.first ?? path)
+    }
+
     /// Diagnostic counts as the short form: nothing for none.
     public static func counts(errors: Int, warnings: Int, infos: Int, hints: Int) -> [(kind: String, count: Int)] {
         [("error", errors), ("warning", warnings), ("info", infos), ("hint", hints)].filter { $0.1 > 0 }

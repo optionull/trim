@@ -544,15 +544,16 @@ The foot of the window is a strip: the workspace button under the sidebar (the g
 the switcher) and the status bar under the grid, level with each other. The bar shows the mode (nvim's, or TREE,
 FILTER or SWITCH while the keyboard is in the tree or the switcher), the file (relative to the workspace, with its icon
 and a mark when it is changed) and, on the right, the diagnostics, the language servers, the file type and the
-position; the branch too, while the sidebar, which says it, is hidden. View ▸ Status Bar Across Window (or
+position (a path too long for the room loses its front folders, not the file's name); the branch too, while the sidebar, which says it, is hidden. View ▸ Status Bar Across Window (or
 `:FrameStatusline window`; `:FrameStatusline editor` puts it back) makes it one bar across the window, with the
 workspace as its first segment. nvim's own status line, ruler and mode message are off while it shows, and put back
 when it hides (`:FrameStatusline [toggle|show|hide]`); `vim.g.frame_statusline = false` keeps the bar away and your own
 status line (lualine and the like) as it is.
 
 The open files are tabs (nvim's buffers; tab pages, which are layouts of windows, are not shown), and show only when
-more than one file is open. View ▸ Tabs puts them over the grid (the default), under it, as a list at its right, or hides
-them; `:FrameTabs top|bottom|right|hide|show|toggle` does the same, and the choice is remembered. They sit on nvim's own
+more than one file is open. View ▸ Tabs puts them over the grid (the default), under it, as a list at its right, in the status bar (the
+file's name there, with `▾ 3`, lists the open files when clicked; no strip at all), or hides them;
+`:FrameTabs top|bottom|right|statusbar|hide|show|toggle` does the same, and the choice is remembered. They sit on nvim's own
 background, each with the file's icon in its colour as in the tree, the shown one on the colour scheme's selection colour
 (nvim's `Visual` background, or the group `vim.g.frame_selection_group` names), the same one the tree's selected row
 has. A file never edited is in italics (a preview), one with changes has a dot. Past a maximum (View ▸ Tabs ▸ Maximum

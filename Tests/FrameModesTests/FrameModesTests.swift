@@ -1,3 +1,4 @@
+import Foundation
 @testable import FrameModes
 import Testing
 
@@ -201,11 +202,37 @@ import Testing
         #expect(TabsPlacement.top.isStrip && TabsPlacement.bottom.isStrip)
         #expect(!TabsPlacement.right.isStrip && !TabsPlacement.hidden.isStrip)
         #expect(TabsPlacement(rawValue: "right") == .right && TabsPlacement(rawValue: "tree") == nil)
+        #expect(TabsPlacement(rawValue: "statusbar") == .statusbar && !TabsPlacement.statusbar.isStrip)
+        #expect(Tabs.hasOwnView(.top) && Tabs.hasOwnView(.right) && !Tabs.hasOwnView(.statusbar) && !Tabs
+            .hasOwnView(.hidden))
     }
 
     @Test func `tabs show only when there is more than one file, and not when hidden`() {
         #expect(!Tabs.isShown(count: 0, placement: .top) && !Tabs.isShown(count: 1, placement: .top))
         #expect(Tabs.isShown(count: 2, placement: .top) && Tabs.isShown(count: 5, placement: .right))
         #expect(!Tabs.isShown(count: 5, placement: .hidden))
+    }
+}
+
+@Suite struct FittedPathTests {
+    func width(_ text: String) -> CGFloat { CGFloat(text.count) }
+
+    @Test func `a path that fits is as it is`() {
+        #expect(StatusLine.fitted("src/a.swift", width: 20, measure: width) == "src/a.swift")
+    }
+
+    @Test func `a path too long loses its front folders and keeps the name`() {
+        #expect(StatusLine.fitted("one/two/three/a.swift", width: 16, measure: width) == "…/three/a.swift")
+        #expect(StatusLine.fitted("one/two/three/a.swift", width: 11, measure: width) == "…/a.swift")
+    }
+
+    @Test func `the name is kept whole even when it alone is too long`() {
+        #expect(StatusLine
+            .fitted("one/two/a-very-long-name.swift", width: 4, measure: width) == "…/a-very-long-name.swift")
+        #expect(StatusLine.fitted("name.swift", width: 2, measure: width) == "name.swift")
+    }
+
+    @Test func `an absolute path is shortened from the front too`() {
+        #expect(StatusLine.fitted("/Users/me/proj/src/a.swift", width: 14, measure: width) == "…/src/a.swift")
     }
 }

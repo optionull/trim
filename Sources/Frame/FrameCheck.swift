@@ -966,6 +966,45 @@ struct FrameCheck {
         else { fail("the list is not beside the grid: \(list.frame), the grid \(editor.frame)") }
         click(list, tab: "a.txt")
         await wait("a click in the list") { current() == "a.txt" }
+
+        // In the status bar: no strip, no list; the file's name is a button that lists the open files.
+        let bar = shell.view.statusBar
+        _ = await lua("vim.cmd('FrameTabs statusbar')")
+        await wait("the tabs in the status bar") { view.tabsPlacement == .statusbar }
+        await wait("the bar to know how many") { bar.state.picker == names().count }
+        view.layoutSubtreeIfNeeded()
+        bar.display()
+        guard strip.isHidden, list.isHidden, editor.frame.minY == shell.view.sidebar.frame.minY,
+              let fileRect = bar.pointerRects().last
+        else { fail("with the tabs in the status bar there is still a strip or list, or the name is no button") }
+        var menu: NSMenu?
+        shell.presentTabMenu = { menu = $0 }
+        bar.mouseDown(with: NSEvent.mouseEvent(
+            with: .leftMouseDown, location: bar.convert(NSPoint(x: fileRect.midX, y: fileRect.midY), to: nil),
+            modifierFlags: [], timestamp: 0, windowNumber: shell.window.windowNumber, context: nil, eventNumber: 0,
+            clickCount: 1, pressure: 1
+        )!)
+        guard let menu, menu.items.count(where: { $0.representedObject is Int }) == names().count,
+              menu.items.first(where: { $0.state == .on })?.representedObject as? Int == shell.tabs
+              .first(where: \.current)?.id
+        else { fail("a click on the file's name does not list the open files, the shown one ticked") }
+        guard let other = menu.items.first(where: { $0.representedObject is Int && $0.state != .on })
+        else { fail("no other tab") }
+        let before = current()
+        shell.chooseTab(other)
+        await wait("a choice in the menu to show that file") { current() != before }
+        shell.presentTabMenu = nil
+        bar.setHoveringFile(true)
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try? await Task.sleep(for: .milliseconds(200))
+            do { try shot(editor: editor, to: path.replacingOccurrences(of: ".png", with: "-pick.png")) } catch {
+                fail("the picker's shot: \(error)")
+            }
+        }
+        bar.setHoveringFile(false)
+        shell.app.setTabs(placement: .right)
+        await wait("the bar to stop offering the list") { bar.state.picker == 0 }
+        step("with the tabs in the status bar the file's name lists the open files, and a choice shows one")
         shell.app.setTabs(placement: .hidden)
         view.layoutSubtreeIfNeeded()
         guard strip.isHidden, list.isHidden else { fail("hidden tabs are showing") }

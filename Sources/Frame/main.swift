@@ -410,6 +410,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
                 list.tabs = tabs
             }
             view?.needsLayout = true
+            refreshStatus()
         }
     }
 
@@ -457,6 +458,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             list.onClose = { [weak self] id in self?.closeTab(id) }
         }
         statusBar.onWorkspaceClick = { [weak self] in self?.switchWorkspace(nil) }
+        statusBar.onFileClick = { [weak self] in self?.showTabMenu() }
         tree.onChip = { [weak self] name, branch, isWorktree in
             self?.chip.show(name: name, branch: branch, isWorktree: isWorktree)
             self?.refreshStatus()
@@ -888,10 +890,10 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         }
     }
 
-    /// `:FrameTabs top|bottom|right|hide|show|toggle|autoclose [on|off]|max N`: what nvim cannot do itself.
+    /// `:FrameTabs top|bottom|right|statusbar|hide|show|toggle|autoclose [on|off]|max N`: what nvim cannot do itself.
     private func tabsOption(_ word: String, _ argument: String) {
         switch word {
-        case "top", "bottom", "right": TabsPlacement(rawValue: word).map { app.setTabs(placement: $0) }
+        case "top", "bottom", "right", "statusbar": TabsPlacement(rawValue: word).map { app.setTabs(placement: $0) }
         case "hide", "hidden": app.setTabs(placement: .hidden)
         case "show": app.setTabs(placement: app.tabsLastShown)
         case "toggle": app.setTabs(placement: view?.tabsPlacement == .hidden ? app.tabsLastShown : .hidden)
@@ -899,6 +901,60 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case "max": Int(argument).map { app.setTabsMax(max($0, 0)) }
         default: break
         }
+    }
+
+    /// The open files as a menu, the shown one ticked, one with changes marked: what a click on the file's name in the
+    /// status bar lists (with the tabs there).
+    func makeTabMenu() -> NSMenu {
+        let menu = NSMenu(title: "Open Files")
+        let look = tree.look
+        let labels = Tabs.labels(tabs)
+        for tab in tabs {
+            let item = NSMenuItem(
+                title: labels[tab.id] ?? tab.name,
+                action: #selector(chooseTab(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = tab.id
+            item.state = tab.current ? .on : .off
+            let title = NSMutableAttributedString()
+            let glyph = String(FileIcons.icon(name: tab.name, isDirectory: false).glyph)
+            title.append(NSAttributedString(string: glyph + "  ", attributes: [
+                .font: NerdFont.font(size: 13) ?? NSFont.menuFont(ofSize: 13),
+                .foregroundColor: TabsView.iconColor(tab, look: look),
+            ]))
+            title.append(NSAttributedString(string: labels[tab.id] ?? tab.name, attributes: [
+                .font: NSFont.menuFont(ofSize: 13),
+            ]))
+            if tab.modified {
+                title.append(NSAttributedString(
+                    string: "  ●",
+                    attributes: [.foregroundColor: NSColor(frameRGB: 0xE5C07B)]
+                ))
+            }
+            item.attributedTitle = title
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        let close = menu.addItem(withTitle: "Close Tab", action: #selector(closeCurrentTab(_:)), keyEquivalent: "w")
+        close.target = self
+        return menu
+    }
+
+    /// How the menu is put up (the self-check puts it somewhere else: a menu being tracked holds everything).
+    var presentTabMenu: ((NSMenu) -> Void)?
+
+    func showTabMenu() {
+        guard tabs.count > 1 else { return }
+        let menu = makeTabMenu()
+        if let presentTabMenu { return presentTabMenu(menu) }
+        // Above the file's name, where the bar is at the foot of the window.
+        menu.popUp(positioning: nil, at: NSPoint(x: statusBar.frame.minX + 12, y: statusBar.frame.minY), in: view)
+    }
+
+    @objc func chooseTab(_ sender: NSMenuItem) {
+        if let id = sender.representedObject as? Int { selectTab(id) }
     }
 
     @objc func nextTab(_: Any?) { stepTab(1) }
@@ -964,6 +1020,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         status.workspace = chip.name
         status.workspaceIsWorktree = chip.isWorktree
         status.showsWorkspace = view.statusPlacement == .window
+        // The tabs in the status bar: the file's name is the way to the others, when there are others.
+        status.picker = view.tabsPlacement == .statusbar && tabs.count > 1 ? tabs.count : 0
         statusBar.state = status
     }
 
