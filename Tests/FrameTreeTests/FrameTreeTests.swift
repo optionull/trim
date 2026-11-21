@@ -397,3 +397,56 @@ struct TreeFilterTests {
         #expect(fixture.names(tree.children(of: tree.root)) == everything)
     }
 }
+
+@Suite struct GitHeadTests {
+    func folder() -> String {
+        let path = RealPath.of(NSTemporaryDirectory()) + "frame-head-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        return path
+    }
+
+    func write(_ text: String, _ path: String) {
+        try? FileManager.default.createDirectory(
+            atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true
+        )
+        try? text.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    @Test func `a repository's branch from HEAD`() {
+        let repo = folder() + "/proj"
+        write("ref: refs/heads/feature/x\n", repo + "/.git/HEAD")
+        let info = GitHead.info(at: repo)
+        #expect(info?.branch == "feature/x")
+        #expect(info?.root == repo && info?.rootName == "proj" && info?.isWorktree == false)
+    }
+
+    @Test func `a detached HEAD is the start of the commit`() {
+        let repo = folder() + "/proj"
+        write("0123456789abcdef0123456789abcdef01234567\n", repo + "/.git/HEAD")
+        #expect(GitHead.info(at: repo)?.branch == "01234567")
+    }
+
+    @Test func `a worktree knows its own branch and the repository it belongs to`() {
+        let base = folder()
+        let repo = base + "/main-checkout", worktree = base + "/wt/something-else"
+        write("ref: refs/heads/main\n", repo + "/.git/HEAD")
+        write("ref: refs/heads/feature/blog\n", repo + "/.git/worktrees/blog/HEAD")
+        write("../..\n", repo + "/.git/worktrees/blog/commondir")
+        write("gitdir: \(repo)/.git/worktrees/blog\n", worktree + "/.git")
+        let info = GitHead.info(at: worktree)
+        #expect(info?.branch == "feature/blog")
+        #expect(info?.root == repo && info?.rootName == "main-checkout" && info?.isWorktree == true)
+    }
+
+    @Test func `a folder inside a repository finds it above`() {
+        let repo = folder() + "/proj"
+        write("ref: refs/heads/main\n", repo + "/.git/HEAD")
+        try? FileManager.default.createDirectory(atPath: repo + "/src/deep", withIntermediateDirectories: true)
+        let info = GitHead.info(at: repo + "/src/deep")
+        #expect(info?.checkout == repo && info?.branch == "main")
+    }
+
+    @Test func `outside a repository there is nothing`() {
+        #expect(GitHead.info(at: folder(), levels: 0) == nil)
+    }
+}

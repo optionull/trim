@@ -91,6 +91,17 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return controller
     }
 
+    /// A workspace chosen in `controller`'s switcher: a window that is on it comes forward; otherwise it opens in this
+    /// window, or in a new one when asked.
+    func go(to folder: String, from controller: FrameWindowController, newWindow: Bool) {
+        let real = RealPath.of(folder)
+        if let known = controllers.first(where: { ($0.tree?.rootPath ?? $0.workspace) == real }) {
+            if known !== controller { known.window.makeKeyAndOrderFront(nil) }
+            return
+        }
+        if newWindow { open(folder: real) } else { controller.move(to: real) }
+    }
+
     /// A window is done (closed, or its nvim ended): it goes, and the last one going quits.
     func close(_ controller: FrameWindowController) {
         guard controllers.contains(where: { $0 === controller }) else { return }

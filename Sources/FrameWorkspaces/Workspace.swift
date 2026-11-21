@@ -108,6 +108,10 @@ public enum WorkspaceIndex {
                 if workspaces[index].branch.isEmpty { workspaces[index].branch = session.branch ?? "" }
                 workspaces[index].activeAt = max(workspaces[index].activeAt, session.lastActivity ?? .distantPast)
             }
+            // The branch is in .git, so every row has it at once, without waiting on git.
+            if workspaces[index].branch.isEmpty, let info = GitHead.info(at: path, levels: 0) {
+                workspaces[index].branch = info.branch
+            }
             workspaces[index].activeAt = max(workspaces[index].activeAt, opened[path] ?? .distantPast)
             workspaces[index].isOpen = open.contains(path)
             workspaces[index].isCurrent = path == current

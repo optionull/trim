@@ -82,6 +82,93 @@ final class FilterBox: NSView {
     }
 }
 
+/// At the sidebar's foot: the git root the folder belongs to and its branch, and a click goes to the workspace
+/// switcher. The keyboard stays where it was.
+final class WorkspaceChip: NSView {
+    var look = TreeLook() {
+        didSet { needsDisplay = true }
+    }
+
+    var onClick: (() -> Void)?
+    /// The repository's name, the branch, and whether this folder is a worktree of it.
+    private(set) var name = ""
+    private(set) var branch = ""
+    private(set) var isWorktree = false
+    private var hovering = false
+
+    func show(name: String, branch: String, isWorktree: Bool) {
+        guard (name, branch, isWorktree) != (self.name, self.branch, self.isWorktree) else { return }
+        self.name = name
+        self.branch = branch
+        self.isWorktree = isWorktree
+        needsDisplay = true
+    }
+
+    override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
+    override var acceptsFirstResponder: Bool { false }
+    override func mouseDown(with _: NSEvent) { onClick?() }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self))
+    }
+
+    override func mouseEntered(with _: NSEvent) {
+        hovering = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with _: NSEvent) {
+        hovering = false
+        needsDisplay = true
+    }
+
+    override func draw(_: NSRect) {
+        look.text.withAlphaComponent(hovering ? 0.12 : 0.07).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
+        let iconFont = NerdFont.font(size: look.iconSize) ?? look.font
+        let glyph = isWorktree ? "\u{E0A0}" : "\u{F401}"
+        let iconSize = (glyph as NSString).size(withAttributes: [.font: iconFont])
+        (glyph as NSString).draw(
+            at: NSPoint(x: 10, y: (bounds.height - iconSize.height) / 2),
+            withAttributes: [.font: iconFont, .foregroundColor: look.muted]
+        )
+        let x = 10 + max(iconSize.width, look.iconSize) + 8
+        let available = max(0, bounds.width - x - 10)
+        // The branch keeps its room and the name gives way: the name is what the icon already says, the branch is not.
+        let branchText = NSAttributedString(
+            string: branch, attributes: [.font: look.smallFont, .foregroundColor: look.muted]
+        )
+        let branchWidth = branch.isEmpty ? 0 : min(ceil(branchText.size().width), available * 0.55)
+        let gap: CGFloat = branch.isEmpty ? 0 : 8
+        let nameText = NSAttributedString(
+            string: name, attributes: [.font: look.boldFont, .foregroundColor: look.text]
+        )
+        let nameWidth = min(ceil(nameText.size().width), max(0, available - branchWidth - gap))
+        let options: NSString.DrawingOptions = [.truncatesLastVisibleLine, .usesLineFragmentOrigin]
+        let nameHeight = nameText.size().height
+        nameText.draw(
+            with: NSRect(x: x, y: (bounds.height - nameHeight) / 2, width: nameWidth, height: nameHeight),
+            options: options
+        )
+        if !branch.isEmpty {
+            let height = branchText.size().height
+            branchText.draw(
+                with: NSRect(
+                    x: x + nameWidth + gap,
+                    y: (bounds.height - height) / 2,
+                    width: branchWidth,
+                    height: height
+                ),
+                options: options
+            )
+        }
+    }
+}
+
 /// The column left of the grid: a rounded island with the folder's name and branch over the tree.
 final class SidebarView: NSView {
     var look = TreeLook() {
@@ -89,6 +176,8 @@ final class SidebarView: NSView {
     }
 
     let scroll = NSScrollView()
+    /// At the foot: the git root and branch; a click opens the workspace switcher.
+    let chip = WorkspaceChip()
     private let title = NSTextField(labelWithString: "")
     private let branch = NSTextField(labelWithString: "")
     /// At the top right: the filter, and what is shown (ignored files, dotfiles).
@@ -122,7 +211,7 @@ final class SidebarView: NSView {
         filterBox.isHidden = true
         emptyNote.isHidden = true
         emptyNote.alignment = .center
-        for view in [scroll, title, branch, filterButton, visibilityButton, filterBox, emptyNote] {
+        for view in [scroll, title, branch, filterButton, visibilityButton, filterBox, emptyNote, chip] {
             addSubview(view)
         }
     }
@@ -142,6 +231,7 @@ final class SidebarView: NSView {
             button.look = look
         }
         filterBox.look = look
+        chip.look = look
         emptyNote.font = look.smallFont
         emptyNote.textColor = look.muted
         needsLayout = true
@@ -179,7 +269,9 @@ final class SidebarView: NSView {
         }
         emptyNote.sizeToFit()
         emptyNote.frame = NSRect(x: inset, y: top + 12, width: bounds.width - 2 * inset, height: emptyNote.frame.height)
-        scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top - 6))
+        let chipHeight = look.rowHeight + 10
+        chip.frame = NSRect(x: 8, y: bounds.height - chipHeight - 8, width: bounds.width - 16, height: chipHeight)
+        scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, chip.frame.minY - 6 - top))
         // The one column is as wide as what shows, so the badges at a row's right edge are not beyond it.
         if let table = scroll.documentView as? NSTableView, let column = table.tableColumns.first {
             column.minWidth = 0
@@ -734,6 +826,7 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         tree.children(of: tree.root)
         outline.reloadData()
         sidebar.show(name: tree.root.name, branch: "")
+        showChip(for: tree.root.path)
         let events = FileEvents(root: real)
         events.onChange = { [weak self] paths in self?.changed(paths) }
         events.start()
@@ -743,6 +836,16 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     }
 
     var rootPath: String? { tree?.root.path }
+
+    /// The chip at the foot: the git root's name and the branch, read from .git; the folder's name outside a
+    /// repository.
+    func showChip(for path: String) {
+        if let info = GitHead.info(at: path) {
+            sidebar.chip.show(name: info.rootName, branch: info.branch, isWorktree: info.isWorktree)
+        } else {
+            sidebar.chip.show(name: (path as NSString).lastPathComponent, branch: "", isWorktree: false)
+        }
+    }
 
     /// The rows now showing, top to bottom.
     var visibleNodes: [TreeNode] {
@@ -812,6 +915,7 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
             guard !Task.isCancelled, let self, self.tree === tree else { return }
             let affected = tree.apply(state)
             sidebar.show(name: tree.root.name, branch: state.branch)
+            showChip(for: tree.root.path)
             for node in affected {
                 show(node)
             }

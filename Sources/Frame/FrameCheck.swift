@@ -806,42 +806,74 @@ struct FrameCheck {
         }
         step("Escape closes it and the keyboard goes back to where it was")
 
-        // Return goes to the worktree: a window of its own, in its own folder.
+        // The chip at the sidebar's foot: outside a repository it is the folder's name; it opens the switcher.
+        let chip = shell.view.sidebar.chip
+        guard chip.name == ((shell.tree.rootPath ?? "") as NSString).lastPathComponent, chip.branch.isEmpty,
+              !chip.isWorktree
+        else {
+            fail("the chip says \(chip.name) \(chip.branch), the tree is at \(shell.tree.rootPath ?? "none")")
+        }
+        chip.onClick?()
+        guard let chipped = shell.switcher else { fail("the chip did not open the switcher") }
+        shell.closeSwitcher()
+        _ = chipped
+        step("the chip at the sidebar's foot names the git root and its branch, and opens the switcher")
+
+        // Return goes to the worktree in this window: nvim starts again in its folder, the tree is rooted there.
         shell.showSwitcher()
         guard let third = shell.switcher else { fail("the switcher did not come up a third time") }
         await wait("the rows") { rows(third).contains("Add the blog option") }
         type(third, "blog")
         await wait("the query") { rows(third) == ["Add the blog option"] }
         third.field.currentEditor()?.doCommand(by: #selector(NSResponder.insertNewline(_:)))
-        await wait("a window for the worktree") { app.controllers.count == windows + 1 }
-        guard let opened = app.controllers.last,
-              opened.workspace == worktree else { fail("Return opened another folder") }
+        await wait("this window on the worktree") { shell.workspace == worktree }
+        guard app.controllers.count == windows else { fail("Return opened a window instead of using this one") }
         await waitAsync("its nvim in the worktree") {
-            await (try? opened.session.channel.lua("return vim.fn.getcwd()"))?.stringValue == worktree
+            await (try? shell.session.channel.lua("return vim.fn.getcwd()"))?.stringValue == worktree
         }
+        await wait("the tree rooted in the worktree") { shell.tree.rootPath == worktree }
         guard shell.switcher == nil else { fail("the switcher stayed up after Return") }
-        step("Return opens the worktree in a window of its own, its nvim in its folder")
+        await wait("the chip to name the repository, not the worktree's folder") {
+            chip.name == "alpha" && chip.branch == "feature/blog-option" && chip.isWorktree
+        }
+        step(
+            "Return opens the workspace in this window: nvim in its folder, the tree rooted there, the chip on its repository"
+        )
 
-        // An open workspace is gone to, not opened again; the one open now is marked as here.
-        opened.showSwitcher()
-        guard let fourth = opened.switcher else { fail("the switcher did not come up in the new window") }
+        // Shift-Return opens it in a new window; one that has a window is gone to, not opened again.
+        shell.showSwitcher()
+        guard let fourth = shell.switcher else { fail("the switcher did not come up in the worktree") }
+        fourth.shiftHeld = { true }
         await wait("the rows there") {
             fourth.matches.contains { $0.workspace.path == worktree && $0.workspace.isCurrent }
         }
-        guard fourth.matches.contains(where: { $0.workspace.isOpen && !$0.workspace.isCurrent }) else {
-            fail("the first window is not marked as open")
+        type(fourth, "beta")
+        await wait("beta, the best match, selected") {
+            fourth.selectedWorkspace?.path == beta && rows(fourth).first == "beta"
         }
-        type(fourth, "alpha")
-        await wait("alpha") { fourth.matches.count == 2 }
-        guard let alphaRow = fourth.matches.firstIndex(where: { $0.workspace.path == alpha })
-        else { fail("no alpha row") }
-        fourth
-            .move(by: alphaRow -
-                (fourth.matches.firstIndex { $0.workspace.path == fourth.selectedWorkspace?.path } ?? 0))
-        guard fourth.selectedWorkspace?.path == alpha else { fail("the selection did not move to alpha") }
-        fourth.choose()
-        await wait("alpha's window") { app.controllers.count == windows + 2 }
-        step("a click or Return on a workspace opens it; ones with windows are marked")
+        fourth.field.currentEditor()?.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        await wait("a window for beta") { app.controllers.count == windows + 1 }
+        guard let beside = app.controllers.last, beside.workspace == beta, shell.workspace == worktree else {
+            fail("Shift-Return did not open beta in a window of its own")
+        }
+        await waitAsync("beta's nvim in beta") {
+            await (try? beside.session.channel.lua("return vim.fn.getcwd()"))?.stringValue == beta
+        }
+        step("Shift-Return opens the workspace in a new window, and this one stays where it was")
+        beside.showSwitcher()
+        guard let fifth = beside.switcher else { fail("the switcher did not come up in the new window") }
+        await wait("the rows in the new window") {
+            fifth.matches.contains { $0.workspace.path == beta && $0.workspace.isCurrent }
+                && fifth.matches.contains { $0.workspace.path == worktree && $0.workspace.isOpen }
+        }
+        type(fifth, "blog")
+        await wait("the worktree") { rows(fifth) == ["Add the blog option"] }
+        fifth.choose()
+        try? await Task.sleep(for: .milliseconds(500))
+        guard app.controllers.count == windows + 1, beside.workspace == beta, shell.workspace == worktree else {
+            fail("a workspace that has a window was opened again, or moved")
+        }
+        step("a workspace that has a window is gone to, not opened twice; ones with windows are marked")
         // Back to the windows there were.
         for controller in app.controllers.dropFirst(windows) {
             app.close(controller)

@@ -258,7 +258,7 @@ struct Place {
 final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidation {
     unowned let app: FrameApp
     /// The folder it was opened on (real path), the first window's being the one the app started in.
-    let workspace: String
+    private(set) var workspace: String
     private let startArguments: [String]
     private let isFirst: Bool
     private(set) var session = EditorSession()
@@ -313,6 +313,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             self?.focusEditor()
             self?.returnsToTree = true
         }
+        sidebar.chip.onClick = { [weak self] in self?.switchWorkspace(nil) }
         tree.onPalette = { [weak self] palette in self?.styleWhichKey(palette) }
         tree.onForward = { [weak self] event in
             guard let self else { return }
@@ -446,25 +447,51 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             guard await resolveUnsaved() != .cancelled else { return }
             let place = await (try? session.channel.lua(Place.lua)).flatMap { Place($0) }
                 ?? Place(cwd: FileManager.default.currentDirectoryPath)
-            let previous = current
-            let old = session
-            makeSurface()
-            window.makeFirstResponder(editor)
-            await old.stop()
-            for config in [config, previous] {
-                do {
-                    try await launch(startup: config.startup, place: place, arguments: [])
-                    current = config
+            await restart(trying: [config, current], place: place)
+        }
+    }
+
+    /// This window on another workspace: nvim starts again in its folder (under the same config, with nothing carried
+    /// over from the last one) and the tree is rooted there. Unsaved changes are asked about first.
+    func move(to folder: String) {
+        let real = RealPath.of(folder)
+        guard !switching, real != (tree.rootPath ?? workspace) else { return }
+        switching = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { switching = false }
+            guard await resolveUnsaved() != .cancelled else { return }
+            workspace = real
+            tree.setRoot(real)
+            if !FrameApp.checking { WorkspaceHistory.touch(real) }
+            await restart(trying: [current], place: Place(cwd: real))
+        }
+    }
+
+    /// A new nvim in this window, in `place`, under the first of `configs` that starts; one that will not start is
+    /// said so, and the last of them failing closes the window.
+    private func restart(trying configs: [NvimConfig], place: Place) async {
+        let previous = current
+        let old = session
+        makeSurface()
+        window.makeFirstResponder(editor)
+        await old.stop()
+        for config in configs {
+            do {
+                try await launch(startup: config.startup, place: place, arguments: [])
+                current = config
+                return
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.messageText = "nvim could not start with the \(config.title) config"
+                alert.runModal()
+                await session.stop()
+                if config == previous {
+                    app.close(self)
                     return
-                } catch {
-                    let alert = NSAlert(error: error)
-                    alert.messageText = "nvim could not start with the \(config.title) config"
-                    alert.runModal()
-                    await session.stop()
-                    if config == previous { NSApp.terminate(nil) }
-                    makeSurface()
-                    window.makeFirstResponder(editor)
                 }
+                makeSurface()
+                window.makeFirstResponder(editor)
             }
         }
     }
@@ -633,10 +660,10 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         panel.frame = view.bounds
         panel.autoresizingMask = [.width, .height]
         panel.onDismiss = { [weak self] in self?.closeSwitcher() }
-        panel.onChoose = { [weak self] workspace in
+        panel.onChoose = { [weak self] workspace, newWindow in
             guard let self else { return }
             closeSwitcher()
-            app.open(folder: workspace.path)
+            app.go(to: workspace.path, from: self, newWindow: newWindow)
         }
         beforeSwitcher = window.firstResponder
         view.addSubview(panel)

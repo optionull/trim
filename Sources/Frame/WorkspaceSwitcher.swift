@@ -133,7 +133,10 @@ final class SwitcherView: NSView, NSTextFieldDelegate, NSTableViewDataSource, NS
         didSet { apply() }
     }
 
-    var onChoose: ((Workspace) -> Void)?
+    /// A workspace chosen, and whether it is to open in a new window (Shift-Return) and not in this one.
+    var onChoose: ((Workspace, _ newWindow: Bool) -> Void)?
+    /// Whether Shift is down: what tells Return from Shift-Return (the self-check stands in for the keyboard).
+    var shiftHeld: () -> Bool = { NSApp.currentEvent?.modifierFlags.contains(.shift) == true }
     var onDismiss: (() -> Void)?
     let field = NSTextField()
     private let card = FlippedView()
@@ -249,13 +252,13 @@ final class SwitcherView: NSView, NSTextFieldDelegate, NSTableViewDataSource, NS
     private func updateFooter() {
         let status = loading && all.isEmpty ? "looking…" : matches
             .isEmpty ? (all.isEmpty ? "nothing found" : "no match") : ""
-        let keys = "↩ go   ⎋ close   ↑↓ move"
+        let keys = "↩ here   ⇧↩ new window   ⎋ close   ↑↓ move"
         footer.stringValue = status.isEmpty ? keys : status + "   " + keys
     }
 
-    func choose() {
+    func choose(newWindow: Bool = false) {
         guard let workspace = selectedWorkspace else { return }
-        onChoose?(workspace)
+        onChoose?(workspace, newWindow)
     }
 
     func move(by step: Int) {
@@ -332,7 +335,7 @@ final class SwitcherView: NSView, NSTextFieldDelegate, NSTableViewDataSource, NS
     func control(_: NSControl, textView _: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.cancelOperation(_:)): onDismiss?()
-        case #selector(NSResponder.insertNewline(_:)): choose()
+        case #selector(NSResponder.insertNewline(_:)): choose(newWindow: shiftHeld())
         case #selector(NSResponder.moveDown(_:)): move(by: 1)
         case #selector(NSResponder.moveUp(_:)): move(by: -1)
         case #selector(NSResponder.pageDown(_:)), #selector(NSResponder.scrollPageDown(_:)): move(by: Self.maxRows)

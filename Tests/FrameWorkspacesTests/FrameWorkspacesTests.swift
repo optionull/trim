@@ -78,6 +78,14 @@ import Testing
         #expect(titled?.secondary == "main · feature/curb-review")
     }
 
+    @Test func `every row has its branch at once, from .git, before git is asked`() throws {
+        try FileManager.default.createDirectory(atPath: temp + "/main/.git", withIntermediateDirectories: true)
+        try "ref: refs/heads/trunk\n".write(toFile: temp + "/main/.git/HEAD", atomically: true, encoding: .utf8)
+        let built = WorkspaceIndex.build(checkouts: checkouts)
+        let main = built.first { $0.path == temp + "/main" }
+        #expect(main?.branch == "trunk" && main?.secondary == "trunk")
+    }
+
     @Test func `a session is found by the real path of its folder`() throws {
         let link = temp + "-link"
         try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: temp)
