@@ -1049,6 +1049,30 @@ struct FrameCheck {
         }
         guard let new = again.first, new != id else { fail("the killed server did not come back") }
         step("a server killed from outside leaves nvim alone and is started again")
+        // The panel of the servers: how each is, what it uses (from ps), and keys to restart or stop one.
+        guard shell.view.statusBar.onLspClick != nil else { fail("the servers in the status bar are not clickable") }
+        shell.showLspPanel(nil)
+        await wait("the language server panel") { shell.listPicker != nil }
+        guard let panel = shell.listPicker, shell.modes.label(editorMode: "normal") == "LANGUAGE SERVERS"
+        else { fail("no panel of the servers") }
+        await wait("sourcekit-lsp in it, with what it uses") {
+            panel.all.contains { $0.id == "sourcekit" && $0.detail.contains("MB") && $0.detail.contains("CPU") }
+        }
+        guard let row = panel.all.first(where: { $0.id == "sourcekit" }), row.title.hasPrefix("sourcekit-lsp"),
+              row.subtitle.contains("frame-lsp-")
+              || row.subtitle.contains("Package")
+        else { fail("the row does not say what the server is or where: \(String(describing: panel.all.first))") }
+        for _ in 0 ..< 12 where panel.cursor != "sourcekit" {
+            panel.keyDown(with: key("j", code: 38))
+        }
+        guard panel.cursor == "sourcekit"
+        else { fail("the keyboard cannot reach the sourcekit row: \(String(describing: panel.cursor))") }
+        panel.keyDown(with: key("s", code: 1))
+        await waitAsync("the server to be stopped from the panel") {
+            await lua("return require('frame.lsp').state.sourcekit.status")?.stringValue == "stopped"
+        }
+        shell.escape()
+        step("the panel lists each server with what it uses and where it is rooted, and s stops one")
         _ = await lua("require('frame.lsp').stop('sourcekit')")
         try? FileManager.default.removeItem(atPath: folder)
     }

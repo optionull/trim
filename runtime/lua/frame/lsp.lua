@@ -522,6 +522,35 @@ function M.restart_for(buf)
   end
 end
 
+--- What the language server panel shows: each server that has been wanted, how it is, where it is rooted, what it is
+--- busy with, and the program (to find its process).
+function M.rows()
+  local rows = {}
+  for name, spec in pairs(M.specs) do
+    local st = M.state[name]
+    local client = vim.lsp.get_clients({ name = 'frame_' .. name })[1]
+    if st or client then
+      local busy = {}
+      for _, entry in pairs(M.progress) do
+        if entry.client == name then
+          local text = entry.title or ''
+          if entry.message and entry.message ~= '' then text = text .. ' ' .. entry.message end
+          if entry.percentage then text = text .. (' %d%%'):format(entry.percentage) end
+          busy[#busy + 1] = text
+        end
+      end
+      local command = M.commands[name]
+      rows[#rows + 1] = {
+        name = name, status = st and st.status or 'idle', root = client and client.root_dir or '',
+        buffers = client and vim.tbl_count(client.attached_buffers or {}) or 0, deaths = st and #st.deaths or 0,
+        busy = table.concat(busy, ' · '), program = command and command[1] or '', filetypes = table.concat(spec.filetypes, ', '),
+      }
+    end
+  end
+  table.sort(rows, function(a, b) return a.name < b.name end)
+  return rows
+end
+
 --- A summary of the servers, for `:FrameLsp`.
 function M.report()
   local lines = {}

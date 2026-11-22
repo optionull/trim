@@ -59,6 +59,12 @@ final class StatusBarView: NSView {
     /// A click on the problems' counts: the build pane on its Problems tab. A click on the build: its output.
     var onProblemsClick: (() -> Void)?
     var onBuildClick: (() -> Void)?
+    /// A click on the language servers: the panel of what each is doing.
+    var onLspClick: (() -> Void)?
+    private var lspRect = NSRect.zero {
+        didSet { if lspRect != oldValue { window?.invalidateCursorRects(for: self) } }
+    }
+
     private var problemsRect = NSRect.zero {
         didSet { if problemsRect != oldValue { window?.invalidateCursorRects(for: self) } }
     }
@@ -111,6 +117,7 @@ final class StatusBarView: NSView {
         if state.picker > 0, !fileRect.isEmpty { rects.append(fileRect) }
         if !problemsRect.isEmpty { rects.append(problemsRect) }
         if !buildRect.isEmpty { rects.append(buildRect) }
+        if !lspRect.isEmpty { rects.append(lspRect) }
         return rects
     }
 
@@ -130,7 +137,10 @@ final class StatusBarView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         setHoveringWorkspace(state.showsWorkspace && workspaceRect.contains(point))
         setHoveringFile(state.picker > 0 && fileRect.contains(point))
-        setHovering(problemsRect.contains(point) ? .problems : (buildRect.contains(point) ? .build : nil))
+        setHovering(
+            problemsRect.contains(point) ? .problems
+                : (buildRect.contains(point) ? .build : (lspRect.contains(point) ? .lsp : nil))
+        )
     }
 
     private func setHovering(_ target: Piece.Target?) {
@@ -172,6 +182,8 @@ final class StatusBarView: NSView {
             onProblemsClick?()
         } else if !buildRect.isEmpty, buildRect.contains(point) {
             onBuildClick?()
+        } else if !lspRect.isEmpty, lspRect.contains(point) {
+            onLspClick?()
         }
     }
 
@@ -195,7 +207,7 @@ final class StatusBarView: NSView {
     }
 
     @MainActor private struct Piece {
-        enum Target { case problems, build }
+        enum Target { case problems, build, lsp }
 
         var text: NSAttributedString
         var target: Target?
@@ -233,7 +245,7 @@ final class StatusBarView: NSView {
             let names = state.lsp.joined(separator: " ")
             let text = NSMutableAttributedString(attributedString: icon("\u{F013}", look.muted))
             text.append(attributed(" " + names, look.muted))
-            right.append(Piece(text: text))
+            right.append(Piece(text: text, target: .lsp))
         }
         let marks: [(String, NSColor, Int)] = [
             ("\u{F057}", .systemRed, state.errors), ("\u{F071}", .systemYellow, state.warnings),
@@ -256,7 +268,7 @@ final class StatusBarView: NSView {
         }
         let midY = bounds.height / 2
         var edge = bounds.width - 12
-        var newProblemsRect = NSRect.zero, newBuildRect = NSRect.zero
+        var newProblemsRect = NSRect.zero, newBuildRect = NSRect.zero, newLspRect = NSRect.zero
         for piece in right {
             let size = piece.text.size()
             let box = NSRect(x: edge - piece.width - 4, y: 0, width: piece.width + 8, height: bounds.height)
@@ -266,6 +278,7 @@ final class StatusBarView: NSView {
             }
             piece.text.draw(at: NSPoint(x: edge - piece.width, y: midY - size.height / 2))
             if piece.target == .problems { newProblemsRect = box }
+            if piece.target == .lsp { newLspRect = box }
             if piece.target == .build {
                 newBuildRect = box
                 if !state.building.isEmpty { spinnerAt = NSRect(
@@ -279,6 +292,7 @@ final class StatusBarView: NSView {
         }
         problemsRect = newProblemsRect
         buildRect = newBuildRect
+        lspRect = newLspRect
         placeSpinner(spinnerAt)
         // The left side: the mode, the branch, then the file, which gives way when there is no room.
         var x: CGFloat = 8
