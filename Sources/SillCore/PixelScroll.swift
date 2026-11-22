@@ -18,7 +18,7 @@ public struct PixelScroll: Equatable, Sendable {
     /// positive): going down, nvim is ahead of what is drawn (`sent` at least `visual`, rounded up); going up, the same
     /// the
     /// other way. Nothing is asked while the move stays inside the line nvim is already at.
-    public mutating func move(by lines: Double, reported: Int = 0, slack: Int = 8) -> Int {
+    public mutating func move(by lines: Double, reported: Int = 0, slack: Int = 3) -> Int {
         visual += lines
         // nvim that does not scroll (the end of the buffer) must not let the text run away from it.
         visual = min(max(visual, Double(reported - slack)), Double(reported + slack))

@@ -620,13 +620,17 @@ pinned, into `~/.local/share/frame/site/pack/frame/start`; loaded at once, no gi
 (`[plugins] disabled`), `x` removes an installed one. The catalog is `runtime/lua/frame/catalog.lua`.
 
 Language servers run on their own and come back when they crash. A server starts the first time a file of its kind opens
-(Rust, Swift, Markdown, HTML, CSS, JSON, TypeScript and JavaScript), unless your own config already runs one: Frame finds the
+(C#, F#, Rust, Swift, Markdown, HTML, CSS, JSON, TypeScript and JavaScript), unless your own config already runs one: Frame finds the
 program on your PATH (also rustup's, Xcode's and mise's), or else downloads it into its own cache at a pinned version with the
-checksum checked (marksman, rust-analyzer), or installs it with npm (the web servers: **Node must be installed**, and Frame says
-so when it is not). A server that dies is started again after a wait that doubles (1 s up to 30 s) and given up on after five
+checksum checked (marksman, rust-analyzer), installs it as a .NET tool (Roslyn for C#, fsautocomplete for F#: the **.NET SDK must be
+installed**) or with npm (the web servers: **Node must be installed**); Frame says so when either is missing. Roslyn is told to load
+the folder's solution (`.sln`, `.slnx`) or else its `.csproj`. A server that dies is started again after a wait that doubles (1 s up to 30 s) and given up on after five
 deaths inside a minute; the status bar shows it as `name ↻` while it waits and `name ✗` once given up on, and nvim itself is never
 touched. `:FrameLsp [status|restart|stop] [name]`, `<leader>lR`. Keys on a buffer with a server: `gd` `gr` `gI` `K`,
 `<leader>la` (code action) `lr` (rename) `lf` (format) `ld` `ll` (diagnostics).
+
+Scrolling stops near the end of a file: the last line can go up to two rows from the bottom of the window (`[editor] scrollpast`),
+not to the top, with a wheel, a trackpad or the keys.
 
 ### As git's merge and diff tool
 

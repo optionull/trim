@@ -9,8 +9,37 @@ local function notify(method, ...)
   if channel then pcall(vim.rpcnotify, channel, method, ...) end
 end
 
---- Each server: the file types it serves, how its folder is found, what the person's config may call it.
+local function dotnet_root(name)
+  return name:match('%.slnx?$') or name:match('%.csproj$')
+end
+
+local function fsharp_root(name)
+  return name:match('%.fsproj$') or name:match('%.slnx?$')
+end
+
+--- Roslyn starts empty: it is told which solution (or else which projects) to load, as the client of an editor does.
+local function open_projects(client)
+  local root = client.root_dir
+  if not root then return end
+  local solutions = vim.fn.glob(root .. '/*.sln', true, true)
+  vim.list_extend(solutions, vim.fn.glob(root .. '/*.slnx', true, true))
+  if #solutions > 0 then
+    client:notify('solution/open', { solution = vim.uri_from_fname(solutions[1]) })
+  else
+    local projects = vim.tbl_map(vim.uri_from_fname, vim.fn.glob(root .. '/*.csproj', true, true))
+    if #projects > 0 then client:notify('project/open', { projects = projects }) end
+  end
+end
+
+--- Each server: the file types it serves, how its folder is found, what the person's config may call it, and what it
+--- is started with (`init_options`, `on_init`).
 M.specs = {
+  csharp = { filetypes = { 'cs' }, root = { dotnet_root, '.git' }, aliases = { 'roslyn', 'roslyn_ls', 'omnisharp', 'csharp_ls' }, on_init = open_projects },
+  -- Without AutomaticWorkspaceInit fsautocomplete waits for the client to pick a workspace.
+  fsautocomplete = {
+    filetypes = { 'fsharp' }, root = { fsharp_root, '.git' }, aliases = { 'fsautocomplete', 'ionide' },
+    init_options = { AutomaticWorkspaceInit = true },
+  },
   rust_analyzer = { filetypes = { 'rust' }, root = { 'Cargo.toml', '.git' }, aliases = { 'rust_analyzer', 'rust-analyzer' } },
   sourcekit = { filetypes = { 'swift' }, root = { 'Package.swift', '.git' }, aliases = { 'sourcekit' } },
   marksman = { filetypes = { 'markdown' }, root = { '.marksman.toml', '.git' }, aliases = { 'marksman' } },
@@ -73,6 +102,8 @@ local function config(name, spec, buf, command)
     name = 'frame_' .. name,
     cmd = command,
     root_dir = root_of(spec, buf),
+    init_options = spec.init_options,
+    on_init = spec.on_init,
     on_exit = function(code, signal)
       vim.schedule(function() M.exited(name, code, signal) end)
     end,

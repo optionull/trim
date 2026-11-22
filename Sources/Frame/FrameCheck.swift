@@ -101,7 +101,10 @@ struct FrameCheck {
         await group("pixel") { await pixelSteps() }
         await group("theme") { await themeSteps() }
         await group("whichkey") { await whichKeySteps() }
-        await group("lsp") { await lspSteps() }
+        await group("lsp") {
+            await lspSteps()
+            await dotnetSteps()
+        }
         await group("finder") { await finderSteps() }
         await group("packages") { await packagesSteps() }
         await group("settings") { await settingsSteps() }
@@ -1006,6 +1009,60 @@ struct FrameCheck {
         try? FileManager.default.removeItem(atPath: folder)
     }
 
+    /// C#: Roslyn, installed as a .NET tool, started for a `.cs` file, told which project to load, and reporting what
+    /// is wrong with it.
+    private func dotnetSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        guard FrameServers.onPath("dotnet") != nil
+        else { return step("no dotnet here: Roslyn was not exercised") }
+        let folder = RealPath.of(NSTemporaryDirectory()) + "/frame-cs-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        try? """
+        <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>
+        """.write(toFile: folder + "/App.csproj", atomically: true, encoding: .utf8)
+        try? "class Program { static void Main() { int x = ; } }\n"
+            .write(toFile: folder + "/Program.cs", atomically: true, encoding: .utf8)
+        _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(folder)/Program.cs'))")
+        func diagnostics() async -> Int {
+            await lua("return #vim.diagnostic.get(0)")?.integerValue.map(Int.init) ?? 0
+        }
+        for _ in 0 ..< 600 {
+            if await diagnostics() > 0 { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard await diagnostics() > 0 else {
+            let state = await lua("return require('frame.lsp').report()")?.stringValue ?? ""
+            fail("Roslyn gave no diagnostic for a syntax error: \(state)")
+        }
+        step("a real server (Roslyn, as a .NET tool) starts for a C# file and reports its syntax error")
+        _ = await lua("require('frame.lsp').stop('csharp'); vim.cmd('silent! bwipeout!')")
+        try? FileManager.default.removeItem(atPath: folder)
+        // F#: fsautocomplete, told to load the project by itself.
+        let fsFolder = RealPath.of(NSTemporaryDirectory()) + "/frame-fs-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: fsFolder, withIntermediateDirectories: true)
+        try? """
+        <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework></PropertyGroup>
+        <ItemGroup><Compile Include="Program.fs" /></ItemGroup></Project>
+        """.write(toFile: fsFolder + "/App.fsproj", atomically: true, encoding: .utf8)
+        try? "module Program\nlet x : int = \"text\"\n"
+            .write(toFile: fsFolder + "/Program.fs", atomically: true, encoding: .utf8)
+        _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(fsFolder)/Program.fs'))")
+        for _ in 0 ..< 600 {
+            if await diagnostics() > 0 { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard await diagnostics() > 0 else {
+            let state = await lua("return require('frame.lsp').report()")?.stringValue ?? ""
+            fail("fsautocomplete gave no diagnostic for a type error: \(state)")
+        }
+        step("a real server (fsautocomplete) starts for an F# file and reports its error")
+        _ = await lua("require('frame.lsp').stop('fsautocomplete'); vim.cmd('silent! bwipeout!')")
+        try? FileManager.default.removeItem(atPath: fsFolder)
+    }
+
     /// The finder: files of the workspace ranked as you type, lines found by grep, Return opening the file (at the
     /// line), Escape
     /// going back at once, and the leader key and command that bring it up.
@@ -1377,6 +1434,34 @@ struct FrameCheck {
         try? await Task.sleep(for: .milliseconds(Int(EditorView.pixelSettleDelay * 1000) + 60))
         await wait("the text to settle again") { _ = editor.currentFrame; return !editor.isSliding }
         step("turning round goes back by the pixel too")
+        // The end of a file: scrolling on does not take the last line up the window; a short file stays where it is.
+        let short = RealPath.of(NSTemporaryDirectory()) + "/frame-pixel-short-\(UUID().uuidString).txt"
+        try? (1 ... 10).map { "short \($0)" }.joined(separator: "\n").write(
+            toFile: short,
+            atomically: true,
+            encoding: .utf8
+        )
+        _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(short)')); vim.cmd('normal! gg')")
+        for _ in 0 ..< 20 {
+            move(1)
+        }
+        try? await Task.sleep(for: .milliseconds(Int(EditorView.pixelSettleDelay * 1000) + 300))
+        await wait("the text to settle at the end") { _ = editor.currentFrame; return !editor.isSliding }
+        guard await top() == 1 else { await fail("a ten line file was scrolled up to line \(top())") }
+        _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(file)'))")
+        _ = await lua("vim.cmd('normal! G')")
+        for _ in 0 ..< 20 {
+            move(1)
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+        try? await Task.sleep(for: .milliseconds(Int(EditorView.pixelSettleDelay * 1000) + 300))
+        await wait("the text to settle at the end of a long file") { _ = editor.currentFrame; return !editor.isSliding }
+        let rows = await lua("return vim.api.nvim_win_get_height(0)")?.integerValue.map(Int.init) ?? 0
+        guard await top() == 400 - rows + 3
+        else { await fail("the last line of 400 should sit two rows off the bottom of \(rows): top \(top())") }
+        step("past the end the last line stays near the bottom of the window")
+        _ = await lua("vim.cmd('normal! gg')")
+        await wait("the text to be back at the top") { _ = editor.currentFrame; return !editor.isSliding }
         // A mouse wheel and a trackpad with it off still slide by lines.
         editor.pixelScrolling = false
         channel.send(keys: "<C-e>")

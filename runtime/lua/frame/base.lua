@@ -40,6 +40,8 @@ o.shortmess = o.shortmess .. 'cI'
 
 -- What the settings' `[editor]` says (tab width, wrap, line numbers...) wins over the above.
 require('frame.options').apply(editor)
+-- The last line stays near the bottom of a window: scrolling does not take it to the top.
+require('frame.scrollpast').setup(editor.scrollpast)
 
 -- The plugins Frame carries: in the app (`runtime/pack/frame/start/*`), or in the source tree (`Vendor/plugins/*`). A
 -- name in `plugins.disabled` of the settings is left out.

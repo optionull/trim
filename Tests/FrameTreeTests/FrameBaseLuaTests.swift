@@ -215,6 +215,27 @@ struct FrameBaseLuaTests {
         )
     }
 
+    @Test("scrolling past the end stops with the last line near the bottom, and a short file is not scrolled at all")
+    func scrollPast() throws {
+        try check(settings: "{}", """
+        local lines = {}
+        for i = 1, 100 do lines[i] = 'line ' .. i end
+        vim.cmd('enew') vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+        local win = vim.api.nvim_get_current_win()
+        local height = vim.api.nvim_win_get_height(win)
+        vim.fn.winrestview({ topline = 100 })
+        assert(vim.fn.winsaveview().topline == 100, 'nvim itself allows it')
+        require('frame.scrollpast').clamp(win)
+        local top = vim.fn.winsaveview().topline
+        assert(top == 100 - (height - 2) + 1, 'the last line is two rows off the bottom: ' .. top .. ' of ' .. height)
+        -- A short file: it cannot be scrolled up out of view.
+        vim.api.nvim_buf_set_lines(0, 5, -1, false, {})
+        vim.fn.winrestview({ topline = 5 })
+        require('frame.scrollpast').clamp(win)
+        assert(vim.fn.winsaveview().topline == 1, 'short file back at the top: ' .. vim.fn.winsaveview().topline)
+        """)
+    }
+
     @Test("a scheme that does not exist falls back to the default instead of failing")
     func missing() throws {
         guard hasPlugins else { return }

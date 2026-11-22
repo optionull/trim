@@ -19,6 +19,8 @@ enum FrameServers {
         "x86_64": "bdfd46e82731a8d3502d852d28b6462c1f1c13eed0b3e76bbcf1ba839028249c",
     ]
     /// HTML, CSS and JSON's servers, and TypeScript, whose compiler is its own server.
+    static let roslynVersion = "5.12.0-1.26475.2"
+    static let fsautocompleteVersion = "0.86.0"
     static let webPackages = ["vscode-langservers-extracted@4.10.0", "typescript@7.0.2"]
 
     static var cache: URL {
@@ -34,6 +36,8 @@ enum FrameServers {
             "jsonls": "JSON",
             "html": "HTML",
             "typescript": "TypeScript",
+            "csharp": "C# (Roslyn)",
+            "fsautocomplete": "F#",
         ][name] ?? name
     }
 
@@ -48,6 +52,7 @@ enum FrameServers {
             home + "/.cargo/bin",
             home + "/.local/share/mise/shims",
             home + "/.local/bin",
+            home + "/.dotnet/tools",
             "/usr/bin",
             "/bin",
         ]
@@ -116,6 +121,12 @@ enum FrameServers {
         case "marksman":
             if let path = onPath("marksman"), await answers(path, "--version") { return [path, "server"] }
             return try await [marksman(), "server"]
+        case "csharp":
+            if let path = onPath("roslyn-language-server") { return [path, "--stdio"] }
+            return try await [dotnetTool("roslyn-language-server", version: roslynVersion), "--stdio"]
+        case "fsautocomplete":
+            if let path = onPath("fsautocomplete"), await answers(path, "--version") { return [path] }
+            return try await [dotnetTool("fsautocomplete", version: fsautocompleteVersion)]
         case "html", "cssls", "jsonls":
             let binary = [
                 "html": "vscode-html-language-server",
@@ -186,6 +197,26 @@ enum FrameServers {
         chmod(binary + ".part", 0o755)
         try? FileManager.default.removeItem(atPath: binary)
         try FileManager.default.moveItem(atPath: binary + ".part", toPath: binary)
+        return binary
+    }
+
+    /// A .NET tool, installed once into the cache at a pinned version (NuGet checks the package's signature). Without
+    /// the SDK the
+    /// failure says so.
+    static func dotnetTool(_ name: String, version: String) async throws -> String {
+        let folder = cache.appendingPathComponent("\(name)-\(version)")
+        let binary = folder.appendingPathComponent(name).path
+        if FileManager.default.isExecutableFile(atPath: binary) { return binary }
+        guard let dotnet = onPath("dotnet") else {
+            throw Failure(description: "the .NET SDK is not installed (no dotnet on the PATH): C# and F# need it")
+        }
+        // From the cache, not the project: a global.json there may pin an SDK that is not installed.
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        let installed = try await run(
+            dotnet, ["tool", "install", name, "--tool-path", folder.path, "--version", version], in: cache.path
+        )
+        guard installed.code == 0, FileManager.default.isExecutableFile(atPath: binary)
+        else { throw Failure(description: "dotnet tool install \(name) failed: \(installed.output.suffix(300))") }
         return binary
     }
 

@@ -21,8 +21,11 @@ import Testing
 
     @Test func `a move of several lines asks for all of them`() {
         var scroll = PixelScroll()
-        #expect(scroll.move(by: 3.4) == 4)
-        #expect(scroll.move(by: -1.0) == -2, "turning round: nvim goes to the line below the text (2.4), from 4")
+        #expect(scroll.move(by: 3.4, reported: 2) == 4)
+        #expect(
+            scroll.move(by: -1.0, reported: 2) == -2,
+            "turning round: nvim goes to the line below the text (2.4), from 4"
+        )
         #expect(scroll.sent == 2)
     }
 
