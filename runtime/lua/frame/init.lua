@@ -36,6 +36,7 @@ function M.setup()
   theme()
   diagnostics()
   require('frame.plugins').setup()
+  require('frame.lsp').setup()
 end
 
 return M

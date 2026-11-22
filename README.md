@@ -600,6 +600,15 @@ Frame bundles which-key (the hints after the leader, `g`, `z`, `[` and `]`: `[wh
 mini.nvim's pairs, surround (`sa` `sd` `sr`), more text objects and `[` `]` jumps, and gitsigns (`]h` `[h`, `<leader>gs` `gr` `gp`
 `gb` `gd`). A plugin is left out with `[plugins] disabled = ["gitsigns.nvim"]`.
 
+Language servers run on their own and come back when they crash. A server starts the first time a file of its kind opens
+(Rust, Swift, Markdown, HTML, CSS, JSON, TypeScript and JavaScript), unless your own config already runs one: Frame finds the
+program on your PATH (also rustup's, Xcode's and mise's), or else downloads it into its own cache at a pinned version with the
+checksum checked (marksman, rust-analyzer), or installs it with npm (the web servers: **Node must be installed**, and Frame says
+so when it is not). A server that dies is started again after a wait that doubles (1 s up to 30 s) and given up on after five
+deaths inside a minute; the status bar shows it as `name ↻` while it waits and `name ✗` once given up on, and nvim itself is never
+touched. `:FrameLsp [status|restart|stop] [name]`, `<leader>lR`. Keys on a buffer with a server: `gd` `gr` `gI` `K`,
+`<leader>la` (code action) `lr` (rename) `lf` (format) `ld` `ll` (diagnostics).
+
 ### As git's merge and diff tool
 
 ```sh

@@ -20,7 +20,18 @@ function M.snapshot()
   local pos = vim.api.nvim_win_get_cursor(0)
   local counts = vim.diagnostic.count(buf)
   local clients = {}
-  for _, client in ipairs(vim.lsp.get_clients({ bufnr = buf })) do clients[#clients + 1] = client.name end
+  for _, client in ipairs(vim.lsp.get_clients({ bufnr = buf })) do clients[#clients + 1] = (client.name:gsub('^frame_', '')) end
+  -- A supervised server that is down shows too, with how it is (↻ starting again, ✗ given up on).
+  local ok, lsp = pcall(require, 'frame.lsp')
+  if ok then
+    for name, spec in pairs(lsp.specs) do
+      local st = lsp.state[name]
+      if st and vim.tbl_contains(spec.filetypes, vim.bo[buf].filetype) then
+        if st.status == 'restarting' then clients[#clients + 1] = name .. ' ↻'
+        elseif st.status == 'failed' then clients[#clients + 1] = name .. ' ✗' end
+      end
+    end
+  end
   local bo = vim.bo[buf]
   return {
     path = vim.api.nvim_buf_get_name(buf),
@@ -60,6 +71,9 @@ local function hide_nvims()
   vim.o.ruler = false
   vim.o.showmode = false
 end
+
+--- Something changed that the bar shows: send, soon.
+function M.poke() soon() end
 
 --- The bar on or off. On: nvim's own are off (a plugin turning its status line back on is put back, whenever it
 --- does it); off: they are as they were.

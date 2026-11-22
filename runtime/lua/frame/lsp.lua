@@ -1,0 +1,244 @@
+-- Frame's language servers, supervised. A server is started the first time a file of its kind opens (unless the person's
+-- config already runs one for that kind); Frame (Swift) finds or provisions the program and answers with its command; nvim's
+-- own client talks to it. A server that dies is started again, after a wait that doubles (1 s, 2 s, 4 s ... 30 s), and given up
+-- on after five deaths inside a minute: it crashes alone, never nvim, and `:FrameLsp restart` starts it afresh.
+local M = {}
+
+local function notify(method, ...)
+  local channel = vim.g.sill_channel
+  if channel then pcall(vim.rpcnotify, channel, method, ...) end
+end
+
+--- Each server: the file types it serves, how its folder is found, what the person's config may call it.
+M.specs = {
+  rust_analyzer = { filetypes = { 'rust' }, root = { 'Cargo.toml', '.git' }, aliases = { 'rust_analyzer', 'rust-analyzer' } },
+  sourcekit = { filetypes = { 'swift' }, root = { 'Package.swift', '.git' }, aliases = { 'sourcekit' } },
+  marksman = { filetypes = { 'markdown' }, root = { '.marksman.toml', '.git' }, aliases = { 'marksman' } },
+  html = { filetypes = { 'html' }, root = { 'package.json', '.git' }, aliases = { 'html' } },
+  cssls = { filetypes = { 'css', 'scss', 'less' }, root = { 'package.json', '.git' }, aliases = { 'cssls' } },
+  jsonls = { filetypes = { 'json', 'jsonc' }, root = { 'package.json', '.git' }, aliases = { 'jsonls' } },
+  typescript = {
+    filetypes = { 'typescript', 'javascript', 'typescriptreact', 'javascriptreact' },
+    root = { 'tsconfig.json', 'jsconfig.json', 'package.json', '.git' },
+    aliases = { 'ts_ls', 'tsserver', 'vtsls', 'typescript-tools', 'denols' },
+  },
+}
+
+--- What the program is, by server, as Frame answered: a command, or false for one it could not find or provision.
+M.commands = {}
+--- Each server's life: { status = 'starting' | 'ready' | 'restarting' | 'failed' | 'stopped', deaths = { times }, wait = ms }
+M.state = {}
+M.wait_first = 1000
+M.wait_max = 30000
+M.max_deaths = 5
+M.window = 60000
+local asked = {}
+local stopping = {}
+
+local function state_of(name)
+  M.state[name] = M.state[name] or { status = 'idle', deaths = {}, wait = M.wait_first }
+  return M.state[name]
+end
+
+local function set(name, status)
+  state_of(name).status = status
+  notify('frame_lsp', { name = name, status = status })
+  pcall(function() require('frame.status').poke() end)
+end
+
+--- Whether the person's config already serves this kind of file with a server of its own.
+local function theirs(spec, buf)
+  for _, alias in ipairs(spec.aliases) do
+    local ok, enabled = pcall(vim.lsp.is_enabled, alias)
+    if ok and enabled then return true end
+  end
+  for _, client in ipairs(vim.lsp.get_clients({ bufnr = buf })) do
+    if not client.name:match('^frame_') then
+      for _, alias in ipairs(spec.aliases) do
+        if client.name == alias then return true end
+      end
+    end
+  end
+  return false
+end
+
+local function root_of(spec, buf)
+  local name = vim.api.nvim_buf_get_name(buf)
+  local found = vim.fs.root(name ~= '' and name or vim.uv.cwd(), spec.root)
+  return found or vim.uv.cwd()
+end
+
+local function config(name, spec, buf, command)
+  return {
+    name = 'frame_' .. name,
+    cmd = command,
+    root_dir = root_of(spec, buf),
+    on_exit = function(code, signal)
+      vim.schedule(function() M.exited(name, code, signal) end)
+    end,
+  }
+end
+
+--- Starts the server for a buffer (attaches it, if already running).
+function M.start(name, buf)
+  local spec, command = M.specs[name], M.commands[name]
+  if not spec or not command or not vim.api.nvim_buf_is_valid(buf) then return end
+  local st = state_of(name)
+  if st.status == 'failed' or st.status == 'stopped' then return end
+  if #vim.lsp.get_clients({ name = 'frame_' .. name }) == 0 and st.status ~= 'restarting' then set(name, 'starting') end
+  local id = vim.lsp.start(config(name, spec, buf, command), { bufnr = buf })
+  if id and st.status ~= 'restarting' then set(name, 'ready') end
+end
+
+local function attach_all(name)
+  local spec = M.specs[name]
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf) and vim.tbl_contains(spec.filetypes, vim.bo[buf].filetype) then
+      M.start(name, buf)
+    end
+  end
+end
+
+--- Frame's answer to what was asked: the command, or nothing if there is none.
+function M.ready(name, command)
+  M.commands[name] = command or false
+  if not command then return set(name, 'failed') end
+  state_of(name).status = 'idle'
+  attach_all(name)
+end
+
+--- A server's process ended. Told it was stopped on purpose, that is the end; else it crashed.
+function M.exited(name, code, signal)
+  if (stopping[name] or 0) > 0 then
+    stopping[name] = stopping[name] - 1
+    return
+  end
+  if (code == 0) and (signal == 0 or signal == nil) then return set(name, 'stopped') end
+  local st = state_of(name)
+  local now = vim.uv.now()
+  st.deaths[#st.deaths + 1] = now
+  st.deaths = vim.tbl_filter(function(t) return now - t < M.window end, st.deaths)
+  if #st.deaths >= M.max_deaths then
+    set(name, 'failed')
+    vim.notify(('Frame: %s kept dying (%d times in a minute); :FrameLsp restart tries again'):format(name, #st.deaths), vim.log.levels.WARN)
+    return
+  end
+  set(name, 'restarting')
+  local wait = st.wait
+  st.wait = math.min(st.wait * 2, M.wait_max)
+  vim.defer_fn(function()
+    if state_of(name).status ~= 'restarting' then return end
+    state_of(name).status = 'idle'
+    attach_all(name)
+    if state_of(name).status == 'idle' then set(name, 'ready') end
+    -- Alive for a minute: the wait starts over.
+    vim.defer_fn(function()
+      if state_of(name).status == 'ready' then state_of(name).wait = M.wait_first end
+    end, M.window)
+  end, wait)
+end
+
+--- Stops the server (its clients), for good until started again.
+function M.stop(name)
+  -- Each client stopped will report its end: those are not crashes.
+  for _, client in ipairs(vim.lsp.get_clients({ name = 'frame_' .. name })) do
+    stopping[name] = (stopping[name] or 0) + 1
+    client:stop(true)
+  end
+  set(name, 'stopped')
+end
+
+--- Stopped and started afresh, the count of deaths forgotten.
+function M.restart(name)
+  M.stop(name)
+  local st = state_of(name)
+  st.deaths, st.wait = {}, M.wait_first
+  vim.defer_fn(function()
+    st.status = 'idle'
+    attach_all(name)
+    if st.status == 'idle' then set(name, 'ready') end
+  end, 300)
+end
+
+--- A file of a served kind opened: ask Frame for the program the first time, start the server.
+local function opened(args)
+  local buf = args.buf
+  local ft = vim.bo[buf].filetype
+  for name, spec in pairs(M.specs) do
+    if vim.tbl_contains(spec.filetypes, ft) and not theirs(spec, buf) and vim.bo[buf].buftype == '' then
+      if M.commands[name] ~= nil then
+        if M.commands[name] then M.start(name, buf) end
+      elseif not asked[name] then
+        asked[name] = true
+        set(name, 'starting')
+        notify('frame_lsp_ask', name, vim.uv.cwd())
+      end
+    end
+  end
+end
+
+--- Restarts the server(s) serving a buffer.
+function M.restart_for(buf)
+  for _, client in ipairs(vim.lsp.get_clients({ bufnr = buf })) do
+    local name = client.name:gsub('^frame_', '')
+    if M.specs[name] then M.restart(name) end
+  end
+end
+
+--- A summary of the servers, for `:FrameLsp`.
+function M.report()
+  local lines = {}
+  for name in pairs(M.specs) do
+    local st = M.state[name]
+    if st then lines[#lines + 1] = ('%s: %s (%d deaths in the last minute)'):format(name, st.status, #st.deaths) end
+  end
+  table.sort(lines)
+  return #lines > 0 and table.concat(lines, '\n') or 'no language server has been asked for yet'
+end
+
+function M.setup()
+  local group = vim.api.nvim_create_augroup('FrameLsp', { clear = true })
+  vim.api.nvim_create_autocmd('FileType', { group = group, callback = opened })
+  -- Keys for what a server offers, on the buffers it is attached to (not over one the config bound).
+  vim.api.nvim_create_autocmd('LspAttach', {
+    group = group,
+    callback = function(args)
+      local function map(lhs, rhs, desc)
+        if vim.fn.maparg(lhs, 'n', false, true).buffer ~= 1 then vim.keymap.set('n', lhs, rhs, { buffer = args.buf, desc = desc }) end
+      end
+      map('gd', vim.lsp.buf.definition, 'Go to definition')
+      map('gr', vim.lsp.buf.references, 'References')
+      map('gI', vim.lsp.buf.implementation, 'Go to implementation')
+      map('K', vim.lsp.buf.hover, 'Hover')
+      map('<leader>la', vim.lsp.buf.code_action, 'Code action')
+      map('<leader>lr', vim.lsp.buf.rename, 'Rename')
+      map('<leader>lf', function() vim.lsp.buf.format({ async = true }) end, 'Format')
+      map('<leader>ld', vim.diagnostic.open_float, 'Line diagnostics')
+      map('<leader>ll', vim.diagnostic.setloclist, 'Diagnostics list')
+      map('<leader>lR', function() require('frame.lsp').restart_for(args.buf) end, 'Restart the language server')
+    end,
+  })
+  vim.api.nvim_create_user_command('FrameLsp', function(opts)
+    local verb, name = opts.fargs[1] or 'status', opts.fargs[2]
+    local function each(fn)
+      if name then
+        if M.specs[name] then fn(name) else vim.notify('FrameLsp: no server named ' .. name, vim.log.levels.ERROR) end
+      else
+        for n in pairs(M.specs) do if M.state[n] then fn(n) end end
+      end
+    end
+    if verb == 'restart' then each(M.restart)
+    elseif verb == 'stop' then each(M.stop)
+    else vim.notify(M.report()) end
+  end, {
+    nargs = '*',
+    complete = function(_, line)
+      local words = vim.split(line, '%s+')
+      if #words <= 2 then return { 'status', 'restart', 'stop' } end
+      return vim.tbl_keys(M.specs)
+    end,
+    desc = 'Language servers: status, restart [name], stop [name]',
+  })
+end
+
+return M

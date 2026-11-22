@@ -100,6 +100,7 @@ struct FrameCheck {
         await group("scroll") { await scrollSteps() }
         await group("theme") { await themeSteps() }
         await group("whichkey") { await whichKeySteps() }
+        await group("lsp") { await lspSteps() }
         await group("windows") { await windowSteps() }
         await group("switcher") { await switcherSteps() }
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -923,6 +924,82 @@ struct FrameCheck {
         await waitAsync("the hints to go") { await hints() == 0 }
         guard await lua("return vim.fn.mode()")?.stringValue == "n" else { fail("nvim is not back in normal mode") }
         step("vim's own sequences (g) show their hints too")
+    }
+
+    /// Language servers, supervised: a real server (sourcekit-lsp, from Xcode) starts for a Swift file, and when it is
+    /// killed
+    /// nvim carries on and the server comes back; one that keeps dying shows in the bar as restarting, then as given up
+    /// on, and
+    /// `:FrameLsp restart` tries again.
+    private func lspSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        /// The server's clients, those rooted at `root` when it is given (a server runs once for each root).
+        func clients(_ name: String, root: String? = nil) async -> [Int] {
+            let filter = root.map { " and c.root_dir == '\($0)'" } ?? ""
+            return await lua("""
+            local ids = {}
+            for _, c in ipairs(vim.lsp.get_clients({ name = 'frame_\(name)' })) do
+              if true\(filter) then ids[#ids + 1] = c.id end
+            end
+            return ids
+            """)?.arrayValue?.compactMap { $0.integerValue.map(Int.init) } ?? []
+        }
+        shell.focusEditor()
+        // A server that keeps dying, as a fake one, with short waits.
+        _ = await lua("""
+        local lsp = require('frame.lsp')
+        lsp.wait_first, lsp.wait_max = 300, 600
+        lsp.specs.crashy = { filetypes = { 'crashy' }, root = { '.git' }, aliases = {} }
+        lsp.commands.crashy = { 'sh', '-c', 'exit 3' }
+        vim.cmd('enew'); vim.bo.filetype = 'crashy'
+        lsp.start('crashy', vim.api.nvim_get_current_buf())
+        """)
+        await wait("the bar to say the server is starting again") { shell.status.lsp.contains("crashy ↻") }
+        await wait("the bar to say the server was given up on") { shell.status.lsp.contains("crashy ✗") }
+        step("a server that keeps dying shows in the bar as restarting (↻), then as given up on (✗)")
+        _ = await lua("vim.cmd('FrameLsp restart crashy')")
+        await wait("restart to start it again") {
+            shell.status.lsp.contains("crashy ↻") || shell.status.lsp.contains("crashy ✗")
+        }
+        _ = await lua("require('frame.lsp').stop('crashy')")
+        // A real one.
+        let viaXcode = await (try? FrameServers.run("/usr/bin/xcrun", ["--find", "sourcekit-lsp"]))?.code == 0
+        guard FrameServers.onPath("sourcekit-lsp") != nil || viaXcode
+        else { return step("no sourcekit-lsp here: the real server was not exercised") }
+        let folder = RealPath.of(NSTemporaryDirectory()) + "/frame-lsp-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: folder + "/Sources/App", withIntermediateDirectories: true)
+        try? "// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: \"App\", targets: [.target(name: \"App\")])\n"
+            .write(toFile: folder + "/Package.swift", atomically: true, encoding: .utf8)
+        try? "let answer = 42\n".write(toFile: folder + "/Sources/App/a.swift", atomically: true, encoding: .utf8)
+        _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(folder)/Sources/App/a.swift'))")
+        var first: [Int] = []
+        for _ in 0 ..< 200 {
+            first = await clients("sourcekit", root: folder)
+            if !first.isEmpty { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard let id = first.first else { fail("sourcekit-lsp did not start for a Swift file") }
+        step("a real server (sourcekit-lsp) is found, provisioned and started for a Swift file, rooted at its package")
+        // Killed from outside: nvim and the window carry on, the server comes back.
+        let nvimPid = await lua("return vim.fn.getpid()")?.integerValue ?? 0
+        let children = await (try? FrameServers.run("/usr/bin/pgrep", ["-P", "\(nvimPid)", "-f", "sourcekit"]))?
+            .output ?? ""
+        let pids = children.split(separator: "\n").compactMap { pid_t($0.trimmingCharacters(in: .whitespaces)) }
+        guard !pids.isEmpty else { fail("no server process under nvim (\(nvimPid))") }
+        pids.forEach { kill($0, SIGKILL) }
+        await wait("the bar to say it is starting again") { shell.status.lsp.contains("sourcekit ↻") }
+        guard await lua("return vim.fn.mode()")?.stringValue == "n" else { fail("nvim did not carry on") }
+        var again: [Int] = []
+        for _ in 0 ..< 300 {
+            again = await clients("sourcekit", root: folder)
+            if let new = again.first, new != id { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard let new = again.first, new != id else { fail("the killed server did not come back") }
+        step("a server killed from outside leaves nvim alone and is started again")
+        _ = await lua("require('frame.lsp').stop('sourcekit')")
+        try? FileManager.default.removeItem(atPath: folder)
     }
 
     /// Smooth scrolling of the text: a scroll of nvim's slides, and a scroll that comes while one slides goes on from

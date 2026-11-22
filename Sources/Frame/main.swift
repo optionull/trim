@@ -409,7 +409,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         }
     }
 
-    private var status = StatusState()
+    private(set) var status = StatusState()
 
     init(app: FrameApp, folder: String, arguments: [String], isFirst: Bool) {
         self.app = app
@@ -702,6 +702,9 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
                 ["theme", "colorscheme"],
                 to: .string(name)
             ) }
+        case "frame_lsp_ask":
+            if let name = args.first?
+                .stringValue { provisionServer(name, in: args.dropFirst().first?.stringValue ?? "/") }
         case "frame_statusline": view?.statusVisible = args.first?.stringValue != "off"
         case "frame_statusbar": StatusPlacement(rawValue: args.first?.stringValue ?? "")
             .map { app.setStatusPlacement($0) }
@@ -948,6 +951,37 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     }
 
     @objc func showOpenFiles(_: Any?) { showTabPicker() }
+
+    // MARK: Language servers
+
+    /// A server nvim asked for: its program found or provisioned off the main thread, then told to nvim's supervisor;
+    /// when
+    /// there is none, nvim is told so, and why (Node missing, say).
+    func provisionServer(_ name: String, in directory: String) {
+        Task { [weak self] in
+            let result: Result<[String], FrameServers.Failure>
+            do {
+                result = try await .success(FrameServers.command(for: name, in: directory))
+            } catch {
+                result = .failure((error as? FrameServers.Failure) ?? FrameServers.Failure(description: "\(error)"))
+            }
+            guard let self else { return }
+            switch result {
+            case let .success(command):
+                _ = try? await session.channel.lua(
+                    "require('frame.lsp').ready(...)", args: [
+                        .string(name),
+                        .array(command.map(MessagePackValue.string)),
+                    ]
+                )
+            case let .failure(why):
+                _ = try? await session.channel.lua("require('frame.lsp').ready(..., nil)", args: [.string(name)])
+                _ = try? await session.channel.lua("vim.notify(..., vim.log.levels.WARN)", args: [
+                    .string("No \(FrameServers.label(name)) language server: \(why.description)"),
+                ])
+            }
+        }
+    }
 
     // MARK: The colour scheme
 
