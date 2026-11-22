@@ -1488,18 +1488,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     @objc func smaller(_: Any?) { EditorFont.zoom(-1) }
     @objc func actual(_: Any?) { EditorFont.zoom(0) }
 
-    /// sill's settings file, in nvim.
-    @objc func openSettings(_: Any?) {
-        let file = SettingsLoader.defaultFile()
-        try? FileManager.default.createDirectory(
-            at: file.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        if !FileManager.default.fileExists(atPath: file.path) {
-            try? SettingsLoader.defaultSource.write(to: file, atomically: true, encoding: .utf8)
-        }
-        Task { _ = try? await session.channel.command("edit " + file.path.replacingOccurrences(of: " ", with: "\\ ")) }
-    }
+    /// Frame's settings, as a window.
+    @objc func openSettings(_: Any?) { app.showSettings() }
 }
 
 // SILL_FONTS: a directory of fonts to use without installing them, for this process only.

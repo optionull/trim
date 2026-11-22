@@ -19,6 +19,15 @@ final class FrameApp: NSObject, NSApplicationDelegate {
 
     static var checking: Bool { ProcessInfo.processInfo.environment["SILL_FRAME_CHECK"] == "1" }
 
+    /// Frame's settings window (one for the app), made when first asked for.
+    private(set) var settings: SettingsWindowController?
+
+    func showSettings() {
+        let controller = settings ?? SettingsWindowController(app: self)
+        settings = controller
+        Task { await controller.show() }
+    }
+
     /// The window the person is in.
     var active: FrameWindowController? {
         (NSApp.keyWindow?.delegate as? FrameWindowController) ?? controllers.last

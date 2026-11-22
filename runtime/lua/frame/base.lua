@@ -35,6 +35,9 @@ o.confirm = true
 o.pumheight = 12
 o.shortmess = o.shortmess .. 'cI'
 
+-- What the settings' `[editor]` says (tab width, wrap, line numbers...) wins over the above.
+require('frame.options').apply(editor)
+
 -- The plugins Frame carries: in the app (`runtime/pack/frame/start/*`), or in the source tree (`Vendor/plugins/*`). A
 -- name in `plugins.disabled` of the settings is left out.
 local disabled = {}

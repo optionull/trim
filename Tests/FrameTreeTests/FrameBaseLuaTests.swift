@@ -194,6 +194,26 @@ struct FrameBaseLuaTests {
         """#)
     }
 
+    @Test(
+        "the editor settings (tab width, wrapping, line numbers) win over the defaults, and apply live to every window"
+    )
+    func editorOptions() throws {
+        try check(
+            settings: #"{"editor":{"tabwidth":2,"wrap":true,"number":false,"scrolloff":7,"expandtab":false}}"#,
+            """
+            assert(vim.o.shiftwidth == 2 and vim.o.tabstop == 2 and vim.o.softtabstop == 2, 'tab width')
+            assert(vim.o.expandtab == false and vim.o.scrolloff == 7, 'tabs and margin')
+            assert(vim.wo.wrap == true and vim.wo.number == false, 'window options')
+            vim.cmd('vsplit')
+            require('frame.options').apply({ number = true, tabwidth = 99, scrolloff = 100 })
+            for _, win in ipairs(vim.api.nvim_list_wins()) do assert(vim.wo[win].number, 'every window') end
+            assert(vim.o.shiftwidth == 2, 'a tab width out of range is ignored')
+            assert(vim.o.scrolloff == 20, 'the margin is capped')
+            assert(require('frame.options').current().tabwidth == 2)
+            """
+        )
+    }
+
     @Test("a scheme that does not exist falls back to the default instead of failing")
     func missing() throws {
         guard hasPlugins else { return }

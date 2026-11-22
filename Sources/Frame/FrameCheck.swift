@@ -103,6 +103,7 @@ struct FrameCheck {
         await group("lsp") { await lspSteps() }
         await group("finder") { await finderSteps() }
         await group("packages") { await packagesSteps() }
+        await group("settings") { await settingsSteps() }
         await group("windows") { await windowSteps() }
         await group("switcher") { await switcherSteps() }
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -1143,6 +1144,104 @@ struct FrameCheck {
         shell.escape()
         guard shell.listPicker == nil else { fail("Escape did not close") }
         step("x removes an installed package")
+    }
+
+    /// The settings window: every control writes the settings file in place and changes the running editor (or the
+    /// layout) at
+    /// once, and says which need a restart.
+    private func settingsSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        let saved = NSTemporaryDirectory() + "frame-settings-\(UUID().uuidString).toml"
+        setenv("FRAME_SETTINGS", saved, 1)
+        defer { unsetenv("FRAME_SETTINGS") }
+        func savedText() -> String { (try? String(contentsOfFile: saved, encoding: .utf8)) ?? "" }
+        shell.focusEditor()
+        shell.openSettings(nil)
+        await wait("the settings window") { shell.app.settings?.window?.isVisible == true }
+        guard let settings = shell.app.settings, let window = settings.window else { fail("no settings window") }
+        defer { window.orderOut(nil) }
+        func control<Control: NSControl>(_ key: String, as _: Control.Type = NSControl.self) -> Control {
+            guard let found = settings.controls[key] as? Control else { fail("no control for \(key)") }
+            return found
+        }
+        func fire(_ control: NSControl) { _ = control.sendAction(control.action, to: control.target) }
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"], let view = window.contentView,
+           let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        {
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?
+                .write(to: URL(fileURLWithPath: path.replacingOccurrences(of: ".png", with: "-settings.png")))
+        }
+        step("⌘, brings up the settings window, with a control for each setting")
+        // The editor: changed in the running nvim at once, and written to the file.
+        control("editor.tabwidth").integerValue = 2
+        fire(control("editor.tabwidth"))
+        await waitAsync("the tab width to reach nvim") { await lua("return vim.o.shiftwidth")?.integerValue == 2 }
+        await wait("the tab width to be saved") { savedText().contains("tabwidth = 2") }
+        let wrap = control("editor.wrap", as: NSButton.self)
+        wrap.state = .on
+        fire(wrap)
+        await waitAsync("wrapping to reach nvim") { await lua("return vim.wo.wrap")?.boolValue == true }
+        await wait("wrapping to be saved") { savedText().contains("wrap = true") }
+        let numbers = control("editor.number", as: NSButton.self)
+        numbers.state = .off
+        fire(numbers)
+        await waitAsync("the line numbers to go") { await lua("return vim.wo.number")?.boolValue == false }
+        step("tab width, wrapping and line numbers change the running editor and are saved")
+        // The scheme: the popup's choice is applied and saved.
+        let scheme = control("theme.colorscheme", as: NSPopUpButton.self)
+        guard let item = scheme.itemTitles.first(where: { $0.hasPrefix("tokyonight-storm") })
+        else { fail("no storm in the schemes") }
+        scheme.selectItem(withTitle: item)
+        fire(scheme)
+        await waitAsync("the scheme to reach nvim") {
+            await lua("return vim.g.colors_name")?.stringValue == "tokyonight-storm"
+        }
+        await wait("the scheme to be saved") { savedText().contains("colorscheme = \"tokyonight-storm\"") }
+        step("the colour scheme is applied and saved")
+        // Keys: from the next start, saved only.
+        let leader = control("editor.leader", as: NSTextField.self)
+        leader.stringValue = ";"
+        fire(leader)
+        control("whichkey.delay").integerValue = 700
+        fire(control("whichkey.delay"))
+        await wait("the leader and the delay to be saved") {
+            savedText().contains("leader = \";\"") && savedText().contains("delay = 700")
+        }
+        step("the leader and which-key's delay are saved for the next start")
+        // The layout: the window's own.
+        let bar = control("layout.status", as: NSPopUpButton.self)
+        bar.selectItem(at: 1)
+        fire(bar)
+        await wait("the status bar across the window") { shell.view.statusPlacement == .window }
+        bar.selectItem(at: 0)
+        fire(bar)
+        await wait("the status bar beside the sidebar") { shell.view.statusPlacement == .editor }
+        let tabs = control("layout.tabs", as: NSPopUpButton.self)
+        tabs.selectItem(at: TabsPlacement.allCases.firstIndex(of: .hidden)!)
+        fire(tabs)
+        await wait("the tabs hidden") { shell.view.tabsPlacement == .hidden }
+        tabs.selectItem(at: TabsPlacement.allCases.firstIndex(of: .statusbar)!)
+        fire(tabs)
+        await wait("the tabs in the status bar") { shell.view.tabsPlacement == .statusbar }
+        step("the status bar and the tabs move at once")
+        // What it hands on to.
+        fire(control("packages"))
+        await wait("the packages to come up") { shell.listPicker != nil }
+        shell.escape()
+        guard shell.listPicker == nil else { fail("Escape did not close the packages") }
+        step("Packages… brings up the package mode")
+        // The file it wrote keeps its comments and is valid for what reads it.
+        guard savedText().contains("[editor]"), savedText().contains("[whichkey]"),
+              savedText().contains("[theme]")
+        else {
+            fail("the file lost its tables: \(savedText())")
+        }
+        let reread = FrameSettings.json()
+        guard reread.contains("\"tabwidth\":2"),
+              reread.contains("tokyonight-storm") else { fail("the file does not read back: \(reread)") }
+        step("the file reads back as what was set")
     }
 
     /// Smooth scrolling of the text: a scroll of nvim's slides, and a scroll that comes while one slides goes on from

@@ -604,6 +604,12 @@ The finder is a mode too: `<leader>ff` (⌘P, Go ▸ Find File…, `:FrameFind`)
 ignored left out) and ranks them as you type, the name counting above its folders; `<leader>fg` (⇧⌘F, `:FrameGrep`) finds lines
 containing the text (git grep, no ripgrep needed). Return opens the file (on the line), Escape goes back at once.
 
+Settings (⌘, or Frame ▸ Settings…) is a window over `~/.config/frame/settings.toml`: tab width, indenting, wrapping, line numbers,
+scroll margin, the colour scheme, the leader, which-key's delay, where the status bar and tabs go, and buttons for the packages,
+restarting the language servers and opening the file. Each change is written into the file in place (comments are kept) and applied
+to the running editors at once, except the leader and which-key's delay, which wait for the next start. Editing the file by hand does
+the same; `[editor]` takes `tabwidth`, `expandtab`, `wrap`, `number`, `relativenumber`, `scrolloff` and `leader`.
+
 Packages are a mode (`<leader>P`, View ▸ Packages…, `:FramePackages`): the ones Frame carries (colour schemes, which-key, mini.nvim,
 gitsigns) and ones it can install: Return installs one (a tarball of a pinned tag from GitHub, its commit checked against the one
 pinned, into `~/.local/share/frame/site/pack/frame/start`; loaded at once, no git needed) or leaves a bundled one out of the next start
