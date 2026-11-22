@@ -522,9 +522,15 @@ Control chords such as `<C-w>l`) go to nvim whatever row is selected, and the se
 The filter (the funnel at the top right, `/`, ⌥⌘F) narrows the tree to the paths that hold what you type, live;
 Escape puts the tree as it was. The eye at its right (and `I`, `H`, ⌥⇧⌘. and ⇧⌘.) shows or hides what git ignores and
 the dotfiles. `open -n Frame.app --args ~/Projects/x` starts it
-in a folder. A which-key.nvim window is drawn in the sidebar's colours (`vim.g.frame_style_whichkey = false` turns that off); which-key.nvim
-itself does the rest, in the grid. It has the shim's Config menu and `:FrameConfig`. `mise run fonts` downloads
-the icon font (`scripts/bundle.sh` does too); its licences are in `THIRD_PARTY_NOTICES.md`.
+in a folder. `mise run fonts` downloads the icon font (`scripts/bundle.sh` does too); its licences are in
+`THIRD_PARTY_NOTICES.md`.
+
+Frame runs its **own isolated nvim config**, never yours: it starts nvim under the name `frame`, so its config, data, state
+and cache folders are Frame's (`~/.config/frame`, `~/.local/share/frame`...) and nothing of `~/.config/nvim` (nor any other
+config) is read, so a config of yours, LazyVim included, cannot clash with it. Frame's base settings come first (sill's, then
+`runtime/lua/frame/base.lua`); `~/.config/frame/init.lua`, if there is one, is the place for your additions (nvim loads it as it
+loads any init.lua: a leader, options, a plugin of your own), and wins. The shim stays what it was: nvim alone in a native window,
+with your own config and the Config menu, for doing everything the nvim way.
 
 A workspace is a repository or a worktree. ⌘⇧O, `:FrameWorkspace`, `<leader>fw` (where your config has nothing there) and
 the chip at the sidebar's foot (the git root's name and the branch) bring up the switcher: a search line over the

@@ -8,11 +8,10 @@ import SillNvim
 
 /// The application: the windows of the frame (one per workspace), the menu, the settings and quitting.
 @MainActor
-final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class FrameApp: NSObject, NSApplicationDelegate {
     private(set) var controllers: [FrameWindowController] = []
     private var watcher: SettingsWatcher?
     private var quitting = false
-    private let configMenu = NSMenu(title: "Config")
     /// Where the switcher's workspaces come from (the self-check swaps it for a fixture).
     var sources = WorkspaceSources.live
     /// What heed said last time: the titles shown at once, until it is asked again.
@@ -217,28 +216,6 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Menu
 
-    /// The configs of the window the person is in, the one it runs under marked.
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        guard menu === configMenu else { return }
-        menu.removeAllItems()
-        guard let active else { return }
-        for (index, config) in active.configs().enumerated() {
-            let item = menu.addItem(
-                withTitle: config.title,
-                action: #selector(FrameWindowController.chooseConfig(_:)),
-                keyEquivalent: index < 9 ? String(index + 1) : ""
-            )
-            item.keyEquivalentModifierMask = [.control, .command]
-            item.representedObject = config.appName
-            item.state = config == active.current ? .on : .off
-        }
-        menu.addItem(.separator())
-        let next = menu.addItem(
-            withTitle: "Next Config", action: #selector(FrameWindowController.nextConfig(_:)), keyEquivalent: "]"
-        )
-        next.keyEquivalentModifierMask = [.control, .command]
-    }
-
     /// Every action but quitting has no target: it goes to the window the person is in, through the responder chain.
     private func buildMenu() {
         typealias Window = FrameWindowController
@@ -355,10 +332,6 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(withTitle: "Smaller", action: #selector(Window.smaller(_:)), keyEquivalent: "-")
         viewMenu.addItem(withTitle: "Actual Size", action: #selector(Window.actual(_:)), keyEquivalent: "0")
         viewItem.submenu = viewMenu
-        let configItem = NSMenuItem()
-        menu.addItem(configItem)
-        configMenu.delegate = self
-        configItem.submenu = configMenu
         NSApp.mainMenu = menu
     }
 }

@@ -284,17 +284,6 @@ extension NSColor {
     }
 }
 
-/// Where the frame remembers which nvim config it ran last. Its own state, not a setting: it changes by choosing, not
-/// by
-/// editing.
-enum ConfigChoice {
-    private static let key = "nvimConfig"
-    static var remembered: String? {
-        get { UserDefaults.standard.string(forKey: key) }
-        set { UserDefaults.standard.set(newValue, forKey: key) }
-    }
-}
-
 /// Lets the first of two racing tasks through, so a continuation is resumed once.
 final class FirstOnly: @unchecked Sendable {
     private let lock = NSLock()
@@ -383,7 +372,6 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// Which session is the current one: a session that ends after a switch is not nvim quitting.
     private var generation = 0
     /// The config nvim runs under now, and whether a switch is under way.
-    private(set) var current = NvimConfig.builtIn
     private var switching = false
     /// nvim has ended, so quitting has no one to ask.
     private(set) var ended = false
@@ -500,15 +488,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             NSApp.activate()
         }
         window.makeFirstResponder(editor)
-        let environment = NvimProcess.cachedEnv.merging(ProcessInfo.processInfo.environment) { _, own in own }
-        // NVIM_APPNAME, set when the frame starts, wins over the config chosen last.
-        var startup = EditorSession.startup(environment: environment, own: checking)
-        if !checking, environment["NVIM_APPNAME"] == nil, let name = ConfigChoice.remembered,
-           let config = NvimConfigs.discover(environment: environment).first(where: { $0.appName == name })
-        {
-            startup = config.startup
-        }
-        current = NvimConfig(appName: startup.appName, isBuiltIn: !startup.userConfig)
+        let startup = FrameNvim.startup
         let folder = workspace, arguments = startArguments
         tree.setRoot(folder)
         Task { [weak self] in
@@ -602,29 +582,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         ))?.arrayValue?.compactMap(\.stringValue)
         if let leaders { tree.leaders = Set(leaders.filter { $0.count == 1 }) }
         styleWhichKey(tree.look.palette)
-        let names = configs().map(\.appName)
-        _ = try await session.channel.lua(
-            Self.commandLua, args: [.array(names.map { .string($0) }), .string(startup.appName)]
-        )
+        _ = try await session.channel.lua(Self.commandLua)
         configureTabs()
-        if !checking { ConfigChoice.remembered = startup.appName }
-    }
-
-    // MARK: Switching config
-
-    /// Restarts nvim under another config, in this window, where it was: the same folder, the files it had open, the
-    /// cursor. Unsaved changes are asked about first; a config that will not start is put back as it was.
-    func switchConfig(to config: NvimConfig) {
-        guard !switching, config != current else { return }
-        switching = true
-        Task { [weak self] in
-            guard let self else { return }
-            defer { switching = false }
-            guard await resolveUnsaved() != .cancelled else { return }
-            let place = await (try? session.channel.lua(Place.lua)).flatMap { Place($0) }
-                ?? Place(cwd: FileManager.default.currentDirectoryPath)
-            await restart(trying: [config, current], place: place)
-        }
     }
 
     /// This window on another workspace: nvim starts again in its folder (under the same config, with nothing carried
@@ -640,44 +599,29 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             workspace = real
             tree.setRoot(real)
             if !FrameApp.checking { WorkspaceHistory.touch(real) }
-            await restart(trying: [current], place: Place(cwd: real))
+            await restart(place: Place(cwd: real))
         }
     }
 
-    /// A new nvim in this window, in `place`, under the first of `configs` that starts; one that will not start is
-    /// said so, and the last of them failing closes the window.
-    private func restart(trying configs: [NvimConfig], place: Place) async {
-        let previous = current
+    /// A new nvim in this window, in `place`; one that will not start is said so, and the window closes.
+    private func restart(place: Place) async {
         let old = session
         makeSurface()
         window.makeFirstResponder(editor)
         await old.stop()
-        for config in configs {
-            do {
-                try await launch(startup: config.startup, place: place, arguments: [])
-                current = config
-                return
-            } catch {
-                let alert = NSAlert(error: error)
-                alert.messageText = "nvim could not start with the \(config.title) config"
-                alert.runModal()
-                await session.stop()
-                if config == previous {
-                    app.close(self)
-                    return
-                }
-                makeSurface()
-                window.makeFirstResponder(editor)
-            }
+        do {
+            try await launch(startup: FrameNvim.startup, place: place, arguments: [])
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.messageText = "nvim could not start"
+            alert.runModal()
+            await session.stop()
+            app.close(self)
         }
     }
 
-    /// `:FrameConfig`, in each nvim the frame starts: with a name it switches to it, without one it lists the configs
-    /// to
-    /// choose from (`vim.ui.select`, so a picker plugin of the config's takes over).
+    /// What the frame's nvim gets once it runs: the tree and the bar follow the editor, and the commands and keys.
     private static let commandLua = """
-    local names, current = ...
-    local function ask(name) vim.rpcnotify(vim.g.sill_channel, 'frame_config', name) end
     local function tell(method, arg) vim.rpcnotify(vim.g.sill_channel, method, arg) end
     -- The tree follows the editor: the file in the window, and the folder nvim is in.
     local group = vim.api.nvim_create_augroup('FrameTree', { clear = true })
@@ -729,22 +673,9 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         end, { desc = 'Window to the left, or the tree' })
       end
     end
-    vim.api.nvim_create_user_command('FrameConfig', function(opts)
-      if opts.args ~= '' then return ask(opts.args) end
-      vim.ui.select(names, {
-        prompt = 'Switch to nvim config',
-        format_item = function(name) return name == current and (name .. '  (current)') or name end,
-      }, function(choice) if choice then ask(choice) end end)
-    end, {
-      nargs = '?',
-      complete = function(lead)
-        return vim.tbl_filter(function(name) return name:sub(1, #lead) == lead end, names)
-      end,
-      desc = 'Restart nvim under another config, in this window',
-    })
     """
 
-    /// What nvim asked of the frame (`:FrameConfig`).
+    /// What nvim asked of the frame.
     private func nvimAsked(_ method: String, _ args: [MessagePackValue]) {
         switch method {
         case "frame_workspace": switchWorkspace(nil)
@@ -782,18 +713,6 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             return
         default: break
         }
-        guard method == "frame_config", let name = args.first?.stringValue else { return }
-        guard let config = configs().first(where: { $0.appName == name }) else {
-            let known = configs().map(\.appName).joined(separator: ", ")
-            Task {
-                _ = try? await session.channel.lua(
-                    "vim.notify(..., vim.log.levels.ERROR)",
-                    args: [.string("FrameConfig: no config named \(name) (there are: \(known))")]
-                )
-            }
-            return
-        }
-        switchConfig(to: config)
     }
 
     /// A file opened from the tree: nvim shows it, and has the keyboard only when asked (Return, a double-click): a
@@ -1083,28 +1002,6 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         setSidebar(visible: true)
         tree.focus()
         modes.focused(.tree)
-    }
-
-    @objc func chooseConfig(_ sender: NSMenuItem) {
-        guard let name = sender.representedObject as? String,
-              let config = configs().first(where: { $0.appName == name }) else { return }
-        switchConfig(to: config)
-    }
-
-    /// The next config after this one, round again: one key to try them in turn.
-    @objc func nextConfig(_: Any?) {
-        let all = configs()
-        guard all.count > 1 else { return }
-        let at = all.firstIndex(of: current) ?? -1
-        switchConfig(to: all[(at + 1) % all.count])
-    }
-
-    func configs() -> [NvimConfig] {
-        let environment = NvimProcess.cachedEnv.merging(ProcessInfo.processInfo.environment) { _, own in own }
-        var all = NvimConfigs.discover(environment: environment)
-        // A config nvim runs under that is not in the list (NVIM_APPNAME pointing elsewhere) is still the one in use.
-        if !all.contains(current) { all.append(current) }
-        return all
     }
 
     /// The settings that apply at once: the title bar, the font.

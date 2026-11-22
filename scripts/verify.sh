@@ -127,7 +127,10 @@ rm -rf /tmp/sill-shim-configs && mkdir -p /tmp/sill-shim-configs/alpha && echo '
 out=$(cd /tmp && perl -e 'alarm 120; exec @ARGV or die' env SILL_SHIM_CHECK=1 XDG_CONFIG_HOME=/tmp/sill-shim-configs "$REPO/build/Shim.app/Contents/MacOS/Shim" 2>&1 | grep -E "^shim check" || true)
 echo "$out" | grep -q "^shim check: passed$" || { echo "$out"; echo "CHECK shim FAILED"; exit 1; }
 echo "sill check (shim): passed"
-rm -rf /tmp/sill-frame-configs && mkdir -p /tmp/sill-frame-configs/alpha && printf 'vim.g.frame_marker = "alpha"\nvim.g.mapleader = ","\n' >/tmp/sill-frame-configs/alpha/init.lua
+# Frame's own config home: its additions (~/.config/frame) must load, a config of nvim's own (~/.config/nvim) must not.
+rm -rf /tmp/sill-frame-configs && mkdir -p /tmp/sill-frame-configs/frame /tmp/sill-frame-configs/nvim
+printf 'vim.g.frame_user = "user"\nvim.g.mapleader = ","\n' >/tmp/sill-frame-configs/frame/init.lua
+printf 'vim.g.nvim_config_leaked = "yes"\n' >/tmp/sill-frame-configs/nvim/init.lua
 out=$(cd /tmp && perl -e 'alarm 120; exec @ARGV or die' env SILL_FRAME_CHECK=1 XDG_CONFIG_HOME=/tmp/sill-frame-configs "$REPO/build/Frame.app/Contents/MacOS/Frame" 2>&1 | grep -E "^frame check" || true)
 echo "$out" | grep -q "^frame check: passed$" || { echo "$out"; echo "CHECK frame FAILED"; exit 1; }
 echo "sill check (frame): passed"

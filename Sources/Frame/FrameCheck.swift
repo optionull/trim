@@ -94,7 +94,7 @@ struct FrameCheck {
         await group("focus") { await focusSteps() }
         await group("forward") { await forwardSteps() }
         await group("layout") { await layoutSteps() }
-        await group("config") { await switchSteps() }
+        await group("isolation") { await isolationSteps() }
         await group("status") { await statusSteps() }
         await group("tabs") { await tabsSteps() }
         await group("scroll") { await scrollSteps() }
@@ -627,71 +627,36 @@ struct FrameCheck {
         step("the sidebar and the grid share the window; nvim follows when it is hidden, shown or dragged")
     }
 
-    /// Switching config, when `XDG_CONFIG_HOME` holds one to switch to (verify.sh makes it): nvim restarts in the same
-    /// window under that config, in the same folder, with the file it had open at the same line; and back again.
-    private func switchSteps() async {
-        let environment = ProcessInfo.processInfo.environment
-        guard let home = environment["XDG_CONFIG_HOME"],
-              let target = NvimConfigs.discover(environment: environment).first(where: { !$0.isBuiltIn })
-        else { return }
-        let folder = home + "/work"
-        let file = folder + "/notes.txt"
-        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        try? "one\ntwo\nthree\nfour\n".write(toFile: file, atomically: true, encoding: .utf8)
+    /// Frame runs its own isolated config: the person's additions (`$XDG_CONFIG_HOME/frame/init.lua`) load, nvim's own
+    /// (`$XDG_CONFIG_HOME/nvim/init.lua`) does not, and the folders nvim keeps its things in are Frame's.
+    private func isolationSteps() async {
         let channel = shell.session.channel
-        for command in ["%bwipeout!", "cd " + folder, "edit " + file, "call cursor(3, 2)"] {
-            do { _ = try await channel.command(command) } catch { fail("\(command): \(error)") }
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        let home = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
+        let state = await lua("""
+        return { vim.g.frame or false, vim.g.frame_user or '', vim.g.nvim_config_leaked or '', vim.env.NVIM_APPNAME or '',
+                 vim.fn.stdpath('config'), vim.fn.stdpath('data'), vim.fn.stdpath('state') }
+        """)?.arrayValue
+        guard let state, state.count == 7 else { fail("no word of nvim's config") }
+        guard state[0].boolValue == true, state[3].stringValue == "frame" else {
+            fail("nvim is not running as Frame's: frame=\(state[0]) appname=\(state[3])")
         }
-        let window = shell.window
-        // Through nvim, as a person does: `:FrameConfig name`.
-        do { _ = try await channel.command("FrameConfig " + target.appName) } catch { fail("FrameConfig: \(error)") }
-        await wait("nvim to restart under \(target.appName)") { shell.current == target }
-        guard shell.window === window else { fail("the switch made another window") }
-        func lua(_ code: String) async -> MessagePackValue? { try? await shell.session.channel.lua(code) }
-        let there = await (try? shell.session.channel.lua(
-            "return { vim.g.frame_marker or '', vim.fn.getcwd(), vim.api.nvim_buf_get_name(0), vim.api.nvim_win_get_cursor(0)[1] }"
-        ))?.arrayValue
-        let marker = there?[0].stringValue, cwd = there?[1].stringValue
-        let name = there?[2].stringValue, line = there?[3].integerValue
-        guard marker == target.appName else { fail("the config did not load: marker \(marker ?? "nil")") }
-        guard cwd.map({ URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }) ==
-            URL(fileURLWithPath: folder).resolvingSymlinksInPath().path
-        else { fail("the folder was not kept: \(cwd ?? "nil")") }
-        guard name.map({ URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }) ==
-            URL(fileURLWithPath: file).resolvingSymlinksInPath().path, line == 3
-        else { fail("the open file was not kept: \(name ?? "nil") at \(line.map(String.init) ?? "nil")") }
-        step("switching to \(target.appName) restarts nvim in the same window, folder, file and line")
-        // That config's leader is a comma: the tree knows it from nvim and hands it over.
-        if marker == target.appName, await lua("return vim.g.mapleader")?.stringValue == "," {
-            guard shell.tree.leaders.contains(",")
-            else { fail("the tree's leaders after the switch: \(shell.tree.leaders)") }
-            shell.tree.focus()
-            shell.tree.outline.keyDown(with: key(","))
-            guard shell.window.firstResponder === shell.editor
-            else { fail("that config's leader did not go to the editor") }
-            step("the tree learns the leader of the config nvim runs, and hands that one over")
+        guard state[4].stringValue?.hasSuffix("/frame") == true, state[5].stringValue?.hasSuffix("/frame") == true,
+              state[6].stringValue?.hasSuffix("/frame") == true
+        else { fail("nvim keeps its things outside Frame's folders: \(state[4]) \(state[5]) \(state[6])") }
+        step("nvim runs as Frame's own: its config, data and state folders are Frame's")
+        guard let home else { return }
+        // Only when the check was given a config home to look in (verify.sh does, with the two init files).
+        if FileManager.default.fileExists(atPath: home + "/frame/init.lua") {
+            guard state[1].stringValue == "user" else { fail("the person's additions in ~/.config/frame did not load") }
+            guard shell.tree.leaders.contains(",") else {
+                fail("the leader the additions set is not the tree's: \(shell.tree.leaders)")
+            }
         }
-        await wait("the grid again") { shell.editor.screen.grids[1] != nil }
-        do { _ = try await shell.session.channel.command("FrameConfig sill") } catch {
-            fail("FrameConfig sill: \(error)")
+        if FileManager.default.fileExists(atPath: home + "/nvim/init.lua") {
+            guard state[2].stringValue == "" else { fail("the config in ~/.config/nvim was read") }
         }
-        await wait("nvim to restart under sill's own") { shell.current == .builtIn }
-        let back = await (try? shell.session.channel.lua("return vim.g.frame_marker or ''"))?.stringValue
-        guard back == "" else { fail("the first config's settings are still there: \(back ?? "nil")") }
-        step("and back to sill's own, with nothing of the other config left")
-        guard !shell.tree.leaders.contains(",")
-        else { fail("the other config's leader is still the tree's: \(shell.tree.leaders)") }
-        let complete = await (try? shell.session.channel.lua("return vim.fn.getcompletion('FrameConfig ', 'cmdline')"))?
-            .arrayValue?.compactMap(\.stringValue)
-        guard complete == ["sill", target.appName] else { fail("FrameConfig completes \(complete ?? [])") }
-        step(":FrameConfig completes the configs there are")
-        _ = try? await shell.session.channel.command("FrameConfig nosuchconfig")
-        try? await Task.sleep(for: .milliseconds(400))
-        let messages = await (try? shell.session.channel.lua("return vim.fn.execute('messages')"))?.stringValue ?? ""
-        guard messages.contains("no config named nosuchconfig")
-        else { fail("an unknown config is not named: \(messages)") }
-        guard shell.current == .builtIn else { fail("an unknown config switched") }
-        step("an unknown config is named and nothing switches")
+        step("the additions in ~/.config/frame load, and nothing of ~/.config/nvim does")
     }
 
     /// The window as it shows: its background, the grid at its margin, corners rounded by the window's radius.
@@ -700,6 +665,7 @@ struct FrameCheck {
         let channel = shell.session.channel
         func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
         let bar = shell.view.statusBar
+        shell.focusEditor()
         await waitAsync("nvim's own status line, ruler and mode message to be off") {
             await lua("return { vim.o.laststatus, vim.o.ruler, vim.o.showmode }")?.arrayValue.map {
                 $0.first?.integerValue == 0 && $0[1].boolValue == false && $0[2].boolValue == false
@@ -1499,9 +1465,9 @@ struct FrameCheck {
         else { fail("the modes did not go back to the tree: \(shell.modes.surface)") }
         step("Escape closes it and the keyboard goes back to where it was")
 
-        // The chip at the sidebar's foot: outside a repository it is the folder's name; it opens the switcher.
+        // The chip at the sidebar's foot: the repository's name and its branch; it opens the switcher.
         let chip = shell.chip
-        guard chip.name == ((shell.tree.rootPath ?? "") as NSString).lastPathComponent, chip.branch.isEmpty,
+        guard chip.name == ((shell.tree.rootPath ?? "") as NSString).lastPathComponent, chip.branch == "main",
               !chip.isWorktree
         else {
             fail("the chip says \(chip.name) \(chip.branch), the tree is at \(shell.tree.rootPath ?? "none")")

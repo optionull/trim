@@ -43,6 +43,6 @@ Third-party code and licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 `SILL_FRAME_CHECK=1 build/Frame.app/Contents/MacOS/Frame` (or `.build/debug/Frame`) runs the real app against a real nvim
 and drives it with synthetic clicks and keys, in groups, each timed: the whole of it takes about ten seconds. While working
-on one area, run only its group: `SILL_FRAME_CHECK_ONLY=tabs` (groups: tree, focus, forward, layout, config, status, tabs,
+on one area, run only its group: `SILL_FRAME_CHECK_ONLY=tabs` (groups: tree, focus, forward, layout, isolation, status, tabs,
 scroll, windows, switcher; a comma separates several), which takes a second or two. `SILL_CHECK_SHOT=/tmp/x.png` also saves
 pictures. `scripts/verify.sh` runs it as part of everything else.
