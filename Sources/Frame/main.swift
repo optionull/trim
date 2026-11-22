@@ -411,10 +411,12 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     var buildDiagnostics: [String: DiagnosticLevel] = [:]
     /// What the last build printed, as problems.
     var buildProblems: [ProblemRow] = []
-    #if SILL_GHOSTTY
-        /// The terminal pane, while one shows.
-        var runPane: RunPane?
-    #endif
+    /// The build pane (Output and Problems), while one shows.
+    var runPane: BuildPane?
+    /// Which levels of problem the pane lists, kept as the person set them.
+    var problemLevels = Set(DiagnosticLevel.allCases)
+    /// Every problem the pane's list is built from, by its id.
+    var problemRows: [String: ProblemRow] = [:]
     private var listCancelled: (() -> Void)?
     /// Which surface has the keyboard, and what Escape does from each: the window's modes.
     private(set) var modes = Modes() {
@@ -772,6 +774,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             }
             nvimDiagnostics = files
             sendDiagnosticsToTree()
+            reloadProblems()
         case "frame_run":
             switch args.first?.stringValue {
             case "build": buildDefault(nil)
@@ -896,9 +899,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     func focus(_ surface: Surface) {
         switch surface {
         case .terminal:
-            #if SILL_GHOSTTY
-                if let pane = runPane { window.makeFirstResponder(pane.surface) }
-            #endif
+            if let pane = runPane { window.makeFirstResponder(pane.focusView) }
         case .tree where view.sidebarVisible:
             if modes.treeMode == .filter { tree.focusFilter() } else { tree.focus() }
         case .tree, .editor: window.makeFirstResponder(editor)

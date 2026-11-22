@@ -1033,10 +1033,10 @@ struct FrameCheck {
             await wait("the terminal pane") { shell.runPane != nil && shell.view.terminal != nil }
             guard let pane = shell.runPane else { fail("no pane") }
             await wait("the command's output in the pane") {
-                pane.surface.visibleText()?.contains("frame-run-marker-42") == true
+                pane.screenText()?.contains("frame-run-marker-42") == true
             }
-            guard pane.surface.visibleText()?.contains(folder) == true
-            else { fail("the command did not run in its folder: \(pane.surface.visibleText() ?? "")") }
+            guard pane.screenText()?.contains(folder) == true
+            else { fail("the command did not run in its folder: \(pane.screenText() ?? "")") }
             step("a command runs in a real terminal pane, in its folder, and its output stays")
             guard shell.modes.surface == .editor else { fail("running took the keyboard: \(shell.modes.surface)") }
             let width = shell.view.bounds.width
@@ -1066,7 +1066,7 @@ struct FrameCheck {
             step("a wide window puts the pane beside the code, a narrow one under it")
             // The keyboard: ⌘J into the pane, and back.
             shell.toggleTerminal(nil)
-            guard shell.modes.surface == .terminal, shell.window.firstResponder === pane.surface
+            guard shell.modes.surface == .terminal, shell.window.firstResponder === pane.terminal
             else { fail("⌘J did not go into the pane: \(shell.modes.surface)") }
             shell.toggleTerminal(nil)
             guard shell.modes.surface == .editor, shell.window.firstResponder === shell.editor
@@ -1096,16 +1096,25 @@ struct FrameCheck {
                 directory: folder
             ))
             guard let buildPane = shell.runPane else { fail("no pane for the build") }
-            await wait("the build's output") { buildPane.surface.screenText()?.contains("boom") == true }
-            await wait("the problems list to come up by itself when the build goes quiet", seconds: 10) {
-                shell.listPicker != nil
+            await wait("the build's output") { buildPane.screenText()?.contains("boom") == true }
+            await wait("the Problems tab to come up by itself when the build goes quiet", seconds: 10) {
+                buildPane.tab == .problems && buildPane.problems.all.count == 2
             }
-            guard let list = shell.listPicker, list.all.map(\.title) == ["boom", "quiet"],
-                  list.all[0].detail.hasSuffix("A.cs:3"), shell.modes.label(editorMode: "normal") == "PROBLEMS"
+            let list = buildPane.problems
+            guard list.all.map(\.title) == ["boom", "quiet"], list.all[0].detail.hasSuffix("A.cs:3"),
+                  shell.modes.surface == .editor, shell.listPicker == nil
             else {
-                fail(
-                    "the problems are not the build's: \(shell.listPicker?.all.map(\.title) ?? []) \(shell.modes.label(editorMode: "normal"))"
-                )
+                fail("the problems are not the build's: \(list.all.map(\.title)) \(shell.modes.surface)")
+            }
+            guard buildPane.terminal != nil else { fail("the build's output went with the problems") }
+            buildPane.select(.output)
+            guard buildPane.tab == .output, buildPane.terminal?.isHidden == false, list.isHidden else {
+                fail("the Output tab does not show the terminal")
+            }
+            buildPane.select(.problems)
+            shell.focus(.terminal)
+            guard shell.window.firstResponder === list, shell.modes.label(editorMode: "normal") == "BUILD"
+            else { fail("the keyboard is not in the problems list: \(String(describing: shell.window.firstResponder))")
             }
             list.keyDown(with: key("\r", code: 36))
             await waitAsync("the file to open at the error") {
@@ -1114,7 +1123,7 @@ struct FrameCheck {
                 return name == folder + "/A.cs" && at?.first == 3
             }
             step(
-                "a build that goes quiet brings up its problems (one mode with the diagnostics); Return goes to the line"
+                "one pane, one mode: a build that goes quiet shows its problems on the pane's Problems tab, beside its Output; Return goes to the line"
             )
             shell.closeTerminal(nil)
             guard shell.runPane == nil, shell.view.terminal == nil else { fail("the pane did not close") }
@@ -1173,6 +1182,16 @@ struct FrameCheck {
         guard level(b) == .warning, level(top + "/sub/deep") == .error
         else { fail("the folders did not take the worst below them: \(String(describing: level(top + "/sub/deep")))") }
         step("a file's worst diagnostic marks it in the tree, and every folder above takes the worst below")
+        await wait("the row's wavy line") { shell.tree.cell(for: a)?.squiggle.level == .error }
+        if let cell = shell.tree.cell(for: a) {
+            cell.layoutSubtreeIfNeeded()
+            let gap = cell.squiggle.frame.minY - (cell.name.frame.minY + cell.name.firstBaselineOffsetFromTop)
+            guard gap >= 0, gap <= 1.5, !cell.squiggle.isHidden, cell.squiggle.frame.width > 10
+            else {
+                fail("the wavy line is not just under the text: \(gap)pt below the baseline, \(cell.squiggle.frame)")
+            }
+            step("the wavy line sits just under the text, as wide as the name")
+        }
         _ = await lua("vim.diagnostic.reset()")
         await wait("the marks to go") { level(a) == nil && level(top) == nil }
         step("marks go when the diagnostics do")
@@ -1187,18 +1206,19 @@ struct FrameCheck {
         })
         """)
         shell.showProblems(nil)
-        await wait("the problems list") { shell.listPicker != nil }
-        guard let list = shell.listPicker,
-              shell.modes.label(editorMode: "normal") == "PROBLEMS" else { fail("no problems mode") }
+        guard let pane = shell.runPane, pane.tab == .problems, shell.modes.label(editorMode: "normal") == "BUILD",
+              shell.window.firstResponder === pane.problems else { fail("no problems tab with the keyboard in it") }
+        let list = pane.problems
         await wait("the problems") { list.all.count == 3 }
         guard list.all.map(\.title) == ["boom", "careful", "consider"], list.chips.map(\.count) == [1, 1, 0, 1]
         else { fail("not the problems in order, or the counts: \(list.all.map(\.title)) \(list.chips.map(\.count))") }
         step("the problems of every open file in one list, worst first, with a count per level")
         list.keyDown(with: key("w", code: 13))
-        guard list.all.count == 2, list.chips.first(where: { $0.id == "2" })?.on == false
-        else { fail("w did not switch the warnings off: \(list.all.map(\.title))") }
+        await wait("w to switch the warnings off") {
+            list.all.count == 2 && list.chips.first(where: { $0.id == "2" })?.on == false
+        }
         list.onChip?("2")
-        guard list.all.count == 3 else { fail("a click on the chip did not switch warnings back on") }
+        await wait("a click on the chip to switch warnings back on") { list.all.count == 3 }
         step("each level is switched off and on by its key or by a click")
         // Alt+Enter on the warning: the list goes, the cursor is at the problem.
         _ =
@@ -1215,9 +1235,15 @@ struct FrameCheck {
         await waitAsync("the code actions to be asked for") {
             await lua("return vim.g.asked_actions")?.boolValue == true
         }
-        guard shell.listPicker == nil, shell.modes.surface == .editor else { fail("the list stayed after Alt+Enter") }
+        guard shell.modes.surface == .editor,
+              shell.runPane != nil else { fail("Alt+Enter did not leave the keyboard in the code") }
         step("Alt+Enter on a row goes to the problem (and asks for its code actions)")
-        _ = await lua("vim.diagnostic.reset(); vim.cmd('silent! %bwipeout!')")
+        // The list follows the diagnostics as they change, without being asked.
+        _ = await lua("vim.diagnostic.reset()")
+        await wait("the list to follow the diagnostics going") { list.all.isEmpty }
+        step("the pane's list follows the diagnostics as they change")
+        shell.closeTerminal(nil)
+        _ = await lua("vim.cmd('silent! %bwipeout!')")
     }
 
     /// What can be done here: Alt+Enter (and Cmd+.) asks the server for code actions and the answer is the frame's own

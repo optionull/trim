@@ -281,6 +281,15 @@ final class ListPickerView: NSView {
 
     /// Room for long rows (a problem's message and its place).
     var wide = false
+    /// Part of a pane, not a card over the window: it fills its frame, has no shadow, and Escape ends a filter or
+    /// leaves
+    /// (`onDismiss`) without the window's modes being asked.
+    var embedded = false {
+        didSet { apply() }
+    }
+
+    /// The list has the keyboard now (a click, or asked for).
+    var onFocus: (() -> Void)?
     private let chipsView = ChipsView()
     private let card = FlippedView()
     private let header = FlippedView()
@@ -330,9 +339,18 @@ final class ListPickerView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result { onFocus?() }
+        return result
+    }
+
     private func apply() {
         card.layer?.backgroundColor = look.island.cgColor
         card.layer?.borderColor = look.muted.withAlphaComponent(0.35).cgColor
+        card.layer?.borderWidth = embedded ? 0 : 1
+        card.layer?.cornerRadius = embedded ? 0 : 10
+        card.layer?.shadowOpacity = embedded ? 0 : 0.4
         divider.layer?.backgroundColor = look.muted.withAlphaComponent(0.25).cgColor
         heading.font = look.font
         count.font = look.smallFont
@@ -399,14 +417,14 @@ final class ListPickerView: NSView {
 
     override func layout() {
         super.layout()
-        let width = min(wide ? 820 : 520, bounds.width - 32)
+        let width = embedded ? bounds.width : min(wide ? 820 : 520, bounds.width - 32)
         let headerHeight = ceil(look.rowHeight) + 16
         let chipsHeight = chips.isEmpty ? 0 : ChipsView.height
         let shown = CGFloat(min(max(visible.count, 1), wide ? 14 : Self.maxRows))
-        let height = headerHeight + chipsHeight + shown * ceil(rows.rowHeight) + 12
+        let height = embedded ? bounds.height : headerHeight + chipsHeight + shown * ceil(rows.rowHeight) + 12
         chipsView.isHidden = chips.isEmpty
         chipsView.frame = NSRect(x: 0, y: headerHeight, width: width, height: chipsHeight)
-        card.frame = NSRect(
+        card.frame = embedded ? bounds : NSRect(
             x: (bounds.width - width) / 2,
             y: min(70, max(16, bounds.height * 0.1)),
             width: width,
@@ -430,6 +448,10 @@ final class ListPickerView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if embedded {
+            window?.makeFirstResponder(self)
+            return
+        }
         if !card.frame.contains(convert(event.locationInWindow, from: nil)) { onDismiss?() }
     }
 
@@ -467,7 +489,13 @@ final class ListPickerView: NSView {
             case (_, "n") where control: move(by: 1)
             case (_, "p") where control: move(by: -1)
             case (36, _), (76, _): choose()
-            case (53, _): onDismiss?()
+            case (53, _):
+                if embedded, !liveQuery {
+                    endFilter()
+                    onFilterChange?(false)
+                } else {
+                    onDismiss?()
+                }
             case (51, _): backspace()
             default:
                 if !command, !control, let typed = event.characters,

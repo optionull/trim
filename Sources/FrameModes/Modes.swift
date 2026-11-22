@@ -221,7 +221,7 @@ public struct Modes: Equatable, Sendable {
         case .picker: pickerFiltering ? "FILTER" : "TABS"
         case .list: listFiltering ? "FILTER" : listTitle.uppercased()
         case .tree: treeMode == .filter ? "FILTER" : "TREE"
-        case .terminal: "RUN"
+        case .terminal: "BUILD"
         case .editor: Self.name(ofEditorMode: editorMode)
         }
     }

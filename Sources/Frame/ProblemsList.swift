@@ -60,6 +60,7 @@ extension FrameWindowController {
         }
         buildDiagnostics = files
         sendDiagnosticsToTree()
+        reloadProblems()
     }
 
     private func nvimProblems() async -> [ProblemRow] {
@@ -99,62 +100,71 @@ extension FrameWindowController {
         focusEditor()
     }
 
-    /// Every problem as a mode: nvim's diagnostics for the files it has open and what the last build printed, worst
-    /// first, with a toggle for each level (a click, or e w i h). Return goes there, Alt+Enter asks for the code
-    /// actions
-    /// at the problem.
-    @objc func showProblems(_: Any?) {
-        guard listPicker == nil else { return }
-        Task { [weak self] in
-            guard let self, listPicker == nil else { return }
-            let all = await ProblemRow.merged(nvim: nvimProblems(), build: buildProblems)
-            var shown = Set(DiagnosticLevel.allCases)
-            let root = workspace
-            func chips() -> [ListChip] {
-                DiagnosticLevel.allCases.sorted(by: >).map { level in
-                    ListChip(
-                        id: String(level.rawValue), title: ProblemRow.name(level), color: SquiggleView.color(level),
-                        count: all.count(where: { $0.level == level }), on: shown.contains(level),
-                        key: ProblemRow.keys[level] ?? ""
-                    )
-                }
-            }
-            func rows() -> [ProblemRow] { all.filter { shown.contains($0.level) } }
-            func items() -> [PickerItem] {
-                rows().enumerated().map { index, row in
-                    let name = (row.path as NSString).lastPathComponent
-                    let place = Self.relative(row.path, to: root) + ":\(row.line)"
-                    return PickerItem(
-                        id: String(index), title: row.message, detail: place, glyph: ProblemRow.glyph(row.level),
-                        subtitle: row.code, file: name
-                    )
-                }
-            }
-            func row(of item: PickerItem) -> ProblemRow? { Int(item.id)
-                .flatMap { rows().indices.contains($0) ? rows()[$0] : nil }
-            }
-            showList(
-                title: "Problems", items: items(), current: nil,
-                onChoose: { [weak self] item in
-                    if let problem = row(of: item) { self?.go(to: problem) }
-                },
-                configure: { [weak self] picker in
-                    picker.wide = true
-                    picker.chips = chips()
-                    picker.onChip = { [weak picker] id in
-                        guard let level = Int(id).flatMap(DiagnosticLevel.init(rawValue:)) else { return }
-                        if shown.contains(level) { shown.remove(level) } else { shown.insert(level) }
-                        picker?.chips = chips()
-                        picker?.set(items(), current: nil)
-                    }
-                    picker.onKey = { [weak self] key, item in
-                        guard key == "<M-CR>", let problem = row(of: item) else { return false }
-                        self?.closeList()
-                        self?.go(to: problem, then: "vim.defer_fn(function() vim.lsp.buf.code_action() end, 200)")
-                        return true
-                    }
-                }
-            )
+    /// The pane, made when first wanted (a run, or the problems), with its Problems tab set up.
+    func ensureBuildPane() -> BuildPane {
+        if let pane = runPane { return pane }
+        let pane = BuildPane(look: tree.look)
+        let list = pane.problems
+        list.onFocus = { [weak self] in self?.terminalFocused() }
+        list.onDismiss = { [weak self] in self?.focusEditor() }
+        list.onChoose = { [weak self] item in
+            if let row = self?.problemRows[item.id] { self?.go(to: row) }
         }
+        list.onChip = { [weak self] id in
+            guard let self, let level = Int(id).flatMap(DiagnosticLevel.init(rawValue:)) else { return }
+            if problemLevels.contains(level) { problemLevels.remove(level) } else { problemLevels.insert(level) }
+            reloadProblems()
+        }
+        list.onKey = { [weak self] key, item in
+            guard key == "<M-CR>", let row = self?.problemRows[item.id] else { return false }
+            self?.go(to: row, then: "vim.defer_fn(function() vim.lsp.buf.code_action() end, 200)")
+            return true
+        }
+        runPane = pane
+        view.terminal = pane
+        reloadProblems()
+        return pane
+    }
+
+    /// The Problems tab, from what nvim has now and what the last build printed: worst first, only the levels switched
+    /// on, the counts of every level on the toggles. Called whenever either changes.
+    func reloadProblems() {
+        guard let pane = runPane else { return }
+        Task { [weak self] in
+            guard let self, let pane = runPane else { return }
+            let all = await ProblemRow.merged(nvim: nvimProblems(), build: buildProblems)
+            let root = workspace
+            let shown = all.filter { problemLevels.contains($0.level) }
+            var rows: [String: ProblemRow] = [:]
+            let items = shown.map { row -> PickerItem in
+                let id = "\(row.path)\t\(row.line)\t\(row.column)\t\(row.code)\t\(row.message)"
+                rows[id] = row
+                return PickerItem(
+                    id: id, title: row.message, detail: Self.relative(row.path, to: root) + ":\(row.line)",
+                    glyph: ProblemRow.glyph(row.level), subtitle: row.code,
+                    file: (row.path as NSString).lastPathComponent
+                )
+            }
+            problemRows = rows
+            pane.problems.chips = DiagnosticLevel.allCases.sorted(by: >).map { level in
+                ListChip(
+                    id: String(level.rawValue), title: ProblemRow.name(level), color: SquiggleView.color(level),
+                    count: all.count(where: { $0.level == level }), on: problemLevels.contains(level),
+                    key: ProblemRow.keys[level] ?? ""
+                )
+            }
+            pane.problems.set(items, current: pane.problems.cursor)
+            pane.problemCount = all.count(where: { $0.level == .error || $0.level == .warning })
+        }
+        _ = pane
+    }
+
+    /// ⇧⌘M: the pane on its Problems tab with the keyboard in it; again, back to the code.
+    @objc func showProblems(_: Any?) {
+        let pane = ensureBuildPane()
+        if modes.surface == .terminal, pane.tab == .problems { return focusEditor() }
+        pane.select(.problems)
+        reloadProblems()
+        focus(.terminal)
     }
 }

@@ -625,7 +625,9 @@ final class TreeCellView: NSTableCellView {
         )
         // The wave runs under the name as far as it is drawn.
         let drawn = min(name.attributedStringValue.size().width, name.frame.width)
-        squiggle.frame = NSRect(x: name.frame.minX, y: name.frame.maxY - 1, width: drawn, height: 3)
+        // Just under the baseline, where an underline goes, not under the line's whole height.
+        let baseline = name.frame.minY + name.firstBaselineOffsetFromTop
+        squiggle.frame = NSRect(x: name.frame.minX, y: baseline + 0.5, width: drawn, height: 3)
     }
 }
 
@@ -949,6 +951,13 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     }
 
     var rootPath: String? { tree?.root.path }
+
+    /// The row's content for a path, when it is on screen as a row (for the self-check).
+    func cell(for path: String) -> TreeCellView? {
+        guard let node = tree?.node(at: path) else { return nil }
+        let row = outline.row(forItem: node)
+        return row >= 0 ? outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? TreeCellView : nil
+    }
 
     /// The files that have diagnostics, as nvim and the last build say them (absolute paths, their worst level). The
     /// folding up through the folders happens off the main thread; then only the rows whose mark changed are drawn
