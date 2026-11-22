@@ -104,7 +104,9 @@ values to nvim as `vim.g.frame_settings` (JSON); a change applies live by RPC. `
 hatch and wins over the settings. A key sill does not know is named at the top of the window.
 
 ### 9. Smooth scrolling of nvim's buffers (finding 11)
-Done: scrolls slide by line and chain (a scroll during a slide goes on from where the window is drawn). To do:
+**Done (all three below):** pixel scrolling (`SillCore/PixelScroll.swift`, `EditorView.pixelScroll`), `smoothscroll` and `mousescroll=ver:1`, and the setting. The notes below are the design as built: nvim is kept a line ahead of the drawn text, the slide's progress comes from the finger, and the text settles 90 ms after the last event.
+
+Was: scrolls slide by line and chain (a scroll during a slide goes on from where the window is drawn). To do:
 1. `smoothscroll=true` in `frame.base` (nvim scrolls wrapped lines by screen line). Trivial.
 2. **Pixel scrolling for the trackpad.** Keep a sub-line offset in the editor view: a precise scroll delta moves the window by
    points; whole lines cross to nvim as scrolls (as now) while the remainder is drawn as a vertical offset of the window's rows

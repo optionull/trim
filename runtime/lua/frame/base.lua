@@ -23,6 +23,9 @@ o.linebreak = true
 -- Scrolling goes by screen lines through a wrapped line, and a key sequence waits a moment for its next key.
 o.smoothscroll = true
 o.timeoutlen = 400
+-- A wheel step is one line (Frame sends three per notch of a mouse wheel itself), so a trackpad moves the text exactly as far as
+-- the finger does.
+o.mousescroll = 'ver:1,hor:1'
 -- What is hidden in a line is shown quietly; the end of the buffer is not a column of tildes.
 o.list = true
 o.listchars = 'tab:» ,trail:·,nbsp:␣'

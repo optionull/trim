@@ -98,6 +98,7 @@ struct FrameCheck {
         await group("status") { await statusSteps() }
         await group("tabs") { await tabsSteps() }
         await group("scroll") { await scrollSteps() }
+        await group("pixel") { await pixelSteps() }
         await group("theme") { await themeSteps() }
         await group("whichkey") { await whichKeySteps() }
         await group("lsp") { await lspSteps() }
@@ -1184,6 +1185,14 @@ struct FrameCheck {
         fire(wrap)
         await waitAsync("wrapping to reach nvim") { await lua("return vim.wo.wrap")?.boolValue == true }
         await wait("wrapping to be saved") { savedText().contains("wrap = true") }
+        let pixelBox = control("editor.pixelscroll", as: NSButton.self)
+        pixelBox.state = .off
+        fire(pixelBox)
+        await wait("pixel scrolling to go off") { shell.editor.pixelScrolling == false }
+        await wait("it to be saved") { savedText().contains("pixelscroll = false") }
+        pixelBox.state = .on
+        fire(pixelBox)
+        await wait("pixel scrolling to come back") { shell.editor.pixelScrolling }
         let numbers = control("editor.number", as: NSButton.self)
         numbers.state = .off
         fire(numbers)
@@ -1292,6 +1301,89 @@ struct FrameCheck {
         await wait("the slides to end") { !sliding() }
         _ = await lua("vim.cmd('silent! bwipeout!')")
         step("a scroll that comes while one slides goes on from where the window is drawn")
+    }
+
+    /// Scrolling by the pixel: the text follows a trackpad's deltas by less than a line (what is drawn is the rows
+    /// between nvim's
+    /// last two scrolls, how far along the finger says), nvim is a line ahead, whole lines cross to it, turning round
+    /// works, and
+    /// when the events stop the text settles. The deltas are given to the view's own scroll (an `NSEvent` carries no
+    /// window).
+    private func pixelSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        let file = RealPath.of(NSTemporaryDirectory()) + "/frame-pixel-\(UUID().uuidString).txt"
+        try? (1 ... 400).map { "line \($0)" }.joined(separator: "\n").write(
+            toFile: file,
+            atomically: true,
+            encoding: .utf8
+        )
+        _ =
+            await lua(
+                "vim.o.scrolloff = 0; vim.o.smoothscroll = false; vim.cmd('edit ' .. vim.fn.fnameescape('\(file)')); vim.cmd('normal! gg')"
+            )
+        let editor = shell.editor!
+        defer { editor.pixelScrolling = true }
+        editor.pixelScrolling = true
+        let height = editor.metrics.height
+        let target = editor.screen.hit(row: 3, col: 12)
+        guard target.grid != 1 || editor.screen.placements[target.grid]?.kind == .window
+        else { fail("no window to scroll") }
+        func top() async -> Int { await lua("return vim.fn.line('w0')")?.integerValue.map(Int.init) ?? 0 }
+        func move(_ lines: Double) {
+            editor.pixelScroll(
+                deltaX: 0,
+                deltaY: CGFloat(-lines) * height,
+                grid: target.grid,
+                row: target.row,
+                col: target.col,
+                modifiers: ""
+            )
+        }
+        func progress() -> Double? { editor.currentFrame.scrolls[target.grid].map { Double($0.progress) } }
+        func lines() -> Int? { editor.currentFrame.scrolls[target.grid]?.lines }
+        guard await top() == 1 else { await fail("not at the top to begin with: \(top())") }
+        move(0.3)
+        await waitAsync("nvim to be a line ahead of a third of a line") { await top() == 2 }
+        await wait("the slide the finger holds") { lines() == 1 }
+        guard let first = progress(),
+              abs(first - 0.3) < 0.02
+        else { fail("a third of a line is not drawn a third along: \(String(describing: progress()))") }
+        move(0.4)
+        try? await Task.sleep(for: .milliseconds(30))
+        guard let second = progress(), abs(second - 0.7) < 0.02, await top() == 2
+        else { await fail("0.7 of a line: \(String(describing: progress())), top \(top())") }
+        step("the text follows the finger by less than a line, nvim a line ahead")
+        move(0.5)
+        await waitAsync("the second line to cross") { await top() == 3 }
+        await wait("the next slide") { lines() == 1 && (progress() ?? 0) < 0.5 }
+        guard let third = progress(),
+              abs(third - 0.2) < 0.02
+        else { fail("1.2 lines is not 0.2 along the second: \(String(describing: progress()))") }
+        step("past a line the next one is already there, and the text goes on from where it was")
+        // The events stop: it settles on its own and nothing is left sliding.
+        try? await Task.sleep(for: .milliseconds(Int(EditorView.pixelSettleDelay * 1000) + 60))
+        _ = editor.currentFrame
+        await wait("the text to settle") { _ = editor.currentFrame; return !editor.isSliding }
+        guard await top() == 3 else { await fail("nvim moved by the settling: \(top())") }
+        step("when the events stop the text settles where nvim is")
+        // Turning round: back by half a line, and nvim goes a line back.
+        move(-0.5)
+        await waitAsync("nvim to go back a line") { await top() == 2 }
+        await wait("the slide back") { lines() == -1 }
+        guard let back = progress(),
+              abs(back - 0.5) < 0.02
+        else { fail("half a line back is not half along: \(String(describing: progress()))") }
+        try? await Task.sleep(for: .milliseconds(Int(EditorView.pixelSettleDelay * 1000) + 60))
+        await wait("the text to settle again") { _ = editor.currentFrame; return !editor.isSliding }
+        step("turning round goes back by the pixel too")
+        // A mouse wheel and a trackpad with it off still slide by lines.
+        editor.pixelScrolling = false
+        channel.send(keys: "<C-e>")
+        await wait("a line slide, not held") { lines() == 1 }
+        await wait("it ends by itself") { _ = editor.currentFrame; return !editor.isSliding }
+        _ = await lua("vim.cmd('silent! bwipeout!')")
+        step("with pixel scrolling off, scrolls slide by lines as before")
     }
 
     /// The tabs: the open files, in the places they can be, selected and closed by clicks and keys, and kept from being

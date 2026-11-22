@@ -203,6 +203,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 )
             }
         )
+        let pixelOn = FrameSettings.load()["editor"]?.table?["pixelscroll"]?.bool ?? true
+        row("", checkbox("editor.pixelscroll", "Smooth trackpad scrolling", on: pixelOn) { [self] on in
+            store(["editor", "pixelscroll"], .bool(on))
+            app.controllers.forEach { $0.editor?.pixelScrolling = on }
+        })
         row("Scroll margin", number("editor.scrolloff", value: integer("scrolloff", 0), range: 0 ... 20) { [self] now in
             store(
                 ["editor", "scrolloff"],

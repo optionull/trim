@@ -71,7 +71,24 @@ package final class EditorView: NSView {
     private struct Slide {
         var previous: GridBuffer
         var motion: ScrollSlide
+        /// A slide the finger holds (pixel scrolling): how far along it is comes from where the text is, not the clock.
+        var heldByFinger = false
     }
+
+    /// Scrolling by the pixel with a trackpad: the text follows the finger, nvim a line ahead. Off, a trackpad scrolls
+    /// by
+    /// lines that slide.
+    package var pixelScrolling = false
+    /// How many wheel steps one step of a mouse wheel is sent as (nvim's `mousescroll` is one line a step; its default
+    /// is 3).
+    package var wheelLinesPerStep = 1
+    private var pixel = PixelScroll()
+    /// The window a gesture scrolls, and how many lines nvim has reported scrolling it since the gesture began.
+    private var pixelGrid: Int?
+    private var pixelReported = 0
+    private var pixelSettle: DispatchWorkItem?
+    /// How long after the last scroll event the text is let settle where nvim is.
+    package static let pixelSettleDelay: TimeInterval = 0.09
 
     /// A scroll that comes while a window is still sliding goes on from where the window is drawn, to the new place,
     /// instead of starting over from the rows it had before (which jumps the window back, and steps line by line when
@@ -90,6 +107,21 @@ package final class EditorView: NSView {
         for (grid, scroll) in new.scrolls where scroll.serial > (seenScrolls[grid] ?? 0) {
             seenScrolls[grid] = scroll.serial
             guard smoothScrolling, let placement = new.placements[grid], placement.kind == .window else { continue }
+            if pixelSettle != nil, pixelGrid == grid {
+                // A gesture is scrolling this window: the slide is held by the finger, from the rows before this
+                // scroll.
+                pixelReported += scroll.lines
+                if let previous = old.grids[grid], abs(scroll.lines) < placement.height,
+                   previous.rows == placement.height
+                {
+                    slides[grid] = Slide(
+                        previous: previous, motion: ScrollSlide(lines: scroll.lines, start: now), heldByFinger: true
+                    )
+                } else {
+                    slides[grid] = nil
+                }
+                continue
+            }
             if chainsScrolls, let active = slides[grid], active.previous.rows == placement.height {
                 // Not a slide any more when the scrolls together are nothing or a screenful: the window is where it is.
                 slides[grid] = ScrollSlide.chained(active.motion, then: scroll.lines, at: now, height: placement.height)
@@ -116,6 +148,17 @@ package final class EditorView: NSView {
         let now = CACurrentMediaTime()
         var result: [Int: Frame.ScrollAnimation] = [:]
         for (grid, slide) in slides {
+            if slide.heldByFinger {
+                guard screen.placements[grid] != nil else {
+                    slides[grid] = nil
+                    continue
+                }
+                let progress = PixelScroll.progress(lines: slide.motion.lines, lag: pixel.lag(reported: pixelReported))
+                result[grid] = Frame.ScrollAnimation(
+                    previous: slide.previous, lines: slide.motion.lines, progress: Float(progress)
+                )
+                continue
+            }
             if slide.motion.isDone(at: now) || screen.placements[grid] == nil {
                 slides[grid] = nil
                 continue
@@ -415,18 +458,79 @@ package final class EditorView: NSView {
         }
     }
 
+    /// A trackpad's move, by the pixel: the text is drawn where the finger has taken it, nvim is asked for the whole
+    /// lines (a
+    /// line ahead), and when the events stop the text settles. Sideways moves go as they always did.
+    private func pixelScroll(_ event: NSEvent) {
+        let (grid, row, col) = cell(event)
+        pixelScroll(
+            deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, grid: grid, row: row, col: col,
+            modifiers: Mouse.modifiers(event.modifierFlags)
+        )
+    }
+
+    /// The move of a precise scroll of `deltaY` points (positive: towards earlier lines) over the cell given.
+    package func pixelScroll(deltaX: CGFloat, deltaY: CGFloat, grid: Int, row: Int, col: Int, modifiers: String) {
+        if pixelSettle == nil || pixelGrid != grid {
+            pixel.reset()
+            pixelReported = 0
+            pixelGrid = grid
+        }
+        let asked = pixel.move(by: -Double(deltaY / metrics.height), reported: pixelReported)
+        for _ in 0 ..< abs(asked) {
+            channel.send(.mouse(
+                button: "wheel", action: asked > 0 ? "down" : "up", modifiers: modifiers, grid: grid, row: row, col: col
+            ))
+        }
+        for step in scroll.steps(deltaX: deltaX, deltaY: 0, precise: true) {
+            channel.send(.mouse(button: "wheel", action: step, modifiers: modifiers, grid: grid, row: row, col: col))
+        }
+        pixelSettle?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.settlePixelScroll() }
+        pixelSettle = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.pixelSettleDelay, execute: work)
+        submit()
+    }
+
+    /// The events stopped: what is held by the finger now slides the rest of the way, and the gesture is forgotten.
+    private func settlePixelScroll() {
+        let now = CACurrentMediaTime()
+        let lag = pixel.lag(reported: pixelReported)
+        for (grid, slide) in slides where slide.heldByFinger {
+            let from = PixelScroll.progress(lines: slide.motion.lines, lag: lag)
+            slides[grid] = Slide(
+                previous: slide.previous,
+                motion: ScrollSlide(lines: slide.motion.lines, start: now, from: from)
+            )
+        }
+        pixelSettle = nil
+        pixelGrid = nil
+        pixel.reset()
+        pixelReported = 0
+        submit()
+    }
+
     override package func scrollWheel(with event: NSEvent) {
+        if pixelScrolling, smoothScrolling, event.hasPreciseScrollingDeltas {
+            pixelScroll(event)
+            return
+        }
         if event.phase == .began { scroll.reset() }
         let steps = scroll.steps(
             deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas
         )
         guard !steps.isEmpty else { return }
         let (grid, row, col) = cell(event)
+        // A notch of a mouse wheel is `wheelLinesPerStep` lines (a trackpad's steps are the lines it moved).
+        let repeats = event.hasPreciseScrollingDeltas ? 1 : max(wheelLinesPerStep, 1)
         for step in steps {
-            channel.send(.mouse(
-                button: "wheel", action: step, modifiers: Mouse.modifiers(event.modifierFlags), grid: grid, row: row,
-                col: col
-            ))
+            for _ in 0 ..< repeats {
+                channel.send(.mouse(
+                    button: "wheel", action: step, modifiers: Mouse.modifiers(event.modifierFlags), grid: grid,
+                    row: row,
+                    col: col
+                ))
+            }
         }
     }
 

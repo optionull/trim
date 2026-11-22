@@ -48,6 +48,7 @@ struct FrameBaseLuaTests {
         assert(vim.o.expandtab and vim.o.shiftwidth == 4 and vim.o.tabstop == 4, 'indent')
         assert(vim.o.clipboard == 'unnamedplus', 'clipboard')
         assert(vim.o.smoothscroll and vim.o.timeoutlen == 400 and not vim.o.wrap, 'scrolling and keys')
+        assert(vim.o.mousescroll == 'ver:1,hor:1', 'a wheel step is a line: ' .. vim.o.mousescroll)
         """)
     }
 

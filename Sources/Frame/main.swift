@@ -527,6 +527,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         // A scroll while another still slides goes on from where the window is drawn, not back to where the first
         // began.
         editor.chainsScrolls = true
+        editor.wheelLinesPerStep = 3
+        editor.pixelScrolling = FrameSettings.load()["editor"]?.table?["pixelscroll"]?.bool ?? true
         // A card over the grid (the switcher, the list of open files) has the pointer: no I-beam over its rows.
         editor.isCovered = { [weak self] event in self?.cardHasPointer(event) ?? false }
         externalUI = ExternalUI(editor: editor)
