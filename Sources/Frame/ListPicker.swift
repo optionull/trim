@@ -57,7 +57,7 @@ final class ChipsView: NSView {
                 .font: look.smallFont, .foregroundColor: look.faint,
             ])
             let width = 12 + 14 + text.size().width + 8 + key.size().width + 12
-            let rect = NSRect(x: x, y: 6, width: width, height: Self.height - 12)
+            let rect = NSRect(x: x, y: 5, width: width, height: bounds.height - 10)
             (chip.on ? chip.color.withAlphaComponent(0.16) : NSColor.clear).setFill()
             let pill = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
             pill.fill()
@@ -418,8 +418,12 @@ final class ListPickerView: NSView {
     override func layout() {
         super.layout()
         let width = embedded ? bounds.width : min(wide ? 820 : 520, bounds.width - 32)
-        let headerHeight = ceil(look.rowHeight) + 16
-        let chipsHeight = chips.isEmpty ? 0 : ChipsView.height
+        // In a pane the heading shows only while filtering (the tab says what the list is), and the toggles are
+        // slimmer.
+        let hidesHeader = embedded && filter == nil
+        let headerHeight = hidesHeader ? 0 : ceil(look.rowHeight) + 16
+        header.isHidden = hidesHeader
+        let chipsHeight = chips.isEmpty ? 0 : (embedded ? ChipsView.height - 6 : ChipsView.height)
         let shown = CGFloat(min(max(visible.count, 1), wide ? 14 : Self.maxRows))
         let height = embedded ? bounds.height : headerHeight + chipsHeight + shown * ceil(rows.rowHeight) + 12
         chipsView.isHidden = chips.isEmpty

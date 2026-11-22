@@ -29,7 +29,8 @@ final class BuildPane: NSView {
     }
 
     var onTabChange: ((Tab) -> Void)?
-    static let headerHeight: CGFloat = 34
+    /// As tall as the file tabs' strip.
+    static func headerHeight(for look: TreeLook) -> CGFloat { look.rowHeight + 12 }
     private var tabFrames: [(Tab, NSRect)] = []
 
     init(look: TreeLook) {
@@ -73,9 +74,8 @@ final class BuildPane: NSView {
 
     override func layout() {
         super.layout()
-        let body = NSRect(
-            x: 0, y: Self.headerHeight, width: bounds.width, height: max(0, bounds.height - Self.headerHeight)
-        )
+        let header = Self.headerHeight(for: look)
+        let body = NSRect(x: 0, y: header, width: bounds.width, height: max(0, bounds.height - header))
         terminal?.frame = body
         problems.frame = body
         terminal?.isHidden = tab != .output
@@ -86,27 +86,32 @@ final class BuildPane: NSView {
         look.island.setFill()
         bounds.fill()
         tabFrames = []
-        var x: CGFloat = 14
-        let tabs: [(Tab, String)] = [
-            (.output, "Output"),
-            (.problems, problemCount > 0 ? "Problems \(problemCount)" : "Problems"),
+        let header = Self.headerHeight(for: look)
+        var x: CGFloat = 8
+        let tabs: [(Tab, String, String)] = [
+            (.problems, problemCount > 0 ? "Problems \(problemCount)" : "Problems", "\u{f071}"),
+            (.output, "Output", "\u{f120}"),
         ]
-        for (which, name) in tabs {
+        let iconFont = NerdFont.font(size: look.iconSize - 1) ?? look.smallFont
+        for (which, name, glyph) in tabs {
             let enabled = which == .problems || terminal != nil
             let selected = which == tab
-            let text = NSAttributedString(string: name, attributes: [
-                .font: selected ? look.boldFont : look.font,
-                .foregroundColor: selected ? look.text : (enabled ? look.muted : look.faint),
-            ])
-            let width = ceil(text.size().width)
-            let y = (Self.headerHeight - text.size().height) / 2
-            text.draw(at: NSPoint(x: x, y: y))
+            let color = selected ? look.text : (enabled ? look.muted : look.faint)
+            let icon = NSAttributedString(string: glyph, attributes: [.font: iconFont, .foregroundColor: color])
+            let text = NSAttributedString(string: name, attributes: [.font: look.font, .foregroundColor: color])
+            let width = 10 + max(icon.size().width, look.iconSize) + 7 + ceil(text.size().width) + 12
+            let rect = NSRect(x: x, y: 4, width: width, height: header - 8)
             if selected {
-                Design.accent.setFill()
-                NSRect(x: x, y: Self.headerHeight - 3, width: width, height: 2).fill()
+                look.focusedSelection.setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
             }
-            tabFrames.append((which, NSRect(x: x - 8, y: 0, width: width + 16, height: Self.headerHeight)))
-            x += width + 24
+            icon.draw(at: NSPoint(x: rect.minX + 10, y: rect.midY - icon.size().height / 2))
+            text.draw(at: NSPoint(
+                x: rect.minX + 10 + max(icon.size().width, look.iconSize) + 7,
+                y: rect.midY - text.size().height / 2
+            ))
+            tabFrames.append((which, rect))
+            x += width + 4
         }
         if let entry {
             let detail = NSAttributedString(string: entry.title + "  " + entry.command, attributes: [
@@ -116,8 +121,8 @@ final class BuildPane: NSView {
             if room > 40 {
                 detail.draw(
                     with: NSRect(
-                        x: x,
-                        y: (Self.headerHeight - detail.size().height) / 2,
+                        x: x + 8,
+                        y: (header - detail.size().height) / 2,
                         width: room,
                         height: detail.size().height
                     ),

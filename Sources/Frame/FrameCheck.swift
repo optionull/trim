@@ -1184,13 +1184,44 @@ struct FrameCheck {
         step("a file's worst diagnostic marks it in the tree, and every folder above takes the worst below")
         await wait("the row's wavy line") { shell.tree.cell(for: a)?.squiggle.level == .error }
         if let cell = shell.tree.cell(for: a) {
+            // Drawn for real, and measured: the red of the wave must start where the text ends and be as wide as it.
             cell.layoutSubtreeIfNeeded()
-            let gap = cell.squiggle.frame.minY - (cell.name.frame.minY + cell.name.firstBaselineOffsetFromTop)
-            guard gap >= 0, gap <= 1.5, !cell.squiggle.isHidden, cell.squiggle.frame.width > 10
-            else {
-                fail("the wavy line is not just under the text: \(gap)pt below the baseline, \(cell.squiggle.frame)")
+            guard let rep = cell.bitmapImageRepForCachingDisplay(in: cell.bounds) else { fail("no bitmap of the row") }
+            cell.cacheDisplay(in: cell.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / cell.bounds.width
+            let nameFrom = Int(cell.name.frame.minX * scale), nameTo = Int(cell.name.frame.maxX * scale)
+            struct Box {
+                var x0 = Int.max, x1 = Int.min, y0 = Int.max, y1 = Int.min
+                mutating func add(_ x: Int, _ y: Int) {
+                    x0 = min(x0, x)
+                    x1 = max(x1, x)
+                    y0 = min(y0, y)
+                    y1 = max(y1, y)
+                }
             }
-            step("the wavy line sits just under the text, as wide as the name")
+            var text = Box(), wave = Box()
+            for y in 0 ..< rep.pixelsHigh {
+                for x in nameFrom ..< min(nameTo, rep.pixelsWide) {
+                    guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                    let r = c.redComponent, g = c.greenComponent, b = c.blueComponent
+                    if r > 0.85, g < 0.55, b < 0.55 {
+                        wave.add(x, y)
+                    } else if r > 0.6, g > 0.6, b > 0.6 {
+                        text.add(x, y)
+                    }
+                }
+            }
+            guard wave.x0 != .max, text.x0 != .max else { fail("no wave or no text in the row's picture") }
+            let tolerance = Int(3 * scale)
+            guard wave.y0 >= (text.y0 + text.y1) / 2, wave.y0 <= text.y1 + tolerance
+            else {
+                fail(
+                    "the wave is not at the foot of the text: wave rows \(wave.y0)-\(wave.y1), text rows \(text.y0)-\(text.y1)"
+                )
+            }
+            guard abs(wave.x0 - text.x0) <= tolerance, abs(wave.x1 - text.x1) <= tolerance
+            else { fail("the wave is not as wide as the text: wave \(wave.x0)-\(wave.x1), text \(text.x0)-\(text.x1)") }
+            step("the wavy line is drawn at the foot of the name, as wide as it (measured in the row's pixels)")
         }
         _ = await lua("vim.diagnostic.reset()")
         await wait("the marks to go") { level(a) == nil && level(top) == nil }

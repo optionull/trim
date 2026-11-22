@@ -623,11 +623,17 @@ final class TreeCellView: NSTableCellView {
             x: 26, y: (height - name.frame.height) / 2,
             width: max(0, badge.frame.minX - 26 - 4), height: name.frame.height
         )
-        // The wave runs under the name as far as it is drawn.
-        let drawn = min(name.attributedStringValue.size().width, name.frame.width)
-        // Just under the baseline, where an underline goes, not under the line's whole height.
-        let baseline = name.frame.minY + name.firstBaselineOffsetFromTop
-        squiggle.frame = NSRect(x: name.frame.minX, y: baseline + 0.5, width: drawn, height: 3)
+        // The wave runs under the text, from where it starts to where it ends (a cell is not flipped: the baseline is
+        // measured from the top of the label, so its y depends on which way the cell counts).
+        let textWidth = ceil(name.attributedStringValue.boundingRect(
+            with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin]
+        ).width)
+        let drawn = max(0, min(textWidth, name.frame.width - 4))
+        let offset = name.firstBaselineOffsetFromTop
+        let baseline = isFlipped ? name.frame.minY + offset : name.frame.maxY - offset
+        let top = isFlipped ? baseline + 0.5 : baseline - 0.5 - 3
+        squiggle.frame = NSRect(x: name.frame.minX + 2, y: top, width: drawn, height: 3)
     }
 }
 
