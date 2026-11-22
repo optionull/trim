@@ -105,6 +105,7 @@ struct FrameCheck {
             await lspSteps()
             await dotnetSteps()
         }
+        await group("actions") { await actionSteps() }
         await group("finder") { await finderSteps() }
         await group("packages") { await packagesSteps() }
         await group("settings") { await settingsSteps() }
@@ -1007,6 +1008,103 @@ struct FrameCheck {
         step("a server killed from outside leaves nvim alone and is started again")
         _ = await lua("require('frame.lsp').stop('sourcekit')")
         try? FileManager.default.removeItem(atPath: folder)
+    }
+
+    /// What can be done here: Alt+Enter (and Cmd+.) asks the server for code actions and the answer is the frame's own
+    /// list, filtered by typing, Return applying the one chosen, Escape leaving the text alone. The server is a fake
+    /// one,
+    /// in nvim, that offers two edits; any `vim.ui.select` goes to the same list.
+    private func actionSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        let file = RealPath.of(NSTemporaryDirectory()) + "/frame-actions-\(UUID().uuidString).txt"
+        try? "alpha beta\ngamma\n".write(toFile: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: file) }
+        _ = await lua("""
+        vim.cmd('edit ' .. vim.fn.fnameescape('\(file)'))
+        local uri = vim.uri_from_bufnr(0)
+        local function edit(text) return { changes = { [uri] = { { range = { start = { line = 0, character = 0 }, ['end'] = { line = 0, character = 5 } }, newText = text } } } } end
+        vim.lsp.start({ name = 'fake', root_dir = vim.uv.cwd(), cmd = function()
+          local closing = false
+          return {
+            request = function(method, _, callback)
+              vim.schedule(function()
+                if method == 'initialize' then callback(nil, { capabilities = { codeActionProvider = true } })
+                elseif method == 'textDocument/codeAction' then
+                  callback(nil, {
+                    { title = 'Use primary constructor', kind = 'refactor', edit = edit('FIRST') },
+                    { title = 'Remove unused usings', kind = 'quickfix', edit = edit('SECOND') },
+                  })
+                else callback(nil, nil) end
+              end)
+              return true, 1
+            end,
+            notify = function() return true end,
+            is_closing = function() return closing end,
+            terminate = function() closing = true end,
+          }
+        end }, { bufnr = 0 })
+        """)
+        func first() async -> String { await lua("return vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]")?
+            .stringValue ?? ""
+        }
+        await waitAsync("the fake server to attach") {
+            await lua("return #vim.lsp.get_clients({ bufnr = 0, name = 'fake' })")?.integerValue == 1
+        }
+        guard await lua("return vim.fn.maparg('<M-CR>', 'n')")?.stringValue != ""
+        else { fail("no Alt+Enter on a buffer with a server") }
+        shell.focusEditor()
+        channel.send(keys: "<M-CR>")
+        await wait("Alt+Enter to bring up the code actions") { shell.listPicker != nil }
+        guard let picker = shell.listPicker, shell.modes.label(editorMode: "normal") == "CODE ACTIONS"
+        else { fail("not the code actions mode: \(shell.modes.label(editorMode: "normal"))") }
+        await wait("the actions") { picker.all.count == 2 }
+        guard picker.all.map(\.title) == ["Use primary constructor", "Remove unused usings"]
+        else { fail("the actions are not their titles: \(picker.all.map(\.title))") }
+        step("Alt+Enter lists what the server can do here, in the frame's own list")
+        // Typing narrows, Return applies the one left.
+        for letter in "/unus" {
+            picker.keyDown(with: key(String(letter), code: 0))
+        }
+        await wait("the filter") { picker.visible.count == 1 }
+        picker.keyDown(with: key("\r", code: 36))
+        await waitAsync("the second action to be applied") { await first() == "SECOND beta" }
+        guard shell.listPicker == nil,
+              shell.modes.surface == .editor else { fail("the list stayed up or the keys did not come back") }
+        step("filtering and Return apply the action chosen, and the keys go back to the text")
+        // Cmd+. again, put away: nothing changes.
+        channel.send(keys: "<D-.>")
+        await wait("Cmd+. to bring up the list") { shell.listPicker != nil }
+        shell.escape()
+        try? await Task.sleep(for: .milliseconds(200))
+        guard shell.listPicker == nil,
+              await first() == "SECOND beta" else { await fail("Escape changed the text: \(first())") }
+        step("Cmd+. does the same and Escape leaves the text alone")
+        // Any prompt of nvim's: the answer comes back, put away it is nil.
+        _ =
+            await lua(
+                "vim.g.picked = nil; vim.ui.select({ 'red', 'green' }, { prompt = 'Colour:' }, function(item, index) vim.g.picked = { item or vim.NIL, index or vim.NIL } end)"
+            )
+        await wait("vim.ui.select as a list") { shell.listPicker != nil }
+        shell.listPicker?.keyDown(with: key("j", code: 38))
+        shell.listPicker?.keyDown(with: key("\r", code: 36))
+        await waitAsync("the choice to come back") {
+            await lua("return vim.g.picked and vim.g.picked[1]")?.stringValue == "green"
+        }
+        _ =
+            await lua(
+                "vim.g.picked = nil; vim.ui.select({ 'red' }, {}, function(item) vim.g.picked = { item or 'none' } end)"
+            )
+        await wait("a second list") { shell.listPicker != nil }
+        shell.escape()
+        await waitAsync("nothing to come back") {
+            await lua("return vim.g.picked and vim.g.picked[1]")?.stringValue == "none"
+        }
+        _ =
+            await lua(
+                "require('frame.lsp'); for _, c in ipairs(vim.lsp.get_clients({ name = 'fake' })) do c:stop(true) end; vim.cmd('silent! bwipeout!')"
+            )
+        step("vim.ui.select goes to the list too: a choice comes back by value and index, put away it is nil")
     }
 
     /// C#: Roslyn, installed as a .NET tool, started for a `.cs` file, told which project to load, and reporting what

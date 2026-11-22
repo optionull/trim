@@ -242,6 +242,14 @@ function M.setup()
       map('gI', vim.lsp.buf.implementation, 'Go to implementation')
       map('K', vim.lsp.buf.hover, 'Hover')
       map('<leader>la', vim.lsp.buf.code_action, 'Code action')
+      -- Alt+Enter (ReSharper, Rider) and Cmd+. (Xcode, VS Code): what can be done here.
+      for _, lhs in ipairs({ '<M-CR>', '<D-.>' }) do
+        for _, mode in ipairs({ 'n', 'v', 'i' }) do
+          if vim.fn.maparg(lhs, mode, false, true).buffer ~= 1 then
+            vim.keymap.set(mode, lhs, vim.lsp.buf.code_action, { buffer = args.buf, desc = 'Code action' })
+          end
+        end
+      end
       map('<leader>lr', vim.lsp.buf.rename, 'Rename')
       map('<leader>lf', function() vim.lsp.buf.format({ async = true }) end, 'Format')
       map('<leader>ld', vim.diagnostic.open_float, 'Line diagnostics')

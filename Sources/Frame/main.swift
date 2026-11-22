@@ -646,6 +646,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     require('frame.tabs').start()
     -- The colour scheme's selection colour, for the tree and the tabs.
     require('frame.theme').start()
+    -- Choices nvim or a plugin asks for (code actions among them) are the frame's list, not a prompt in the message area.
+    require('frame.ui').setup()
     -- Each mode on the leader, where the config has bound nothing: <leader>e, E, o, O (and fw, fo).
     require('frame.keys').apply()
     -- :FrameTree shows, hides or goes into the sidebar; <Plug> mappings to bind your own keys to.
@@ -707,6 +709,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case "frame_workspace": switchWorkspace(nil)
         case "frame_theme_pick": showThemePicker(nil)
         case "frame_packages": showPackages(nil)
+        case "frame_select": showSelect(args)
         case "frame_find": findFiles(grep: args.first?.stringValue == "grep")
         case "frame_theme_set":
             if let name = args.first?.stringValue, !name.isEmpty { FrameSettings.set(
@@ -946,6 +949,28 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         view.addSubview(picker)
         listPicker = picker
         window.makeFirstResponder(picker)
+    }
+
+    /// What `vim.ui.select` asked: a list of choices, answered back to nvim by index (or nothing, put away).
+    private func showSelect(_ args: [MessagePackValue]) {
+        guard args.count == 3, let id = args[0].integerValue, let rows = args[2].arrayValue else { return }
+        func answer(_ index: String?) {
+            let argument: MessagePackValue = index.flatMap { Int64($0) }.map { .int($0) } ?? .nil
+            Task {
+                _ = try? await self.session.channel.lua("require('frame.ui').chosen(...)", args: [.int(id), argument])
+            }
+        }
+        let items = rows.compactMap { row -> PickerItem? in
+            guard let pair = row.arrayValue, pair.count >= 2, let index = pair[0].stringValue,
+                  let title = pair[1].stringValue else { return nil }
+            return PickerItem(id: index, title: title)
+        }
+        // Another list is up: nothing is asked of the person twice, the question is let go.
+        guard listPicker == nil, !items.isEmpty else { return answer(nil) }
+        showList(
+            title: args[1].stringValue ?? "Choose", items: items, current: nil,
+            onChoose: { answer($0.id) }, onCancel: { answer(nil) }
+        )
     }
 
     /// The list of choices away, the keyboard back where it was; a list put away with nothing chosen runs its
