@@ -1396,6 +1396,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         status.infos = number("infos")
         status.hints = number("hints")
         status.lsp = map[.string("lsp")]?.arrayValue?.compactMap(\.stringValue) ?? []
+        status.progress = text("progress")
         refreshStatus()
     }
 

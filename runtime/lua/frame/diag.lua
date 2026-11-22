@@ -12,7 +12,7 @@ function M.worst()
   local files = {}
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     local name = vim.api.nvim_buf_get_name(buf)
-    if name ~= '' and vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].buftype == '' then
+    if name ~= '' and vim.bo[buf].buftype == '' then
       local counts = vim.diagnostic.count(buf)
       for severity = 1, 4 do
         if (counts[severity] or 0) > 0 then

@@ -31,10 +31,30 @@ local function open_projects(client)
   end
 end
 
+--- Roslyn looks at the files it has open unless told the whole solution is to be analysed: it asks the client for
+--- settings (`workspace/configuration`), and says when its projects are loaded.
+local roslyn_settings = {
+  ['csharp|background_analysis.dotnet_analyzer_diagnostics_scope'] = 'fullSolution',
+  ['csharp|background_analysis.dotnet_compiler_diagnostics_scope'] = 'fullSolution',
+}
+local roslyn_handlers = {
+  ['workspace/configuration'] = function(_, params)
+    local answer = {}
+    for index, item in ipairs(params.items or {}) do answer[index] = roslyn_settings[item.section] or vim.NIL end
+    return answer
+  end,
+  ['workspace/projectInitializationComplete'] = function(_, _, ctx)
+    vim.defer_fn(function()
+      local client = vim.lsp.get_client_by_id(ctx.client_id)
+      if client then require('frame.lsp').workspace_diagnostics(client) end
+    end, 100)
+  end,
+}
+
 --- Each server: the file types it serves, how its folder is found, what the person's config may call it, and what it
 --- is started with (`init_options`, `on_init`).
 M.specs = {
-  csharp = { filetypes = { 'cs' }, root = { dotnet_root, '.git' }, aliases = { 'roslyn', 'roslyn_ls', 'omnisharp', 'csharp_ls' }, on_init = open_projects },
+  csharp = { filetypes = { 'cs' }, root = { dotnet_root, '.git' }, aliases = { 'roslyn', 'roslyn_ls', 'omnisharp', 'csharp_ls' }, on_init = open_projects, handlers = roslyn_handlers },
   -- Without AutomaticWorkspaceInit fsautocomplete waits for the client to pick a workspace.
   fsautocomplete = {
     filetypes = { 'fsharp' }, root = { fsharp_root, '.git' }, aliases = { 'fsautocomplete', 'ionide' },
@@ -104,10 +124,36 @@ local function config(name, spec, buf, command)
     root_dir = root_of(spec, buf),
     init_options = spec.init_options,
     on_init = spec.on_init,
+    handlers = spec.handlers,
     on_exit = function(code, signal)
       vim.schedule(function() M.exited(name, code, signal) end)
     end,
   }
+end
+
+--- The diagnostics of every file, not only the open ones, when the server can give them (LSP's workspace diagnostics).
+function M.workspace_diagnostics(client)
+  local provider = client.server_capabilities and client.server_capabilities.diagnosticProvider
+  if provider and provider.workspaceDiagnostics then
+    pcall(vim.lsp.buf.workspace_diagnostics, { client_id = client.id })
+  end
+end
+
+--- What the servers are busy with (indexing, loading projects, analysing), by client and token, newest last.
+M.progress = {}
+local progress_stamp = 0
+
+--- One line for the status bar: the newest of what is going on, or nothing.
+function M.progress_text()
+  local newest
+  for _, entry in pairs(M.progress) do
+    if not newest or entry.stamp > newest.stamp then newest = entry end
+  end
+  if not newest then return '' end
+  local text = newest.client .. ': ' .. (newest.title or '')
+  if newest.message and newest.message ~= '' then text = text .. ' ' .. newest.message end
+  if newest.percentage then text = text .. (' %d%%'):format(newest.percentage) end
+  return text
 end
 
 --- Starts the server for a buffer (attaches it, if already running).
@@ -231,9 +277,36 @@ function M.setup()
   local group = vim.api.nvim_create_augroup('FrameLsp', { clear = true })
   vim.api.nvim_create_autocmd('FileType', { group = group, callback = opened })
   -- Keys for what a server offers, on the buffers it is attached to (not over one the config bound).
+  vim.api.nvim_create_autocmd('LspProgress', {
+    group = group,
+    callback = function(args)
+      local data = args.data or {}
+      local client = vim.lsp.get_client_by_id(data.client_id)
+      local value = data.params and data.params.value
+      if not client or type(value) ~= 'table' then return end
+      local key = data.client_id .. ':' .. tostring(data.params.token)
+      if value.kind == 'end' then
+        M.progress[key] = nil
+      else
+        progress_stamp = progress_stamp + 1
+        local previous = M.progress[key] or {}
+        M.progress[key] = {
+          client = (client.name:gsub('^frame_', '')), title = value.title or previous.title, message = value.message,
+          percentage = value.percentage, stamp = progress_stamp,
+        }
+      end
+      pcall(function() require('frame.status').poke() end)
+    end,
+  })
   vim.api.nvim_create_autocmd('LspAttach', {
     group = group,
     callback = function(args)
+      -- Servers other than Roslyn say what is wrong with every file once they are up.
+      local client = vim.lsp.get_client_by_id(args.data.client_id)
+      if client and client.name:match('^frame_') and client.name ~= 'frame_csharp' and not client.frame_scanned then
+        client.frame_scanned = true
+        vim.defer_fn(function() M.workspace_diagnostics(client) end, 500)
+      end
       local function map(lhs, rhs, desc)
         if vim.fn.maparg(lhs, 'n', false, true).buffer ~= 1 then vim.keymap.set('n', lhs, rhs, { buffer = args.buf, desc = desc }) end
       end

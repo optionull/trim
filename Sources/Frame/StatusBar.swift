@@ -21,6 +21,8 @@ struct StatusState: Equatable {
     var recording = ""
     var errors = 0, warnings = 0, infos = 0, hints = 0
     var lsp: [String] = []
+    /// What the language servers are busy with now (indexing, loading projects, analysing), if anything.
+    var progress = ""
     var filetype = ""
     var line = 0, col = 0, lines = 0, top = 0, bottom = 0
     /// With the tabs in the status bar and more than one file open: how many, the file's name being the way to them.
@@ -176,6 +178,11 @@ final class StatusBarView: NSView {
             diagnostics.append(attributed(" \(count)", color))
         }
         if diagnostics.length > 0 { right.append(Piece(text: diagnostics)) }
+        if !state.progress.isEmpty {
+            let text = NSMutableAttributedString(attributedString: icon("\u{F110}", look.muted))
+            text.append(attributed("  " + state.progress, look.faint))
+            right.append(Piece(text: text))
+        }
         let midY = bounds.height / 2
         var edge = bounds.width - 12
         for piece in right {

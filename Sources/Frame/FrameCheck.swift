@@ -1294,6 +1294,18 @@ struct FrameCheck {
         await waitAsync("the fake server to attach") {
             await lua("return #vim.lsp.get_clients({ bufnr = 0, name = 'fake' })")?.integerValue == 1
         }
+        // What a server is busy with is in the status bar, and gone when it is done.
+        _ = await lua("""
+        local id = vim.lsp.get_clients({ name = 'fake' })[1].id
+        vim.api.nvim_exec_autocmds('LspProgress', { data = { client_id = id, params = { token = 't', value = { kind = 'begin', title = 'Loading projects', percentage = 10 } } } })
+        """)
+        await wait("the server's progress in the status bar") { shell.status.progress == "fake: Loading projects 10%" }
+        _ = await lua("""
+        local id = vim.lsp.get_clients({ name = 'fake' })[1].id
+        vim.api.nvim_exec_autocmds('LspProgress', { data = { client_id = id, params = { token = 't', value = { kind = 'end' } } } })
+        """)
+        await wait("the progress to go when the server is done") { shell.status.progress.isEmpty }
+        step("what a language server is busy with shows in the status bar, and goes when it is done")
         guard await lua("return vim.fn.maparg('<M-CR>', 'n')")?.stringValue != ""
         else { fail("no Alt+Enter on a buffer with a server") }
         shell.focusEditor()
@@ -1388,6 +1400,8 @@ struct FrameCheck {
         """.write(toFile: folder + "/App.csproj", atomically: true, encoding: .utf8)
         try? "class Program { static void Main() { int x = ; } }\n"
             .write(toFile: folder + "/Program.cs", atomically: true, encoding: .utf8)
+        try? "class Other { void M() { string s = ; } }\n"
+            .write(toFile: folder + "/Other.cs", atomically: true, encoding: .utf8)
         _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(folder)/Program.cs'))")
         func diagnostics() async -> Int {
             await lua("return #vim.diagnostic.get(0)")?.integerValue.map(Int.init) ?? 0
@@ -1401,7 +1415,23 @@ struct FrameCheck {
             fail("Roslyn gave no diagnostic for a syntax error: \(state)")
         }
         step("a real server (Roslyn, as a .NET tool) starts for a C# file and reports its syntax error")
-        _ = await lua("require('frame.lsp').stop('csharp'); vim.cmd('silent! bwipeout!')")
+        // The file that was never opened: Roslyn is asked for the whole solution's diagnostics.
+        func other() async -> Int {
+            await lua("""
+            local n = 0
+            for _, d in ipairs(vim.diagnostic.get()) do
+              if vim.api.nvim_buf_get_name(d.bufnr):find('Other.cs', 1, true) then n = n + 1 end
+            end
+            return n
+            """)?.integerValue.map(Int.init) ?? 0
+        }
+        for _ in 0 ..< 300 {
+            if await other() > 0 { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard await other() > 0 else { fail("Roslyn did not report the file that was never opened") }
+        step("the server's workspace diagnostics reach files that were never opened")
+        _ = await lua("require('frame.lsp').stop('csharp'); vim.diagnostic.reset(); vim.cmd('silent! %bwipeout!')")
         try? FileManager.default.removeItem(atPath: folder)
         // F#: fsautocomplete, told to load the project by itself.
         let fsFolder = RealPath.of(NSTemporaryDirectory()) + "/frame-fs-\(UUID().uuidString)"
@@ -1423,7 +1453,10 @@ struct FrameCheck {
             fail("fsautocomplete gave no diagnostic for a type error: \(state)")
         }
         step("a real server (fsautocomplete) starts for an F# file and reports its error")
-        _ = await lua("require('frame.lsp').stop('fsautocomplete'); vim.cmd('silent! bwipeout!')")
+        _ =
+            await lua(
+                "require('frame.lsp').stop('fsautocomplete'); vim.diagnostic.reset(); vim.cmd('silent! %bwipeout!')"
+            )
         try? FileManager.default.removeItem(atPath: fsFolder)
     }
 
