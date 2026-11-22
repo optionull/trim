@@ -306,6 +306,10 @@ final class FrameApp: NSObject, NSApplicationDelegate {
             withTitle: "Choose What to Run…", action: #selector(Window.showRunPicker(_:)), keyEquivalent: "r"
         )
         choose.keyEquivalentModifierMask = [.command, .shift]
+        let problems = runMenu.addItem(
+            withTitle: "Problems from the Terminal…", action: #selector(Window.showProblems(_:)), keyEquivalent: "m"
+        )
+        problems.keyEquivalentModifierMask = [.command, .shift]
         runMenu.addItem(.separator())
         runMenu.addItem(withTitle: "Terminal", action: #selector(Window.toggleTerminal(_:)), keyEquivalent: "j")
         let closeTerminal = runMenu.addItem(

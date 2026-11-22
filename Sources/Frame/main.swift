@@ -694,11 +694,11 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
       { desc = 'Switch workspace: a repository or worktree, in a window of its own' })
     vim.keymap.set('n', '<Plug>(frame-packages)', function() tell('frame_packages', '') end, { desc = 'Packages' })
     vim.api.nvim_create_user_command('FramePackages', function() tell('frame_packages', '') end, { desc = 'Browse, install and remove packages' })
-    for plug, what in pairs({ run = 'default', build = 'build', ['run-pick'] = 'pick', terminal = 'terminal', ['terminal-close'] = 'close' }) do
+    for plug, what in pairs({ run = 'default', build = 'build', ['run-pick'] = 'pick', terminal = 'terminal', ['terminal-close'] = 'close', problems = 'problems' }) do
       vim.keymap.set('n', '<Plug>(frame-' .. plug .. ')', function() tell('frame_run', what) end, { desc = 'Run: ' .. what })
     end
     vim.api.nvim_create_user_command('FrameRun', function(opts) tell('frame_run', opts.args ~= '' and opts.args or 'default') end, {
-      nargs = '?', complete = function() return { 'default', 'build', 'pick', 'terminal', 'close' } end,
+      nargs = '?', complete = function() return { 'default', 'build', 'pick', 'terminal', 'close', 'problems' } end,
       desc = 'Run (default), build, pick what to run, or show/close the terminal pane',
     })
     vim.keymap.set('n', '<Plug>(frame-find)', function() tell('frame_find', 'files') end, { desc = 'Find file' })
@@ -748,6 +748,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             case "pick": showRunPicker(nil)
             case "terminal": toggleTerminal(nil)
             case "close": closeTerminal(nil)
+            case "problems": showProblems(nil)
             default: runDefault(nil)
             }
         case "frame_find": findFiles(grep: args.first?.stringValue == "grep")

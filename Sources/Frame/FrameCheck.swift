@@ -1017,6 +1017,8 @@ struct FrameCheck {
     /// and under it when it is not, the keyboard stays in the code, ⌘J goes into the pane and back, and the pane
     /// closes. What is run comes from the folder (Makefile, VS Code, project files): see `RunEntriesTests`.
     private func runSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
         #if SILL_GHOSTTY
             let folder = RealPath.of(NSTemporaryDirectory()) + "/frame-run-\(UUID().uuidString)"
             try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -1085,6 +1087,33 @@ struct FrameCheck {
                   shell.defaultRun(from: [build, program]) == program
             else { fail("the default build and run are not picked as they should be") }
             step("the default build is the one marked as such, else the first; the default run the program")
+            // A build that failed: its problems are read out of the pane and listed; Return opens the file at the line.
+            try? "one\ntwo\nthree\nfour\n".write(toFile: folder + "/A.cs", atomically: true, encoding: .utf8)
+            shell.run(RunEntry(
+                title: "build", source: "make", kind: .build,
+                command: "printf '%s\\n' 'A.cs(3,2): error CS1002: boom [x.csproj]' 'A.cs(4,1): warning CS0168: quiet'",
+                directory: folder
+            ))
+            guard let buildPane = shell.runPane else { fail("no pane for the build") }
+            await wait("the build's output") { buildPane.surface.screenText()?.contains("boom") == true }
+            try? await Task.sleep(for: .milliseconds(300))
+            shell.showProblems(nil)
+            await wait("the problems as a list") { shell.listPicker != nil }
+            guard let list = shell.listPicker, list.all.map(\.title) == ["boom", "quiet"],
+                  list.all[0].detail == "A.cs:3",
+                  shell.modes.label(editorMode: "normal").hasPrefix("PROBLEMS (1 ERRORS")
+            else {
+                fail(
+                    "the problems are not the build's: \(shell.listPicker?.all.map(\.title) ?? []) \(shell.modes.label(editorMode: "normal"))"
+                )
+            }
+            list.keyDown(with: key("\r", code: 36))
+            await waitAsync("the file to open at the error") {
+                let name = await lua("return vim.api.nvim_buf_get_name(0)")?.stringValue
+                let at = await lua("return vim.api.nvim_win_get_cursor(0)")?.arrayValue?.compactMap(\.integerValue)
+                return name == folder + "/A.cs" && at?.first == 3
+            }
+            step("a build's errors and warnings are read from the pane and listed; Return goes to the line")
             shell.closeTerminal(nil)
             guard shell.runPane == nil, shell.view.terminal == nil else { fail("the pane did not close") }
             shell.view.layoutSubtreeIfNeeded()

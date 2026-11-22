@@ -640,7 +640,7 @@ the code; ⌘J goes into the pane and back, ⇧⌘J closes it. `<leader>rr` `rb`
 What can be run is read from the folder, never built to find out: `.sln`/`.slnx`/`.csproj` and `Package.swift` and `Cargo.toml` (build, run, test),
 Makefile targets, mise tasks, justfile recipes, `package.json` scripts, and VS Code's `.vscode/tasks.json` (the task in the default build group is
 what ⇧⌘B builds) and `.vscode/launch.json` (node, python, .NET dll and native programs). F5 runs what was run last in the folder, else the first program.
-Each run is a fresh shell, so the output stays to read and scroll when the command has ended.
+⇧⌘M (`<leader>rq`) lists the errors and warnings the pane's output holds (MSBuild, tsc, swiftc, clang, gcc, rustc; the files must exist), Return going to the line; a build that goes quiet says how it went. Each run is a fresh shell, so the output stays to read and scroll when the command has ended.
 
 ### As git's merge and diff tool
 
