@@ -621,6 +621,14 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
                 )
                 if checking, isFirst { await FrameCheck(self, app: app).run() }
             } catch {
+                // A window that was closed while it was starting has no nvim to be sorry for: that is not a failure.
+                guard app.controllers.contains(where: { $0 === self }) else { return }
+                // In the self-check a dialog would wait for a person for ever: it is said, and a failure.
+                if checking {
+                    print("frame check: FAILED: nvim could not be started for \(folder): \(error)")
+                    fflush(stdout)
+                    exit(1)
+                }
                 let alert = NSAlert(error: error)
                 alert.messageText = "The frame could not start nvim"
                 alert.runModal()

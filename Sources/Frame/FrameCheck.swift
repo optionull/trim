@@ -1359,26 +1359,40 @@ struct FrameCheck {
             }
             guard let kept = RunConfigs.load(in: root).first, kept.basedOn == "make:hello", kept.command == "make hello"
             else { fail("what was kept is not the copy: \(RunConfigs.load(in: root))") }
-            // What is run goes to the build pane, which takes the slot back.
-            await wait("the build pane to come back with the output") {
-                shell.runPane?.isHidden == false && shell.runPane?.screenText()?.contains("hello-from-make-42") == true
+            // What is run from the Run pane has its own output, under the list: the build pane is not brought in.
+            await wait("the output to be in the Run pane") {
+                pane.screenText()?.contains("hello-from-make-42") == true
             }
-            guard pane.isHidden else { fail("the Run pane stayed over the output") }
-            step(
-                "c copies an entry into a configuration of one's own: kept in .frame/run.json, run with its environment, the build pane back for the output"
-            )
+            guard !pane.isHidden, shell.runPane?.isHidden ?? true, shell.modes.surface == .run,
+                  pane.terminal != nil, pane.entry?.title == "hello (mine)"
+            else { fail("the Run pane did not keep its output: hidden \(pane.isHidden), mode \(shell.modes.surface)") }
+            guard let output = pane.terminal, output.frame.minY > list.frame.maxY, output.frame.height > 60
+            else { fail("the output is not under the list: \(String(describing: pane.terminal?.frame)) \(list.frame)") }
+            shot(pane, "run-output")
+            step("what is run from the Run pane has its own output under the list; the build pane is not brought in")
+            // The keyboard goes to the output and back.
+            list.keyDown(with: key("o", code: 31))
+            guard shell.window.firstResponder === output,
+                  shell.modes.surface == .run else { fail("o did not go to the output") }
             shell.showRunPicker(nil)
+            guard shell.window.firstResponder === list
+            else { fail("the Run shortcut from the output did not go to the list") }
             await wait("the copy first in the list, saying where it is kept") {
-                list.all.first?.title == "hello (mine)" && list.all.first?.subtitle == ".frame/run.json (from make:hello)"
+                list.all.first?.title == "hello (mine)" && list.all.first?.subtitle == "your configurations (from make:hello)"
             }
-            guard shell.runPane?.isHidden == true else { fail("the build pane stayed beside the Run pane") }
+            guard !FileManager.default.fileExists(atPath: root + "/.frame")
+            else { fail("something was written into the project") }
+            guard FileManager.default.fileExists(atPath: RunConfigs.file(in: root))
+            else { fail("not kept in Frame's own folder") }
             for _ in 0 ..< 40 where list.cursor != list.all.first?.id {
                 list.keyDown(with: key("k", code: 40))
             }
             list.keyDown(with: key("d", code: 2))
             await wait("the configuration to be deleted") { RunConfigs.load(in: root).isEmpty }
             guard !FileManager.default.fileExists(atPath: RunConfigs.file(in: root)) else { fail("the file stayed") }
-            step("a configuration of one's own is listed first and d deletes it")
+            step(
+                "a configuration of one's own is kept in Frame's own folder (nothing in the project), listed first, and d deletes it"
+            )
             pane.onMinimize?()
             guard pane.isHidden, shell.modes.surface == .editor else { fail("minimize left the Run pane or its mode") }
             shell.closeTerminal(nil)
@@ -3206,6 +3220,16 @@ struct FrameCheck {
             fail("closing the second window took the first with it")
         }
         step("closing one window leaves the other")
+        // A window closed the moment it is opened (while its nvim is still being set up) is not a failure to start.
+        for _ in 0 ..< 6 {
+            let quick = app.open(folder: other)
+            app.close(quick)
+            try? await Task.sleep(for: .milliseconds(120))
+        }
+        try? await Task.sleep(for: .milliseconds(1500))
+        guard app.controllers.count == windows, NSApp.modalWindow == nil, await cwd(first) != nil
+        else { fail("a window closed while it started left an alert or took the app with it") }
+        step("a window closed while it is still starting is not a failure to start: no alert, the app carries on")
     }
 
     /// The workspace switcher, against two repositories and a worktree that is not under the roots: the rows heed

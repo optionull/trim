@@ -27,6 +27,28 @@ enum RunPlacement: Equatable {
     extension FrameWindowController {
         /// Runs `entry` in the pane's terminal (a new shell each time), the keyboard staying where it was. A build runs
         /// unseen: the status bar shows it going, and the pane comes up only if it has errors or warnings to show.
+        /// A terminal that runs `script` (an `sh` script) in the entry's folder with its environment, staying when it
+        /// ends.
+        func terminalSurface(running script: String, for entry: RunEntry) -> GhosttySurfaceView {
+            GhosttyRuntime.font = (EditorFont.font(12).familyName ?? "JetBrains Mono", EditorFont.size)
+            return GhosttySurfaceView(launch: TerminalLaunch(
+                directory: entry.directory, command: "/bin/sh -c " + Runnables.quoted(script),
+                environment: entry.environment, waitAfterCommand: true
+            ))
+        }
+
+        /// Runs `entry` in the Run pane's own terminal (what is run from the Run pane shows there, under the list), the
+        /// command's line printed first as in a shell.
+        func runInRunPane(_ entry: RunEntry) {
+            guard view != nil else { return }
+            let pane = ensureRunPane()
+            let script = "printf '\\033[2m❯ %s\\033[0m\\n' " + Runnables.quoted(entry.command) + "; " + entry.command
+            let surface = terminalSurface(running: script, for: entry)
+            surface.onFocus = { [weak self] in self?.runFocused() }
+            pane.setTerminal(surface, entry: entry) { [weak surface] in surface?.screenText() }
+            UserDefaults.standard.set(entry.id, forKey: "frame.lastRun." + workspace)
+        }
+
         func run(_ entry: RunEntry, focusing: Bool = false) {
             guard view != nil else { return }
             let isBuild = entry.kind == .build
@@ -36,7 +58,6 @@ enum RunPlacement: Equatable {
                 pane.isHidden = true
                 view.needsLayout = true
             }
-            GhosttyRuntime.font = (EditorFont.font(12).familyName ?? "JetBrains Mono", EditorFont.size)
             // The command is the pane's own process, its line printed first (dimmed) so it reads as in a shell, and the
             // pane stays when it ends. Nothing is typed: a build says how it ended by a file the script writes.
             let marker = isBuild ? NSTemporaryDirectory() + "frame-build-\(UUID().uuidString).exit" : nil
@@ -49,10 +70,7 @@ enum RunPlacement: Equatable {
             } else {
                 script += entry.command
             }
-            let surface = GhosttySurfaceView(launch: TerminalLaunch(
-                directory: entry.directory, command: "/bin/sh -c " + Runnables.quoted(script),
-                environment: entry.environment, waitAfterCommand: true
-            ))
+            let surface = terminalSurface(running: script, for: entry)
             surface.onFocus = { [weak self] in self?.terminalFocused() }
             pane.setTerminal(surface, entry: entry) { [weak surface] in surface?.screenText() }
             UserDefaults.standard.set(entry.id, forKey: "frame.lastRun." + workspace)
@@ -71,6 +89,7 @@ enum RunPlacement: Equatable {
 
     extension FrameWindowController {
         func run(_: RunEntry, focusing _: Bool = false) { noTerminal() }
+        func runInRunPane(_: RunEntry) { noTerminal() }
         func noTerminal() {
             Task {
                 _ = try? await session.channel

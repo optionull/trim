@@ -1,7 +1,9 @@
+import CryptoKit
 import Foundation
 
 /// A run configuration of the person's own: a command line (with the arguments they want), a folder to run it in and
-/// environment variables, kept in `.frame/run.json` of the folder. Made from an entry found in the project's files (so
+/// environment variables, kept in Frame's own folder (per project, never in the repository). Made from an entry found
+/// in the project's files (so
 /// it starts as what that did, and `basedOn` says which) or from nothing; run like any entry, listed first.
 public struct RunConfig: Codable, Equatable, Sendable {
     public var name: String
@@ -31,9 +33,19 @@ public struct RunConfig: Codable, Equatable, Sendable {
 public enum RunConfigs {
     /// What entries of these say they come from.
     public static let source = "Frame"
-    public static let relativePath = ".frame/run.json"
+    /// How a configuration's origin reads: they are the person's own, and kept apart from the project.
+    public static let origin = "your configurations"
 
-    public static func file(in root: String) -> String { root + "/" + relativePath }
+    /// Where the configurations of every project are kept: Frame's own folder in the person's Application Support.
+    public nonisolated(unsafe) static var home: String =
+        (NSHomeDirectory() as NSString).appendingPathComponent("Library/Application Support/frame/run")
+
+    /// The file of one project's configurations: named for the folder and a short hash of its whole path (two folders
+    /// called the same are not mixed).
+    public static func file(in root: String) -> String {
+        let digest = SHA256.hash(data: Data(root.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+        return home + "/" + (root as NSString).lastPathComponent + "-" + digest + ".json"
+    }
 
     /// The saved configurations of a folder (none when there is no file, or it is not what it should be).
     public static func load(in root: String) -> [RunConfig] {
@@ -41,14 +53,14 @@ public enum RunConfigs {
         return (try? JSONDecoder().decode([RunConfig].self, from: data)) ?? []
     }
 
-    /// Writes them, creating `.frame/`; none removes the file.
+    /// Writes them, creating Frame's folder; none removes the file.
     public static func save(_ configs: [RunConfig], in root: String) throws {
         let path = file(in: root)
         if configs.isEmpty {
             try? FileManager.default.removeItem(atPath: path)
             return
         }
-        try FileManager.default.createDirectory(atPath: root + "/.frame", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try encoder.encode(configs).write(to: URL(fileURLWithPath: path), options: .atomic)
@@ -60,7 +72,7 @@ public enum RunConfigs {
             RunEntry(
                 title: config.name, source: source, kind: RunEntry.Kind(rawValue: config.kind) ?? .run,
                 command: config.command, directory: config.directory.isEmpty ? root : root + "/" + config.directory,
-                environment: config.environment, origin: relativePath + (config.basedOn.map { " (from \($0))" } ?? "")
+                environment: config.environment, origin: origin + (config.basedOn.map { " (from \($0))" } ?? "")
             )
         }
     }

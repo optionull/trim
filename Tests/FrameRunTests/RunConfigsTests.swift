@@ -2,11 +2,13 @@ import Foundation
 @testable import FrameRun
 import Testing
 
-@Suite("The person's own run configurations")
+@Suite("The person's own run configurations", .serialized)
 struct RunConfigsTests {
     private func folder() throws -> String {
         let root = NSTemporaryDirectory() + "frame-configs-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
+        // The configurations are kept in Frame's own folder: a temporary one here.
+        RunConfigs.home = NSTemporaryDirectory() + "frame-configs-home-\(UUID().uuidString)"
         return root
     }
 
@@ -27,7 +29,8 @@ struct RunConfigsTests {
         let entry = try #require(all.first)
         #expect(entry.isCustom && entry.title == "Build verbosely" && entry.kind == .build)
         #expect(entry.directory == root + "/sub" && entry.environment == ["CI": "1", "A": "b=c"])
-        #expect(entry.origin == ".frame/run.json (from make:build)")
+        #expect(entry.origin == "your configurations (from make:build)")
+        #expect(!FileManager.default.fileExists(atPath: root + "/.frame"), "nothing is written into the project")
         #expect(all.contains { $0.source == "make" && $0.title == "build" && $0.origin == "Makefile:1" })
         try RunConfigs.save([], in: root)
         #expect(!FileManager.default.fileExists(atPath: RunConfigs.file(in: root)))
@@ -37,7 +40,7 @@ struct RunConfigsTests {
     func broken() throws {
         let root = try folder()
         defer { try? FileManager.default.removeItem(atPath: root) }
-        try FileManager.default.createDirectory(atPath: root + "/.frame", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: RunConfigs.home, withIntermediateDirectories: true)
         try "{ not json".write(toFile: RunConfigs.file(in: root), atomically: true, encoding: .utf8)
         #expect(RunConfigs.load(in: root).isEmpty)
     }
@@ -56,6 +59,13 @@ struct RunConfigsTests {
         ))
         #expect(RunConfigs.unusedName("serve (mine)", among: [config]) == "serve (mine) 2")
         #expect(RunConfigs.unusedName("other", among: [config]) == "other")
+    }
+
+    @Test("two folders with the same name keep their own configurations")
+    func sameName() throws {
+        let one = try folder() + "/app", two = NSTemporaryDirectory() + "other-\(UUID().uuidString)/app"
+        #expect(RunConfigs.file(in: one) != RunConfigs.file(in: two))
+        #expect(RunConfigs.file(in: one).hasPrefix(RunConfigs.home + "/app-"))
     }
 
     @Test("environment as lines and back; blank lines, comments and a value with = are kept as they should be")

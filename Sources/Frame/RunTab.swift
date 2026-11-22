@@ -75,7 +75,7 @@ extension FrameWindowController {
         list.onFocus = { [weak self] in self?.runFocused() }
         list.onDismiss = { [weak self] in self?.focusEditor() }
         list.onChoose = { [weak self] item in
-            if let entry = self?.runEntries[item.id] { self?.run(entry) }
+            if let entry = self?.runEntries[item.id] { self?.runInRunPane(entry) }
         }
         list.onMove = { [weak self, weak pane] item in
             guard let self, let entry = runEntries[item.id] else { return }
@@ -98,6 +98,10 @@ extension FrameWindowController {
                 else { return false }
                 editingConfig = config.name
                 pane.edit(config, isNew: false)
+            case "o":
+                guard let output = pane.terminal else { return false }
+                window.makeFirstResponder(output)
+                return true
             case "n":
                 editingConfig = nil
                 pane.edit(
@@ -146,7 +150,8 @@ extension FrameWindowController {
            let entry = RunConfigs.entries(in: root)
            .first(where: { $0.title == config.name || $0.title == configs.last?.name })
         {
-            run(entry)
+            runInRunPane(entry)
+            focus(.run)
         } else {
             focus(.run)
         }
@@ -175,7 +180,11 @@ extension FrameWindowController {
     /// from the pane, back to the code.
     @objc func showRunPicker(_: Any?) {
         let pane = ensureRunPane()
-        if !pane.isHidden, modes.surface == .run { return focusEditor() }
+        if !pane.isHidden, modes.surface == .run {
+            // From its output the keyboard goes to the list; from the list, back to the code.
+            if let output = pane.terminal, window.firstResponder === output { return focus(.run) }
+            return focusEditor()
+        }
         runPane?.isHidden = true
         if modes.surface == .terminal { terminalGone() }
         pane.isHidden = false

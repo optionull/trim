@@ -22,6 +22,12 @@ final class RunPaneView: NSView {
     let form = RunForm()
     private let detail = NSTextField(wrappingLabelWithString: "")
     private(set) var editing = false
+    /// What was run from the pane, in its own terminal under the list; and what ran.
+    private(set) var terminal: NSView?
+    private(set) var entry: RunEntry?
+    private(set) var screenText: () -> String? = { nil }
+    /// Where the output starts (from the top of the pane), for the self-check.
+    private(set) var outputTop: CGFloat = 0
 
     /// The minimize button: the pane goes away.
     var onMinimize: (() -> Void)?
@@ -82,6 +88,17 @@ final class RunPaneView: NSView {
         needsLayout = true
     }
 
+    /// A run begins: its terminal replaces the last one, under the list.
+    func setTerminal(_ view: NSView, entry: RunEntry, screenText: @escaping () -> String?) {
+        terminal?.removeFromSuperview()
+        terminal = view
+        self.entry = entry
+        self.screenText = screenText
+        addSubview(view)
+        needsLayout = true
+        needsDisplay = true
+    }
+
     /// What the highlighted entry will do, in a line or two under the list.
     func setDetail(_ text: String) { detail.stringValue = text }
 
@@ -97,12 +114,17 @@ final class RunPaneView: NSView {
         let body = NSRect(x: 0, y: header, width: bounds.width, height: max(0, bounds.height - header))
         let detailHeight: CGFloat = 46
         form.frame = body
-        list.frame = NSRect(x: 0, y: body.minY, width: body.width, height: max(0, body.height - detailHeight))
+        // With something run, the list keeps the top (about a third) and its output has the rest.
+        let outputHeader: CGFloat = 26
+        let listArea = terminal == nil || editing ? body.height : max(120, (body.height * 0.36).rounded())
+        list.frame = NSRect(x: 0, y: body.minY, width: body.width, height: max(0, listArea - detailHeight))
         detail.frame = NSRect(
-            x: 20,
-            y: body.maxY - detailHeight + 4,
-            width: max(0, body.width - 40),
-            height: detailHeight - 8
+            x: 20, y: body.minY + listArea - detailHeight + 4, width: max(0, body.width - 40), height: detailHeight - 8
+        )
+        outputTop = body.minY + listArea
+        terminal?.isHidden = editing
+        terminal?.frame = NSRect(
+            x: 0, y: outputTop + outputHeader, width: body.width, height: max(0, body.height - listArea - outputHeader)
         )
         showCurrent()
         removeAllToolTips()
@@ -149,6 +171,18 @@ final class RunPaneView: NSView {
                 .font: iconFont, .foregroundColor: hovered == control ? look.text : look.muted,
             ])
             mark.draw(at: NSPoint(x: rect.midX - mark.size().width / 2, y: rect.midY - mark.size().height / 2))
+        }
+        // The output's own header: what ran, once.
+        if let entry, terminal != nil, !editing {
+            look.faint.withAlphaComponent(0.3).setFill()
+            NSRect(x: 0, y: outputTop, width: bounds.width, height: 1).fill()
+            let line = NSAttributedString(string: "Output  " + entry.title + "  " + entry.command, attributes: [
+                .font: look.smallFont, .foregroundColor: look.faint,
+            ])
+            line.draw(
+                with: NSRect(x: 20, y: outputTop + 5, width: max(0, bounds.width - 40), height: 18),
+                options: [.truncatesLastVisibleLine, .usesLineFragmentOrigin]
+            )
         }
         let size = header - 8
         let newMinimize = NSRect(x: bounds.width - size - 8, y: 4, width: size, height: size)

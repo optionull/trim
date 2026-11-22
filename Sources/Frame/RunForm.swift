@@ -89,7 +89,7 @@ final class RunForm: NSView {
         environment.string = RunConfigs.text(of: config.environment)
         kind = config.kind
         basedOn = config.basedOn
-        origin.stringValue = (isNew ? "A new configuration" : "Kept in " + RunConfigs.relativePath)
+        origin.stringValue = (isNew ? "A new configuration" : "Kept in Frame's own folder, not in the project")
             + (config.basedOn.map { ", made from " + $0 } ?? "")
         delete.isHidden = isNew
         needsLayout = true
