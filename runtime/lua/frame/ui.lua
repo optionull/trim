@@ -7,6 +7,16 @@ local function notify(...)
   if channel then pcall(vim.rpcnotify, channel, ...) end
 end
 
+--- A list of ready rows (`{ title, detail, file }`): `on_choice(index)`, or `on_choice(nil)` when put away.
+function M.pick(title, rows, on_choice)
+  if not vim.g.sill_channel or #rows == 0 then return on_choice(nil) end
+  local sent = {}
+  for index, row in ipairs(rows) do sent[index] = { tostring(index), row.title, row.detail or '', row.file or '' } end
+  M.last = M.last + 1
+  M.pending[M.last] = { items = rows, on_choice = function(_, index) on_choice(index) end }
+  notify('frame_select', M.last, title, sent)
+end
+
 --- `vim.ui.select(items, opts, on_choice)`: `on_choice(item, index)`, or `on_choice(nil, nil)` when put away.
 function M.select(items, opts, on_choice)
   opts = opts or {}

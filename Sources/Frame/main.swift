@@ -963,7 +963,10 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         let items = rows.compactMap { row -> PickerItem? in
             guard let pair = row.arrayValue, pair.count >= 2, let index = pair[0].stringValue,
                   let title = pair[1].stringValue else { return nil }
-            return PickerItem(id: index, title: title)
+            return PickerItem(
+                id: index, title: title, detail: pair.count > 2 ? pair[2].stringValue ?? "" : "",
+                file: pair.count > 3 ? pair[3].stringValue.flatMap { $0.isEmpty ? nil : $0 } : nil
+            )
         }
         // Another list is up: nothing is asked of the person twice, the question is let go.
         guard listPicker == nil, !items.isEmpty else { return answer(nil) }

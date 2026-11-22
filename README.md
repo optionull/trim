@@ -627,7 +627,7 @@ installed**) or with npm (the web servers: **Node must be installed**); Frame sa
 the folder's solution (`.sln`, `.slnx`) or else its `.csproj`. A server that dies is started again after a wait that doubles (1 s up to 30 s) and given up on after five
 deaths inside a minute; the status bar shows it as `name ↻` while it waits and `name ✗` once given up on, and nvim itself is never
 touched. `:FrameLsp [status|restart|stop] [name]`, `<leader>lR`. Keys on a buffer with a server: `gd` `gr` `gI` `K`,
-`<leader>la`, Alt+Enter or Cmd+. (code actions, in Frame's own list: type `/` to filter, Return applies) `lr` (rename) `lf` (format) `ld` `ll` (diagnostics).
+`gd` `gy` `gr` `gI` (definition, type, usages, implementations) and `<leader>ls` `lS` (symbols of the file, of the workspace) list their answers in Frame's own list, the line with its file beside it, Return going there (one answer is gone to at once). `<leader>la`, Alt+Enter or Cmd+. (code actions, in Frame's own list: type `/` to filter, Return applies) `lr` (rename) `lf` (format) `ld` `ll` (diagnostics).
 
 Scrolling stops near the end of a file: the last line can go up to two rows from the bottom of the window (`[editor] scrollpast`),
 not to the top, with a wheel, a trackpad or the keys.

@@ -1029,12 +1029,19 @@ struct FrameCheck {
           return {
             request = function(method, _, callback)
               vim.schedule(function()
-                if method == 'initialize' then callback(nil, { capabilities = { codeActionProvider = true } })
+                if method == 'initialize' then callback(nil, { capabilities = { codeActionProvider = true, referencesProvider = true, definitionProvider = true } })
                 elseif method == 'textDocument/codeAction' then
                   callback(nil, {
                     { title = 'Use primary constructor', kind = 'refactor', edit = edit('FIRST') },
                     { title = 'Remove unused usings', kind = 'quickfix', edit = edit('SECOND') },
                   })
+                elseif method == 'textDocument/references' then
+                  callback(nil, {
+                    { uri = uri, range = { start = { line = 0, character = 0 }, ['end'] = { line = 0, character = 5 } } },
+                    { uri = uri, range = { start = { line = 1, character = 2 }, ['end'] = { line = 1, character = 4 } } },
+                  })
+                elseif method == 'textDocument/definition' then
+                  callback(nil, { { uri = uri, range = { start = { line = 1, character = 3 }, ['end'] = { line = 1, character = 5 } } } })
                 else callback(nil, nil) end
               end)
               return true, 1
@@ -1080,6 +1087,29 @@ struct FrameCheck {
         guard shell.listPicker == nil,
               await first() == "SECOND beta" else { await fail("Escape changed the text: \(first())") }
         step("Cmd+. does the same and Escape leaves the text alone")
+        // Usages: the lines as a list, the file beside each, Return going there; one answer is gone to at once.
+        channel.send(keys: "gr")
+        await wait("gr to list the usages") { shell.listPicker != nil }
+        guard let usages = shell.listPicker,
+              usages.all.count == 2 else { fail("not two usages: \(shell.listPicker?.all.count ?? -1)") }
+        guard usages.all[0].title == "SECOND beta", usages.all[1].title == "gamma",
+              usages.all[0].detail.hasSuffix(":1"), usages.all[1].detail.hasSuffix(":2"),
+              usages.all[1].file == (file as NSString).lastPathComponent
+        else { fail("the usages are not the lines with their places: \(usages.all)") }
+        usages.keyDown(with: key("j", code: 38))
+        usages.keyDown(with: key("\r", code: 36))
+        await waitAsync("Return to go to the second usage") {
+            let at = await lua("return vim.api.nvim_win_get_cursor(0)")?.arrayValue?.compactMap(\.integerValue)
+            return at == [2, 2]
+        }
+        step("gr lists the usages with their lines and places, and Return goes to the one chosen")
+        channel.send(keys: "gg0gd")
+        await waitAsync("gd to go straight to the one definition") {
+            let at = await lua("return vim.api.nvim_win_get_cursor(0)")?.arrayValue?.compactMap(\.integerValue)
+            return at == [2, 3]
+        }
+        guard shell.listPicker == nil else { fail("a single definition opened a list") }
+        step("a single answer is gone to without a list")
         // Any prompt of nvim's: the answer comes back, put away it is nil.
         _ =
             await lua(

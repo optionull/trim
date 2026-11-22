@@ -237,9 +237,13 @@ function M.setup()
       local function map(lhs, rhs, desc)
         if vim.fn.maparg(lhs, 'n', false, true).buffer ~= 1 then vim.keymap.set('n', lhs, rhs, { buffer = args.buf, desc = desc }) end
       end
-      map('gd', vim.lsp.buf.definition, 'Go to definition')
-      map('gr', vim.lsp.buf.references, 'References')
-      map('gI', vim.lsp.buf.implementation, 'Go to implementation')
+      local usages = require('frame.usages')
+      map('gd', usages.definition, 'Go to definition')
+      map('gy', usages.type_definition, 'Go to type definition')
+      map('gr', usages.references, 'References')
+      map('gI', usages.implementation, 'Go to implementation')
+      map('<leader>ls', usages.symbols, 'Symbols in this file')
+      map('<leader>lS', usages.workspace_symbols, 'Symbols in the workspace')
       map('K', vim.lsp.buf.hover, 'Hover')
       map('<leader>la', vim.lsp.buf.code_action, 'Code action')
       -- Alt+Enter (ReSharper, Rider) and Cmd+. (Xcode, VS Code): what can be done here.
