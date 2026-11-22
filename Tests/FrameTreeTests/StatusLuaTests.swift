@@ -123,3 +123,64 @@ struct ThemeLuaTests {
         """)
     }
 }
+
+/// `runtime/lua/frame/keys.lua`: each mode on the leader, where nothing is bound, and never over a key of the config's.
+@Suite("Frame's default keys")
+struct KeysLuaTests {
+    private static let runtime = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent("runtime").path
+
+    private func check(_ script: String) throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("frame-keys-\(UUID().uuidString).lua")
+        let source = "vim.opt.runtimepath:prepend('\(Self.runtime)')\n" + script + "\nio.stdout:write('PASSED')\n"
+        try source.write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["nvim", "--headless", "-u", "NONE", "-l", file.path]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        #expect(text.contains("PASSED"), "\(text)")
+    }
+
+    @Test("every mode has a key on the leader, each with a description, and all of them are bound when nothing is")
+    func allBound() throws {
+        try check("""
+        vim.g.mapleader = ','
+        local keys = require('frame.keys')
+        local what = {}
+        for _, key in ipairs(keys.defaults) do
+          assert(key[3] and key[3] ~= '', 'a description for ' .. key[1])
+          what[key[2]] = true
+        end
+        for _, plug in ipairs({ 'tree-toggle', 'tree-focus', 'tree-filter', 'workspace', 'tabs-list' }) do
+          assert(what['<Plug>(frame-' .. plug .. ')'], 'a key for ' .. plug)
+        end
+        for _, lhs in ipairs({ '<leader>e', '<leader>E', '<leader>o', '<leader>O' }) do
+          local found = false
+          for _, key in ipairs(keys.defaults) do if key[1] == lhs then found = true end end
+          assert(found, 'one-letter key ' .. lhs)
+        end
+        local bound = keys.apply()
+        assert(#bound == #keys.defaults, 'all bound: ' .. #bound)
+        assert(vim.fn.maparg('<leader>o', 'n') ~= '' and vim.fn.maparg('<leader>O', 'n') ~= '')
+        """)
+    }
+
+    @Test("a key the config has bound is left as it is")
+    func leavesYours() throws {
+        try check("""
+        vim.g.mapleader = ','
+        vim.keymap.set('n', '<leader>o', 'ihello<Esc>', { desc = 'mine' })
+        local bound = require('frame.keys').apply()
+        local map = vim.fn.maparg('<leader>o', 'n', false, true)
+        assert(map.desc == 'mine', 'still mine: ' .. vim.inspect(map))
+        for _, lhs in ipairs(bound) do assert(lhs ~= '<leader>o', 'not rebound') end
+        assert(vim.fn.maparg('<leader>O', 'n') ~= '', 'the others are')
+        """)
+    }
+}

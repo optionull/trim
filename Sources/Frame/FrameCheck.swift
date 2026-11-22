@@ -34,18 +34,18 @@ struct FrameCheck {
     }
 
     private func wait(_ what: String, _ ready: () -> Bool) async {
-        for _ in 0 ..< 100 {
+        for _ in 0 ..< 500 {
             if ready() { return }
-            try? await Task.sleep(for: .milliseconds(100))
+            try? await Task.sleep(for: .milliseconds(20))
         }
         fail("timed out waiting for " + what)
     }
 
     /// `wait` for something only nvim can say, asked of it each time.
     private func waitAsync(_ what: String, _ ready: () async -> Bool) async {
-        for _ in 0 ..< 100 {
+        for _ in 0 ..< 250 {
             if await ready() { return }
-            try? await Task.sleep(for: .milliseconds(100))
+            try? await Task.sleep(for: .milliseconds(40))
         }
         fail("timed out waiting for " + what)
     }
@@ -78,16 +78,28 @@ struct FrameCheck {
         step(
             "no title bar or buttons; a titled window (rounded by macOS) that moves by its \(Int(FrameView.margin))-point margin"
         )
-        await treeSteps()
-        await focusSteps()
-        await forwardSteps()
-        await layoutSteps()
-        await switchSteps()
-        await statusSteps()
-        await tabsSteps()
-        await scrollSteps()
-        await windowSteps()
-        await switcherSteps()
+        // All of it by default; `SILL_FRAME_CHECK_ONLY=tabs,scroll` runs those groups alone (what was touched), each
+        // timed.
+        let only = ProcessInfo.processInfo.environment["SILL_FRAME_CHECK_ONLY"].map {
+            Set($0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+        }
+        func group(_ name: String, _ body: () async -> Void) async {
+            guard only?.contains(name) ?? true else { return }
+            let began = Date()
+            await body()
+            print(String(format: "time  %-8@ %.1fs", name as NSString, Date().timeIntervalSince(began)))
+            fflush(stdout)
+        }
+        await group("tree") { await treeSteps() }
+        await group("focus") { await focusSteps() }
+        await group("forward") { await forwardSteps() }
+        await group("layout") { await layoutSteps() }
+        await group("config") { await switchSteps() }
+        await group("status") { await statusSteps() }
+        await group("tabs") { await tabsSteps() }
+        await group("scroll") { await scrollSteps() }
+        await group("windows") { await windowSteps() }
+        await group("switcher") { await switcherSteps() }
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             do {
                 try shot(editor: editor, to: path)
@@ -1136,11 +1148,31 @@ struct FrameCheck {
         NSCursor.arrow.set()
         moveEditor(to: NSPoint(x: 400, y: 200), in: editor)
         guard NSCursor.current == NSCursor.iBeam else { fail("the editor lost its I-beam over the grid") }
-        let mapped = await lua("return vim.fn.maparg('<leader>fo', 'n')")?.stringValue ?? ""
-        guard !mapped.isEmpty else { fail("<leader>fo is not bound to the list of open files") }
-        step(
-            "Command-E, `:FrameTabs list` and <leader>fo bring up the list; over it the pointer is not the editor's I-beam"
+        step("Option-Command-E and `:FrameTabs list` bring up the list; over it the pointer is not the editor's I-beam")
+        // Every mode on the leader (whatever nvim's is): the keys are bound, and they do what they say.
+        for lhs in ["<leader>e", "<leader>E", "<leader>o", "<leader>O", "<leader>fw", "<leader>fo", "<C-w>e"] {
+            let mapped = await lua("return vim.fn.maparg('\(lhs)', 'n')")?.stringValue ?? ""
+            guard !mapped.isEmpty else { fail("\(lhs) is not bound") }
+        }
+        shell.app.sources = WorkspaceSources(
+            roots: { [] }, heed: { [] }, opened: { [:] }, cached: { [] }, remember: { _ in }
         )
+        shell.focusEditor()
+        let leader = await lua("return vim.g.mapleader or '\\\\'")?.stringValue ?? "\\"
+        channel.send(keys: leader + "O")
+        await wait("<leader>O to bring up the open files") { shell.tabPicker != nil }
+        shell.escape()
+        guard shell.tabPicker == nil else { fail("Escape did not put the list away") }
+        channel.send(keys: leader + "o")
+        await wait("<leader>o to bring up the workspace switcher") { shell.switcher != nil }
+        shell.escape()
+        guard shell.switcher == nil else { fail("Escape did not put the switcher away") }
+        channel.send(keys: leader + "E")
+        await wait("<leader>E to open the tree's filter") { shell.modes.treeMode == .filter }
+        shell.escape()
+        await wait("Escape to end the filter") { shell.modes.treeMode == .normal }
+        shell.focusEditor()
+        step("every mode is on the leader: e the tree, E its filter, o the workspaces, O the open files (and fw, fo)")
         shell.app.setTabs(placement: .right)
         await wait("the bar to stop offering the list") { bar.state.picker == 0 }
         step(

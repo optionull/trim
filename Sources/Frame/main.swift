@@ -695,6 +695,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     require('frame.tabs').start()
     -- The colour scheme's selection colour, for the tree and the tabs.
     require('frame.theme').start()
+    -- Each mode on the leader, where the config has bound nothing: <leader>e, E, o, O (and fw, fo).
+    require('frame.keys').apply()
     -- :FrameTree shows, hides or goes into the sidebar; <Plug> mappings to bind your own keys to.
     local actions = { 'toggle', 'show', 'hide', 'focus', 'filter', 'ignored', 'dotfiles' }
     vim.api.nvim_create_user_command('FrameTree', function(opts)
@@ -715,15 +717,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     vim.keymap.set('n', '<Plug>(frame-workspace)', function() tell('frame_workspace', 'toggle') end, { desc = 'Switch workspace' })
     vim.keymap.set('n', '<Plug>(frame-tree-toggle)', function() tell('frame_tree', 'toggle') end, { desc = 'Show or hide the file tree' })
     vim.keymap.set('n', '<Plug>(frame-tree-focus)', function() tell('frame_tree', 'focus') end, { desc = 'Go into the file tree' })
-    -- Default keys, each only where the config has not bound it: <leader>e shows and enters the tree, or hides it;
-    -- <C-w>e enters it (showing it first); <leader>fw switches workspace.
-    for _, key in ipairs({
-      { '<leader>e', '<Plug>(frame-tree-toggle)', 'File tree' },
-      { '<C-w>e', '<Plug>(frame-tree-focus)', 'File tree' },
-      { '<leader>fw', '<Plug>(frame-workspace)', 'Switch workspace' },
-    }) do
-      if vim.fn.maparg(key[1], 'n') == '' then vim.keymap.set('n', key[1], key[2], { remap = true, desc = key[3] }) end
-    end
+    -- The filter, as a <Plug> to bind; the default keys are set after everything they are for is defined (below).
+    vim.keymap.set('n', '<Plug>(frame-tree-filter)', function() tell('frame_tree', 'filter') end, { desc = 'Filter the file tree' })
     -- <C-w>h from the leftmost window goes on into the tree (a mapping of the config's own is left alone).
     for _, lhs in ipairs({ '<C-w>h', '<C-w><C-h>' }) do
       if vim.fn.maparg(lhs, 'n') == '' then

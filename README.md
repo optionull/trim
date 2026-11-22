@@ -573,6 +573,11 @@ The text scrolls smoothly: when nvim scrolls a window by less than a screenful (
 slides goes on from where the window is drawn, as one move of all the lines, so fast scrolling flows instead of
 restarting at every line.
 
+Every mode has a key on the leader, bound only where your config has nothing there (yours are never replaced), each with a
+description for which-key: `<leader>e` the file tree (`<C-w>e` goes into it), `<leader>E` its filter, `<leader>o` the
+workspace switcher (also `<leader>fw`), `<leader>O` the list of open files (also `<leader>fo`). Each is a `<Plug>` mapping to
+bind to other keys: `<Plug>(frame-tree-toggle)`, `-tree-focus`, `-tree-filter`, `-workspace`, `-tabs-list`.
+
 ### As git's merge and diff tool
 
 ```sh
