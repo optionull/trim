@@ -13,6 +13,8 @@ public enum Surface: Equatable, Sendable {
     case picker
     /// The terminal pane a run or build goes to (a shell: Escape is its own).
     case terminal
+    /// The Run pane: what can be run and the person's own configurations (its own pane, beside the build pane's slot).
+    case run
     /// A list of choices over everything (the colour schemes, later the packages and the files): its own title says
     /// which.
     case list
@@ -155,6 +157,12 @@ public struct Modes: Equatable, Sendable {
         if surface.isOverlay, beneathSwitcher == .terminal { beneathSwitcher = .editor }
     }
 
+    /// The Run pane went away: the keyboard cannot be in it.
+    public mutating func runHidden() {
+        if surface == .run { surface = .editor }
+        if surface.isOverlay, beneathSwitcher == .run { beneathSwitcher = .editor }
+    }
+
     /// The sidebar went away: the keyboard cannot be in it.
     public mutating func sidebarHidden() {
         if surface == .tree { surface = .editor }
@@ -201,7 +209,7 @@ public struct Modes: Equatable, Sendable {
             }
             handedToEditor()
             return .focus(.editor)
-        case .terminal:
+        case .terminal, .run:
             return .pass
         case .editor:
             guard let target = editorEscape, sidebarVisible, editorMode == "normal" else { return .pass }
@@ -222,6 +230,7 @@ public struct Modes: Equatable, Sendable {
         case .list: listFiltering ? "FILTER" : listTitle.uppercased()
         case .tree: treeMode == .filter ? "FILTER" : "TREE"
         case .terminal: "BUILD"
+        case .run: "RUN"
         case .editor: Self.name(ofEditorMode: editorMode)
         }
     }

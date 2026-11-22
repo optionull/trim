@@ -1094,6 +1094,7 @@ struct FrameCheck {
             try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(atPath: folder) }
             shell.focusEditor()
+            shell.view.layoutSubtreeIfNeeded()
             let before = shell.editor.frame
             shell.run(RunEntry(
                 title: "marker", source: "make", kind: .run, command: "echo frame-run-marker-$((6*7)); pwd",
@@ -1303,9 +1304,11 @@ struct FrameCheck {
             .write(to: URL(fileURLWithPath: folder + "/" + name + ".png"))
     }
 
-    /// The Run tab: what the folder can run, each row saying where it comes from; a copy of one made into a
-    /// configuration of
-    /// the person's own, with an environment variable, kept in `.frame/run.json` and run; and deleted again.
+    /// The Run pane, a pane and a mode of its own: what the folder can run, each row saying where it comes from; a copy
+    /// of
+    /// one made into a configuration of the person's own, with an environment variable, kept in `.frame/run.json` and
+    /// run
+    /// (the build pane comes back with the output); and deleted again.
     private func runTabSteps() async {
         #if SILL_GHOSTTY
             let root = shell.workspace
@@ -1318,21 +1321,31 @@ struct FrameCheck {
                 try? FileManager.default.removeItem(atPath: root + "/Makefile")
                 try? FileManager.default.removeItem(atPath: root + "/.frame")
             }
+            shell.focusEditor()
             shell.showRunPicker(nil)
-            await wait("the Run tab") { shell.runPane?.tab == .run }
-            guard let pane = shell.runPane else { fail("no pane") }
-            let list = pane.runList
+            await wait("the Run pane") { shell.runListPane?.isHidden == false }
+            guard let pane = shell.runListPane, shell.modes.surface == .run,
+                  shell.modes.label(editorMode: "normal") == "RUN",
+                  shell.window.firstResponder === pane.list
+            else { fail("the Run pane is not a mode of its own: \(shell.modes.surface)") }
+            let list = pane.list
             await wait("hello in the list, with the file it comes from") {
                 list.all.contains { $0.title == "hello" && $0.subtitle == "Makefile:1" && $0.detail.contains("make") }
             }
             shot(pane, "run-list")
-            step("the Run tab lists what the folder can run, each with the file (and line) it comes from")
+            guard pane.pointerRects().count(where: { !$0.isEmpty }) == 2
+            else { fail("the Run pane's buttons are not pointers") }
+            step(
+                "Run is a pane and a mode of its own (RUN), listing what the folder can run with the file (and line) each comes from"
+            )
             for _ in 0 ..< 40 where list.all.first(where: { $0.id == list.cursor })?.title != "hello" {
                 list.keyDown(with: key("j", code: 38))
             }
             guard list.all.first(where: { $0.id == list.cursor })?.title == "hello" else { fail("cannot reach hello") }
             list.keyDown(with: key("c", code: 8))
-            guard pane.editing, pane.form.name.stringValue == "hello (mine)", pane.form.command.stringValue == "make hello"
+            guard pane.editing, pane.form.name.stringValue == "hello (mine)",
+                  pane.form.command.stringValue == "make hello",
+                  shell.window.firstResponder === pane.form.firstField || shell.window.firstResponder is NSText
             else {
                 fail(
                     "c did not make a copy to change: \(pane.form.name.stringValue) / \(pane.form.command.stringValue)"
@@ -1346,14 +1359,19 @@ struct FrameCheck {
             }
             guard let kept = RunConfigs.load(in: root).first, kept.basedOn == "make:hello", kept.command == "make hello"
             else { fail("what was kept is not the copy: \(RunConfigs.load(in: root))") }
-            await wait("it to run with the variable") { pane.screenText()?.contains("hello-from-make-42") == true }
+            // What is run goes to the build pane, which takes the slot back.
+            await wait("the build pane to come back with the output") {
+                shell.runPane?.isHidden == false && shell.runPane?.screenText()?.contains("hello-from-make-42") == true
+            }
+            guard pane.isHidden else { fail("the Run pane stayed over the output") }
             step(
-                "c copies an entry into a configuration of one's own: changed in a form, kept in .frame/run.json, run with its environment"
+                "c copies an entry into a configuration of one's own: kept in .frame/run.json, run with its environment, the build pane back for the output"
             )
-            pane.select(.run)
+            shell.showRunPicker(nil)
             await wait("the copy first in the list, saying where it is kept") {
                 list.all.first?.title == "hello (mine)" && list.all.first?.subtitle == ".frame/run.json (from make:hello)"
             }
+            guard shell.runPane?.isHidden == true else { fail("the build pane stayed beside the Run pane") }
             for _ in 0 ..< 40 where list.cursor != list.all.first?.id {
                 list.keyDown(with: key("k", code: 40))
             }
@@ -1361,9 +1379,12 @@ struct FrameCheck {
             await wait("the configuration to be deleted") { RunConfigs.load(in: root).isEmpty }
             guard !FileManager.default.fileExists(atPath: RunConfigs.file(in: root)) else { fail("the file stayed") }
             step("a configuration of one's own is listed first and d deletes it")
+            pane.onMinimize?()
+            guard pane.isHidden, shell.modes.surface == .editor else { fail("minimize left the Run pane or its mode") }
             shell.closeTerminal(nil)
+            step("minimize puts the Run pane away and the keyboard back in the code")
         #else
-            step("built without GhosttyKit: the Run tab was not exercised")
+            step("built without GhosttyKit: the Run pane was not exercised")
         #endif
     }
 
@@ -1528,7 +1549,7 @@ struct FrameCheck {
         step("the toggles are icons with their counts, in the header, right next to the minimize button")
         // The controls of the header have a pointer and a hover, the rebuild button runs again, and Output opens with
         // nothing run.
-        guard pane.pointerRects().count(where: { !$0.isEmpty }) == 8, !pane.minimizeRect.isEmpty,
+        guard pane.pointerRects().count(where: { !$0.isEmpty }) == 7, !pane.minimizeRect.isEmpty,
               !pane.rebuildRect.isEmpty
         else { fail("the header's controls are not all pointers: \(pane.pointerRects())") }
         func sample(_ rect: NSRect) -> NSColor? {

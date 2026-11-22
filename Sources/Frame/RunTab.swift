@@ -1,7 +1,8 @@
 import AppKit
 import FrameRun
 
-/// The Run tab of the build pane: everything the folder can run, each row saying what kind it is and the file it comes
+/// The Run pane (a pane and a mode of its own): everything the folder can run, each row saying what kind it is and the
+/// file it comes
 /// from;
 /// Return runs it. The person's own configurations come first, and any entry can be copied into one (`c`) to change its
 /// arguments, folder and environment variables in a form; `e` changes one of their own, `d` deletes it, `n` makes a new
@@ -35,18 +36,18 @@ extension FrameWindowController {
 
     /// The tab's list, from the folder as it is now (read off the main thread).
     func reloadRunList() {
-        guard let pane = runPane else { return }
+        guard runListPane != nil else { return }
         let root = workspace
         Task { [weak self] in
             let entries = await Task.detached { RunEntries.find(in: root) }.value
-            guard let self, let pane = runPane else { return }
+            guard let self, let pane = runListPane else { return }
             runEntries = Dictionary(
                 entries.map { ($0.id + "\t" + $0.command + "\t" + $0.directory, $0) },
                 uniquingKeysWith: { first, _ in first }
             )
             let items = Self.runItems(entries)
-            if pane.runList.all != items { pane.runList.set(items, current: pane.runList.cursor) }
-            if let cursor = pane.runList.cursor, let entry = runEntries[cursor] {
+            if pane.list.all != items { pane.list.set(items, current: pane.list.cursor) }
+            if let cursor = pane.list.cursor, let entry = runEntries[cursor] {
                 pane.setDetail(Self.runDetail(entry, root: root))
             } else {
                 pane
@@ -58,9 +59,20 @@ extension FrameWindowController {
         }
     }
 
-    func configureRunTab(_ pane: BuildPane) {
-        let list = pane.runList, root = { [unowned self] in workspace }
-        list.onFocus = { [weak self] in self?.terminalFocused() }
+    func configureRunPane(_ pane: RunPaneView) {
+        let list = pane.list, root = { [unowned self] in workspace }
+        pane.onFocus = { [weak self] in self?.runFocused() }
+        pane.onMinimize = { [weak self] in self?.hideRunPane() }
+        pane.onNew = { [weak self, weak pane] in
+            guard let self, let pane else { return }
+            editingConfig = nil
+            pane.edit(
+                RunConfig(name: RunConfigs.unusedName("My run", among: RunConfigs.load(in: workspace)), command: ""),
+                isNew: true
+            )
+            focus(.run)
+        }
+        list.onFocus = { [weak self] in self?.runFocused() }
         list.onDismiss = { [weak self] in self?.focusEditor() }
         list.onChoose = { [weak self] item in
             if let entry = self?.runEntries[item.id] { self?.run(entry) }
@@ -99,17 +111,17 @@ extension FrameWindowController {
             default:
                 return false
             }
-            focus(.terminal)
+            focus(.run)
             return true
         }
         pane.form.onCancel = { [weak self, weak pane] in
             pane?.endEditing()
-            self?.focus(.terminal)
+            self?.focus(.run)
         }
         pane.form.onDelete = { [weak self] in
             if let name = self?.editingConfig { self?.deleteConfig(named: name) }
-            self?.runPane?.endEditing()
-            self?.focus(.terminal)
+            self?.runListPane?.endEditing()
+            self?.focus(.run)
         }
         pane.form.onSave = { [weak self] config, andRun in self?.saveConfig(config, andRun: andRun) }
     }
@@ -128,7 +140,7 @@ extension FrameWindowController {
         }
         try? RunConfigs.save(configs, in: root)
         editingConfig = nil
-        runPane?.endEditing()
+        runListPane?.endEditing()
         reloadRunList()
         if andRun,
            let entry = RunConfigs.entries(in: root)
@@ -136,7 +148,7 @@ extension FrameWindowController {
         {
             run(entry)
         } else {
-            focus(.terminal)
+            focus(.run)
         }
     }
 
@@ -147,11 +159,40 @@ extension FrameWindowController {
         reloadRunList()
     }
 
-    /// ⇧⌘R, `\rp`: the pane on its Run tab, with the keyboard in the list.
+    /// The Run pane, made when first wanted.
+    func ensureRunPane() -> RunPaneView {
+        if let pane = runListPane { return pane }
+        let pane = RunPaneView(look: tree.look)
+        configureRunPane(pane)
+        runListPane = pane
+        pane.isHidden = true
+        view.runView = pane
+        return pane
+    }
+
+    /// ⇧⌘R, `\rp`: the Run pane (in the slot the build pane has, which steps aside) with the keyboard in its list;
+    /// again,
+    /// from the pane, back to the code.
     @objc func showRunPicker(_: Any?) {
-        showBuildPane()
-        runPane?.select(.run)
+        let pane = ensureRunPane()
+        if !pane.isHidden, modes.surface == .run { return focusEditor() }
+        runPane?.isHidden = true
+        if modes.surface == .terminal { terminalGone() }
+        pane.isHidden = false
+        view.needsLayout = true
         reloadRunList()
-        focus(.terminal)
+        focus(.run)
+    }
+
+    /// The minimize button: the Run pane goes, the keyboard back in the code.
+    func hideRunPane() {
+        guard let pane = runListPane, !pane.isHidden else { return }
+        let wasFocused = modes.surface == .run
+        pane.isHidden = true
+        view.needsLayout = true
+        if wasFocused {
+            runGone()
+            focusEditor()
+        }
     }
 }

@@ -134,6 +134,15 @@ final class FrameView: NSView {
 
     static let tabListWidth: CGFloat = 210
     /// The terminal pane a run or build shows in, beside the code or under it (`RunPlacement`).
+    /// The Run pane: the same slot, the one that is not hidden has it.
+    var runView: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let runView { addSubview(runView) }
+            needsLayout = true
+        }
+    }
+
     var terminal: NSView? {
         didSet {
             oldValue?.removeFromSuperview()
@@ -264,8 +273,17 @@ final class FrameView: NSView {
 
         // The grid's column, and the tabs in it: a strip over or under the grid, or a list at its right.
         var column = NSRect(x: x, y: top, width: frame.maxX - x, height: max(0, frame.maxY - top - barStrip))
-        if zen, let terminal { terminal.frame = NSRect(x: -20000, y: 0, width: 400, height: 400) }
-        if let terminal, !terminal.isHidden, !zen {
+        if zen {
+            for pane in [terminal, runView].compactMap({ $0 }) {
+                pane.frame = NSRect(
+                    x: -20000,
+                    y: 0,
+                    width: 400,
+                    height: 400
+                )
+            }
+        }
+        if let terminal = [terminal, runView].compactMap({ $0 }).first(where: { !$0.isHidden }), !zen {
             switch RunPlacement.for(width: bounds.width) {
             case .right:
                 let width = max(RunPlacement.leastWidth, (column.width * RunPlacement.fraction).rounded())
@@ -447,6 +465,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     var problemsReloading = false
     /// What the Run tab lists, by the row's id, and the saved configuration being changed (nil: a new one).
     var runEntries: [String: RunEntry] = [:]
+    /// The Run pane, once wanted (a pane of its own, taking the build pane's slot while it is shown).
+    var runListPane: RunPaneView?
     var editingConfig: String?
     /// The file in the window, for the problems list scoped to it or to its folder.
     var activeFile: String?
@@ -1026,11 +1046,15 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
 
     func terminalFocused() { modes.focused(.terminal) }
     func terminalGone() { modes.terminalHidden() }
+    func runFocused() { modes.focused(.run) }
+    func runGone() { modes.runHidden() }
 
     func focus(_ surface: Surface) {
         switch surface {
         case .terminal:
             if let pane = runPane { window.makeFirstResponder(pane.focusView) }
+        case .run:
+            if let pane = runListPane { window.makeFirstResponder(pane.focusView) }
         case .tree where view.sidebarVisible:
             if modes.treeMode == .filter { tree.focusFilter() } else { tree.focus() }
         case .tree, .editor: window.makeFirstResponder(editor)

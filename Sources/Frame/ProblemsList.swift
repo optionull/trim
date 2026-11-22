@@ -206,11 +206,7 @@ extension FrameWindowController {
         pane.scope = problemScope
         pane.loading = !lspProgress.isEmpty
         pane.onScope = { [weak self] scope in self?.problemScope = scope }
-        pane.onTabChange = { [weak self] tab in
-            self?.reloadProblems()
-            if tab == .run { self?.reloadRunList() }
-        }
-        configureRunTab(pane)
+        pane.onTabChange = { [weak self] _ in self?.reloadProblems() }
         pane.onRebuild = { [weak self] in self?.rebuild() }
         pane.onFocus = { [weak self] in self?.terminalFocused() }
         pane.onEscape = { [weak self] in self?.focusEditor() }
@@ -272,6 +268,11 @@ extension FrameWindowController {
     /// The pane in the window (it may have been running a build unseen).
     func showBuildPane() {
         let pane = ensureBuildPane()
+        if let run = runListPane, !run.isHidden {
+            run.isHidden = true
+            if modes.surface == .run { runGone() }
+            view.needsLayout = true
+        }
         if pane.isHidden {
             pane.isHidden = false
             view.needsLayout = true

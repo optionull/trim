@@ -7,7 +7,7 @@ import SillEditor
 /// command ends), a button to run it again, and at the right the toggle for each level of problem and the button that
 /// puts the pane away. Its keys and its mode (BUILD) are the window's (`FrameWindowController`).
 final class BuildPane: NSView {
-    enum Tab { case output, problems, run }
+    enum Tab { case output, problems }
 
     /// Something in the header that can be pointed at.
     enum Control: Equatable { case tab(Tab), rebuild, minimize, scope(ProblemScope) }
@@ -15,10 +15,6 @@ final class BuildPane: NSView {
     var look: TreeLook {
         didSet {
             problems.look = look
-            runList.look = look
-            form.look = look
-            runDetail.font = look.smallFont
-            runDetail.textColor = look.muted
             chipsView.look = look
             hint.textColor = look.faint
             hint.font = look.font
@@ -28,13 +24,6 @@ final class BuildPane: NSView {
 
     /// The problems, as a list that is part of the pane (it filters, goes to a problem on Return, has Alt+Enter).
     let problems: ListPickerView
-    /// What can be run, each with where it comes from; and the form for the person's own, which replaces it while one
-    /// is made.
-    let runList: ListPickerView
-    let form = RunForm()
-    private let runDetail = NSTextField(wrappingLabelWithString: "")
-    /// Whether the form is showing (instead of the list).
-    private(set) var editing = false
     private(set) var tab: Tab = .problems
     /// Whether Output is saying how to run something (nothing has run yet).
     var showsHint: Bool { tab == .output && terminal == nil }
@@ -93,19 +82,11 @@ final class BuildPane: NSView {
     init(look: TreeLook) {
         self.look = look
         problems = ListPickerView(title: "Problems", look: look)
-        runList = ListPickerView(title: "Run", look: look)
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 10
         layer?.masksToBounds = true
         problems.embedded = true
-        runList.embedded = true
-        form.look = look
-        form.isHidden = true
-        runDetail.maximumNumberOfLines = 3
-        runDetail.lineBreakMode = .byTruncatingTail
-        runDetail.font = look.smallFont
-        runDetail.textColor = look.muted
         problems.onChipsChange = { [weak self] chips in
             self?.chipsView.chips = chips
             self?.needsLayout = true
@@ -118,9 +99,6 @@ final class BuildPane: NSView {
         hint.textColor = look.faint
         hint.font = look.font
         addSubview(problems)
-        addSubview(runList)
-        addSubview(runDetail)
-        addSubview(form)
         addSubview(hint)
         addSubview(chipsView)
         loader.isHidden = true
@@ -156,28 +134,8 @@ final class BuildPane: NSView {
     private func showSelectedTab() {
         terminal?.isHidden = tab != .output
         problems.isHidden = tab != .problems
-        runList.isHidden = tab != .run || editing
-        runDetail.isHidden = tab != .run || editing
-        form.isHidden = tab != .run || !editing
         hint.isHidden = !showsHint
     }
-
-    /// Shows the form for a configuration (a copy, or a new one) in the Run tab.
-    func edit(_ config: RunConfig, isNew: Bool) {
-        form.show(config, isNew: isNew)
-        editing = true
-        select(.run)
-    }
-
-    /// The form is put away: the list again.
-    func endEditing() {
-        editing = false
-        showSelectedTab()
-        needsLayout = true
-    }
-
-    /// What the highlighted entry runs, where and with what, in a line or two under the list.
-    func setDetail(_ text: String) { runDetail.stringValue = text }
 
     func select(_ tab: Tab) {
         self.tab = tab
@@ -192,7 +150,6 @@ final class BuildPane: NSView {
         switch tab {
         case .problems: problems
         case .output: terminal ?? self
-        case .run: editing ? form.firstField : runList
         }
     }
 
@@ -202,15 +159,6 @@ final class BuildPane: NSView {
         let body = NSRect(x: 0, y: header, width: bounds.width, height: max(0, bounds.height - header))
         terminal?.frame = body
         problems.frame = body
-        form.frame = body
-        let detailHeight: CGFloat = 46
-        runList.frame = NSRect(x: 0, y: body.minY, width: body.width, height: max(0, body.height - detailHeight))
-        runDetail.frame = NSRect(
-            x: 20,
-            y: body.maxY - detailHeight + 4,
-            width: max(0, body.width - 40),
-            height: detailHeight - 8
-        )
         showSelectedTab()
         hint.frame = NSRect(
             x: 24,
@@ -222,7 +170,7 @@ final class BuildPane: NSView {
         let from = (rebuildRect.isEmpty ? 8 : rebuildRect.maxX) + 12
         let to = Self.scopeGroup(in: bounds, header: header).minX - 10
         chipsView.frame = NSRect(x: from, y: 0, width: max(0, to - from), height: header)
-        // The toggles and the scope are for the problems: on the other tabs they would mean nothing.
+        // The toggles and the scope are for the problems: on the other tab they would mean nothing.
         chipsView.isHidden = tab != .problems || problems.chips.isEmpty || to - from < 60
         updateToolTips()
     }
@@ -244,7 +192,6 @@ final class BuildPane: NSView {
         let tabs: [(Tab, String, String)] = [
             (.problems, problemCount > 0 ? "Problems \(problemCount)" : "Problems", "\u{f071}"),
             (.output, "Output", "\u{f120}"),
-            (.run, "Run", "\u{f04b}"),
         ]
         for (which, name, glyph) in tabs {
             let selected = which == tab
