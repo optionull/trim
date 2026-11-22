@@ -70,22 +70,20 @@ final class StatusBarView: NSView {
     /// Which clickable section the pointer is over (it has a ground of its own then).
     private var hoveringTarget: Piece.Target?
 
-    /// The loader while a build runs: a turning arc that Core Animation moves, so the bar is not drawn again for it.
-    private let spinner = SpinnerLayer()
+    /// The loader while a build runs: a turning arc that Core Animation moves, in a view of its own, so the bar is not
+    /// drawn again for it.
+    private let spinner = LoaderView(.spinner)
     var spinnerFrame: NSRect { spinner.isHidden ? .zero : spinner.frame }
-    var isSpinning: Bool { !spinner.isHidden && spinner.animation(forKey: "turn") != nil }
+    var isSpinning: Bool { !spinner.isHidden && spinner.isGoing }
 
     private func placeSpinner(_ rect: NSRect?) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
         if let rect {
-            if spinner.superlayer == nil { layer?.addSublayer(spinner) }
-            spinner.place(in: rect, color: Design.accent)
+            if spinner.superview == nil { addSubview(spinner) }
+            if spinner.frame != rect { spinner.frame = rect }
             spinner.isHidden = false
         } else {
             spinner.isHidden = true
         }
-        CATransaction.commit()
     }
 
     /// A click on the workspace segment: the switcher.

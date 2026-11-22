@@ -1,5 +1,6 @@
 import AppKit
 import QuartzCore
+import SillEditor
 
 /// A turning arc, as a loader. Core Animation turns it: the main thread does nothing for it once it has started, so it
 /// keeps turning while the window is busy (a build that uses every core, say), and costs nothing to draw again.
@@ -68,4 +69,49 @@ final class IndeterminateBarLayer: CALayer {
     }
 
     var isAnimating: Bool { piece.animation(forKey: "slide") != nil }
+}
+
+/// A loader in a view of its own: the view is placed like any other (so it is where it is meant to be whichever way the
+/// parent counts), and the animated layer fills it (so which way a layer counts cannot matter).
+final class LoaderView: NSView {
+    enum Kind { case spinner, bar }
+
+    let kind: Kind
+    private let spinner = SpinnerLayer()
+    private let bar = IndeterminateBarLayer()
+    var color = Design.accent {
+        didSet { needsLayout = true }
+    }
+
+    var track = NSColor.gray.withAlphaComponent(0.25) {
+        didSet { needsLayout = true }
+    }
+
+    init(_ kind: Kind) {
+        self.kind = kind
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.addSublayer(kind == .spinner ? spinner : bar)
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) { fatalError("not used") }
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let rect = NSRect(origin: .zero, size: bounds.size)
+        switch kind {
+        case .spinner: spinner.place(in: rect, color: color)
+        case .bar: bar.place(in: rect, track: track, color: color)
+        }
+        CATransaction.commit()
+    }
+
+    /// Whether the loader is going (for the self-check).
+    var isGoing: Bool { kind == .spinner ? spinner.animation(forKey: "turn") != nil : bar.isAnimating }
 }

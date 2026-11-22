@@ -34,15 +34,18 @@ final class ProgressToastView: NSView {
 
     /// The loaders: a turning arc by each row, and a moving bar where a row has no percentage. Core Animation moves
     /// them, so nothing is drawn again while they go.
-    private var spinners: [SpinnerLayer] = []
-    private var bars: [IndeterminateBarLayer] = []
+    private var spinners: [LoaderView] = []
+    private var bars: [LoaderView] = []
 
     /// The rows that are shown: the newest.
     var shown: [ProgressItem] { Array(items.suffix(Self.maxRows)) }
 
     /// How many rows have a loader going (for the self-check).
-    var loaders: Int { spinners.count(where: { $0.animation(forKey: "turn") != nil }) }
-    var movingBars: Int { bars.filter(\.isAnimating).count }
+    var loaders: Int { spinners.count(where: \.isGoing) }
+    var movingBars: Int { bars.count(where: \.isGoing) }
+    /// Where the loaders are, in the view's own coordinates (down from the top).
+    var spinnerFrames: [NSRect] { spinners.map(\.frame) }
+    var barFrames: [NSRect] { bars.map(\.frame) }
 
     /// How tall it is for what it holds.
     var contentHeight: CGFloat {
@@ -61,56 +64,30 @@ final class ProgressToastView: NSView {
     @available(*, unavailable)
     required init?(coder _: NSCoder) { fatalError("not used") }
 
-    /// A rect in the view's own coordinates (down from the top), in the layer's: AppKit flips the layer of a flipped
-    /// view
-    /// (or not), and the loaders sit where they are meant to either way.
-    private func inLayer(_ rect: NSRect) -> NSRect {
-        layer?.isGeometryFlipped == true ? rect : NSRect(
-            x: rect.minX,
-            y: bounds.height - rect.maxY,
-            width: rect.width,
-            height: rect.height
-        )
-    }
-
-    /// Where the first loader is, measured from the top of the view (for the self-check).
-    var firstLoaderTop: CGFloat? {
-        guard let spinner = spinners.first else { return nil }
-        return layer?.isGeometryFlipped == true ? spinner.frame.minY : bounds.height - spinner.frame.maxY
-    }
-
     override func layout() {
         super.layout()
-        spinners.forEach { $0.removeFromSuperlayer() }
-        bars.forEach { $0.removeFromSuperlayer() }
+        spinners.forEach { $0.removeFromSuperview() }
+        bars.forEach { $0.removeFromSuperview() }
         spinners = []
         bars = []
-        guard !items.isEmpty, let layer else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
+        guard !items.isEmpty else { return }
         var y: CGFloat = 8
         for item in shown {
-            let spinner = SpinnerLayer()
-            spinner.place(in: inLayer(NSRect(x: 14, y: y + 3, width: 14, height: 14)), color: Design.accent)
-            layer.addSublayer(spinner)
+            let spinner = LoaderView(.spinner)
+            spinner.frame = NSRect(x: 14, y: y + 3, width: 14, height: 14)
+            addSubview(spinner)
             spinners.append(spinner)
             if item.percentage == nil {
-                let bar = IndeterminateBarLayer()
-                bar.place(
-                    in: inLayer(NSRect(
-                        x: Self.left,
-                        y: y + Self.rowHeight - 7,
-                        width: max(0, bounds.width - Self.left - 14),
-                        height: 3
-                    )),
-                    track: look.faint.withAlphaComponent(0.25), color: Design.accent
+                let bar = LoaderView(.bar)
+                bar.track = look.faint.withAlphaComponent(0.25)
+                bar.frame = NSRect(
+                    x: Self.left, y: y + Self.rowHeight - 7, width: max(0, bounds.width - Self.left - 14), height: 3
                 )
-                layer.addSublayer(bar)
+                addSubview(bar)
                 bars.append(bar)
             }
             y += Self.rowHeight
         }
-        CATransaction.commit()
     }
 
     override func draw(_: NSRect) {

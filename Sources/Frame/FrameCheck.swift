@@ -1531,10 +1531,15 @@ struct FrameCheck {
                 "the toast's loaders are not going: \(toast.loaders) spinners, \(toast.movingBars) moving bars for two rows"
             )
         }
-        guard let top = toast.firstLoaderTop, top > 4, top < 24
-        else {
-            fail("the first loader is not in the first row: \(String(describing: toast.firstLoaderTop)) from the top")
-        }
+        // Where they are, as AppKit places them: each spinner in its row beside the name, the bar at the foot of its
+        // row,
+        // below the text and not through it.
+        let spinners = toast.spinnerFrames, bars = toast.barFrames
+        let rowHeight = ProgressToastView.rowHeight
+        guard spinners.count == 2, bars.count == 1, spinners[0].minY > 4, spinners[0].maxY < rowHeight,
+              spinners[0].maxX <= 36, spinners[1].minY - spinners[0].minY >= rowHeight - 1,
+              bars[0].minY >= spinners[1].minY + 16
+        else { fail("the loaders are not in their rows: spinners \(spinners), bars \(bars)") }
         _ = await lua("""
         local id = vim.lsp.get_clients({ name = 'fake' })[1].id
         vim.api.nvim_exec_autocmds('LspProgress', { data = { client_id = id, params = { token = 'a', value = { kind = 'end' } } } })
