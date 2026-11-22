@@ -21,6 +21,11 @@ struct StatusState: Equatable {
     var recording = ""
     var errors = 0, warnings = 0, infos = 0, hints = 0
     var lsp: [String] = []
+    /// The build that is running, by its title; empty when none is.
+    var building = ""
+    /// How the last build ended, as the bar says it ("✓ Build succeeded"); empty when there is nothing to say.
+    var buildResult = ""
+    var buildFailed = false
     /// What the language servers are busy with now (indexing, loading projects, analysing), if anything.
     var progress = ""
     var filetype = ""
@@ -40,7 +45,43 @@ final class StatusBarView: NSView {
     }
 
     var state = StatusState() {
-        didSet { if state != oldValue { needsDisplay = true } }
+        didSet {
+            if state != oldValue { needsDisplay = true }
+            if state.building.isEmpty != oldValue.building.isEmpty {
+                if state.building.isEmpty { stopSpinner() } else { startSpinner() }
+            }
+        }
+    }
+
+    /// A click on the problems' counts: the build pane on its Problems tab. A click on the build: its output.
+    var onProblemsClick: (() -> Void)?
+    var onBuildClick: (() -> Void)?
+    private var problemsRect = NSRect.zero {
+        didSet { if problemsRect != oldValue { window?.invalidateCursorRects(for: self) } }
+    }
+
+    private var buildRect = NSRect.zero {
+        didSet { if buildRect != oldValue { window?.invalidateCursorRects(for: self) } }
+    }
+
+    /// The loader while a build runs: a step of it every moment, only for as long as it runs.
+    private var spinner: Timer?
+    private var spinnerStep = 0
+    private static let spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    private func startSpinner() {
+        spinner?.invalidate()
+        spinner = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.spinnerStep += 1
+                self?.needsDisplay = true
+            }
+        }
+    }
+
+    private func stopSpinner() {
+        spinner?.invalidate()
+        spinner = nil
     }
 
     /// A click on the workspace segment: the switcher.
@@ -66,6 +107,8 @@ final class StatusBarView: NSView {
         var rects: [NSRect] = []
         if state.showsWorkspace, !workspaceRect.isEmpty { rects.append(workspaceRect) }
         if state.picker > 0, !fileRect.isEmpty { rects.append(fileRect) }
+        if !problemsRect.isEmpty { rects.append(problemsRect) }
+        if !buildRect.isEmpty { rects.append(buildRect) }
         return rects
     }
 
@@ -115,6 +158,10 @@ final class StatusBarView: NSView {
             onWorkspaceClick?()
         } else if state.picker > 0, fileRect.contains(point) {
             onFileClick?()
+        } else if !problemsRect.isEmpty, problemsRect.contains(point) {
+            onProblemsClick?()
+        } else if !buildRect.isEmpty, buildRect.contains(point) {
+            onBuildClick?()
         }
     }
 
@@ -138,7 +185,10 @@ final class StatusBarView: NSView {
     }
 
     private struct Piece {
+        enum Target { case problems, build }
+
         var text: NSAttributedString
+        var target: Target?
         var gap: CGFloat = 12
         var width: CGFloat { ceil(text.size().width) }
     }
@@ -177,19 +227,33 @@ final class StatusBarView: NSView {
             diagnostics.append(icon(glyph, color))
             diagnostics.append(attributed(" \(count)", color))
         }
-        if diagnostics.length > 0 { right.append(Piece(text: diagnostics)) }
+        if diagnostics.length > 0 { right.append(Piece(text: diagnostics, target: .problems)) }
         if !state.progress.isEmpty {
             let text = NSMutableAttributedString(attributedString: icon("\u{F110}", look.muted))
             text.append(attributed("  " + state.progress, look.faint))
             right.append(Piece(text: text))
         }
+        // A build: a loader while it runs, then how it went for a while.
+        if !state.building.isEmpty {
+            let frame = Self.spinnerFrames[spinnerStep % Self.spinnerFrames.count]
+            right.append(Piece(text: attributed(frame + " Building " + state.building, Design.accent), target: .build))
+        } else if !state.buildResult.isEmpty {
+            let color: NSColor = state.buildFailed ? .systemRed : .systemGreen
+            right.append(Piece(text: attributed(state.buildResult, color), target: .build))
+        }
         let midY = bounds.height / 2
         var edge = bounds.width - 12
+        var newProblemsRect = NSRect.zero, newBuildRect = NSRect.zero
         for piece in right {
             let size = piece.text.size()
             piece.text.draw(at: NSPoint(x: edge - piece.width, y: midY - size.height / 2))
+            let box = NSRect(x: edge - piece.width - 4, y: 0, width: piece.width + 8, height: bounds.height)
+            if piece.target == .problems { newProblemsRect = box }
+            if piece.target == .build { newBuildRect = box }
             edge -= piece.width + piece.gap
         }
+        problemsRect = newProblemsRect
+        buildRect = newBuildRect
         // The left side: the mode, the branch, then the file, which gives way when there is no room.
         var x: CGFloat = 8
         workspaceRect = .zero

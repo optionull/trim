@@ -249,7 +249,7 @@ final class FrameView: NSView {
 
         // The grid's column, and the tabs in it: a strip over or under the grid, or a list at its right.
         var column = NSRect(x: x, y: top, width: frame.maxX - x, height: max(0, frame.maxY - top - barStrip))
-        if let terminal {
+        if let terminal, !terminal.isHidden {
             switch RunPlacement.for(width: bounds.width) {
             case .right:
                 let width = max(RunPlacement.leastWidth, (column.width * RunPlacement.fraction).rounded())
@@ -411,6 +411,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     var buildDiagnostics: [String: DiagnosticLevel] = [:]
     /// What the last build printed, as problems.
     var buildProblems: [ProblemRow] = []
+    /// How many problems of each level there are in all, for the status bar (nil until counted).
+    var problemTotals: [DiagnosticLevel: Int]?
     /// The build pane (Output and Problems), while one shows.
     var runPane: BuildPane?
     /// Which levels of problem the pane lists, kept as the person set them.
@@ -487,6 +489,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         }
         statusBar.onWorkspaceClick = { [weak self] in self?.switchWorkspace(nil) }
         statusBar.onFileClick = { [weak self] in self?.showTabPicker() }
+        statusBar.onProblemsClick = { [weak self] in self?.showProblems(nil) }
+        statusBar.onBuildClick = { [weak self] in self?.showBuildOutput() }
         tree.onChip = { [weak self] name, branch, isWorktree in
             self?.chip.show(name: name, branch: branch, isWorktree: isWorktree)
             self?.refreshStatus()
@@ -888,6 +892,24 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     }
 
     /// The keyboard to a surface (the tree's filter if it is filtering; the editor if there is no sidebar to be in).
+    /// The status bar's counts are every problem there is (all files, the build's too).
+    func applyProblemTotals() {
+        guard let totals = problemTotals else { return }
+        status.errors = totals[.error] ?? 0
+        status.warnings = totals[.warning] ?? 0
+        status.infos = totals[.info] ?? 0
+        status.hints = totals[.hint] ?? 0
+        refreshStatus()
+    }
+
+    /// How the build in the status bar is going: running (its title), or how it ended, for a while.
+    func setBuild(running title: String = "", result: String = "", failed: Bool = false) {
+        status.building = title
+        status.buildResult = result
+        status.buildFailed = failed
+        refreshStatus()
+    }
+
     /// What the tree marks: nvim's diagnostics and the build's, the worse of the two for a file.
     func sendDiagnosticsToTree() {
         tree.setDiagnostics(nvimDiagnostics.merging(buildDiagnostics) { max($0, $1) })
@@ -1395,6 +1417,13 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         status.warnings = number("warnings")
         status.infos = number("infos")
         status.hints = number("hints")
+        // The bar counts every problem (all files, the build's too), not only the file in the window.
+        if let totals = problemTotals {
+            status.errors = totals[.error] ?? 0
+            status.warnings = totals[.warning] ?? 0
+            status.infos = totals[.info] ?? 0
+            status.hints = totals[.hint] ?? 0
+        }
         status.lsp = map[.string("lsp")]?.arrayValue?.compactMap(\.stringValue) ?? []
         status.progress = text("progress")
         refreshStatus()

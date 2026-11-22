@@ -1131,6 +1131,40 @@ struct FrameCheck {
             guard shell.editor.frame == before
             else { fail("the code did not take its room back: \(shell.editor.frame) \(before)") }
             step("closing the pane gives the code its room back")
+            // A clean build runs unseen: a loader in the status bar, then a line; no pane.
+            shell.run(RunEntry(title: "clean", source: "make", kind: .build, command: "echo fine", directory: folder))
+            await wait("the loader in the status bar") { shell.status.building == "clean" }
+            guard shell.runPane?.isHidden == true, shell.editor.frame == before
+            else { fail("a build that has nothing to say took room from the code") }
+            await wait("the build to end with a line in the status bar", seconds: 20) {
+                shell.status.building.isEmpty && shell.status.buildResult == "✓ Build succeeded"
+            }
+            guard shell.runPane?.isHidden == true,
+                  shell.modes.surface == .editor else { fail("a clean build brought up the pane") }
+            step("a clean build runs unseen: a loader in the status bar, then a line; the pane stays away")
+            shell.view.statusBar.onBuildClick?()
+            guard shell.runPane?.isHidden == false, shell.runPane?.tab == .output, shell.modes.surface == .terminal
+            else { fail("clicking the build did not show its output") }
+            step("clicking the build in the status bar shows its output")
+            shell.closeTerminal(nil)
+            // One that fails with nothing to list shows its output.
+            shell.run(RunEntry(
+                title: "broken",
+                source: "make",
+                kind: .build,
+                command: "echo oops; exit 3",
+                directory: folder
+            ))
+            await wait("the failed build to bring up the pane", seconds: 20) { shell.runPane?.isHidden == false }
+            guard shell.runPane?.tab == .output, shell.status.buildFailed, shell.status.buildResult == "✗ Build failed"
+            else {
+                fail(
+                    "a failed build did not show its output: \(String(describing: shell.runPane?.tab)) \(shell.status.buildResult)"
+                )
+            }
+            step("a build that fails shows its output, and the status bar says so")
+            shell.closeTerminal(nil)
+            shell.view.layoutSubtreeIfNeeded()
         #else
             step("built without GhosttyKit: the terminal pane was not exercised")
         #endif
@@ -1154,7 +1188,8 @@ struct FrameCheck {
         _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(b)')); vim.cmd('write')")
         await wait("the write message") { shell.editor.screen.messages.contains { $0.text.contains("written") } }
         try? await Task.sleep(for: .milliseconds(300))
-        guard !shell.view.overlay.subviews.contains(where: { $0 is ToastView })
+        guard !shell.view.overlay.subviews
+            .contains(where: { ($0 as? ToastView)?.message?.text.contains("written") == true })
         else {
             fail(
                 "a file written popped up over the code: \(shell.editor.screen.messages.map { $0.kind + "/" + $0.text })"
@@ -1236,6 +1271,15 @@ struct FrameCheck {
           { lnum = 2, col = 0, message = 'consider', severity = 4 },
         })
         """)
+        await wait("the status bar to count every problem, not only the file in the window") {
+            shell.status.errors == 1 && shell.status.warnings == 1 && shell.status.hints == 1
+        }
+        step("the status bar counts the problems of every file")
+        shell.view.statusBar.onProblemsClick?()
+        guard shell.runPane?.isHidden == false, shell.runPane?.tab == .problems, shell.modes.surface == .terminal
+        else { fail("clicking the counts did not open the problems") }
+        shell.focusEditor()
+        step("clicking the counts in the status bar opens the problems")
         shell.showProblems(nil)
         guard let pane = shell.runPane, pane.tab == .problems, shell.modes.label(editorMode: "normal") == "BUILD",
               shell.window.firstResponder === pane.problems else { fail("no problems tab with the keyboard in it") }

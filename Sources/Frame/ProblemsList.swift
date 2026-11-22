@@ -126,13 +126,20 @@ extension FrameWindowController {
         return pane
     }
 
-    /// The Problems tab, from what nvim has now and what the last build printed: worst first, only the levels switched
-    /// on, the counts of every level on the toggles. Called whenever either changes.
+    /// What there is to say about problems, from what nvim has now and what the last build printed: the counts for the
+    /// status bar always, and the pane's list (worst first, only the levels switched on) when there is a pane. Called
+    /// whenever either changes.
     func reloadProblems() {
-        guard let pane = runPane else { return }
         Task { [weak self] in
-            guard let self, let pane = runPane else { return }
+            guard let self else { return }
             let all = await ProblemRow.merged(nvim: nvimProblems(), build: buildProblems)
+            var totals: [DiagnosticLevel: Int] = [:]
+            for row in all {
+                totals[row.level, default: 0] += 1
+            }
+            problemTotals = totals
+            applyProblemTotals()
+            guard let pane = runPane else { return }
             let root = workspace
             let shown = all.filter { problemLevels.contains($0.level) }
             var rows: [String: ProblemRow] = [:]
@@ -149,19 +156,34 @@ extension FrameWindowController {
             pane.problems.chips = DiagnosticLevel.allCases.sorted(by: >).map { level in
                 ListChip(
                     id: String(level.rawValue), title: ProblemRow.name(level), color: SquiggleView.color(level),
-                    count: all.count(where: { $0.level == level }), on: problemLevels.contains(level),
-                    key: ProblemRow.keys[level] ?? ""
+                    count: totals[level] ?? 0, on: problemLevels.contains(level), key: ProblemRow.keys[level] ?? ""
                 )
             }
             pane.problems.set(items, current: pane.problems.cursor)
-            pane.problemCount = all.count(where: { $0.level == .error || $0.level == .warning })
+            pane.problemCount = (totals[.error] ?? 0) + (totals[.warning] ?? 0)
         }
-        _ = pane
+    }
+
+    /// The pane in the window (it may have been running a build unseen).
+    func showBuildPane() {
+        let pane = ensureBuildPane()
+        if pane.isHidden {
+            pane.isHidden = false
+            view.needsLayout = true
+        }
+    }
+
+    /// A click on the build in the status bar: its output.
+    func showBuildOutput() {
+        showBuildPane()
+        runPane?.select(.output)
+        focus(.terminal)
     }
 
     /// ⇧⌘M: the pane on its Problems tab with the keyboard in it; again, back to the code.
     @objc func showProblems(_: Any?) {
-        let pane = ensureBuildPane()
+        showBuildPane()
+        guard let pane = runPane else { return }
         if modes.surface == .terminal, pane.tab == .problems { return focusEditor() }
         pane.select(.problems)
         reloadProblems()

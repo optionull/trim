@@ -1,6 +1,7 @@
 import AppKit
 import FrameModes
 import FrameRun
+import SillCore
 import SillEditor
 #if SILL_GHOSTTY
     import SillTerminal
@@ -24,20 +25,35 @@ enum RunPlacement: Equatable {
 #if SILL_GHOSTTY
 
     extension FrameWindowController {
-        /// Runs `entry` in the pane's terminal (a new shell each time), the keyboard staying where it was.
+        /// Runs `entry` in the pane's terminal (a new shell each time), the keyboard staying where it was. A build runs
+        /// unseen: the status bar shows it going, and the pane comes up only if it has errors or warnings to show.
         func run(_ entry: RunEntry, focusing: Bool = false) {
             guard view != nil else { return }
+            let isBuild = entry.kind == .build
+            let existed = runPane != nil
             let pane = ensureBuildPane()
+            if isBuild, !existed {
+                pane.isHidden = true
+                view.needsLayout = true
+            }
             GhosttyRuntime.font = (EditorFont.font(12).familyName ?? "JetBrains Mono", EditorFont.size)
+            // A build says when it ended, and how, by a file: the shell it is typed into stays.
+            let marker = isBuild ? NSTemporaryDirectory() + "frame-build-\(UUID().uuidString).exit" : nil
+            let line = marker.map {
+                "sh -c " + Runnables.quoted("(" + entry.command + "); echo $? > " + Runnables.quoted($0))
+            } ?? entry.command
             let surface = GhosttySurfaceView(launch: TerminalLaunch(
-                directory: entry.directory, initialInput: entry.command + "\n", environment: entry.environment
+                directory: entry.directory, initialInput: line + "\n", environment: entry.environment
             ))
             surface.onFocus = { [weak self] in self?.terminalFocused() }
             pane.setTerminal(surface, entry: entry) { [weak surface] in surface?.screenText() }
             UserDefaults.standard.set(entry.id, forKey: "frame.lastRun." + workspace)
-            if entry.kind == .build {
+            if let marker {
                 takeBuildProblems([])
-                watchBuild(pane)
+                setBuild(running: entry.title)
+                watchBuild(pane, marker: marker)
+            } else {
+                showBuildPane()
             }
             if focusing { focus(.terminal) }
         }
@@ -128,19 +144,31 @@ extension FrameWindowController {
         })
     }
 
-    /// A build that has gone quiet: what it printed is read, the files it complained of are marked in the tree, and the
-    /// pane shows its problems (the keyboard stays where it was). One pane and one mode for build and problems.
-    func watchBuild(_ pane: BuildPane) {
+    /// A build that ends (it says so by a file): what it printed is read, the files it complained of are marked in the
+    /// tree, and the pane comes up only when there are errors or warnings (or it failed): on its Problems tab, the
+    /// keyboard where it was. A clean build is a line in the status bar and its problems are counts there, clickable.
+    func watchBuild(_ pane: BuildPane, marker: String) {
         Task { [weak self, weak pane] in
-            var last = "", quiet = 0
-            for _ in 0 ..< 600 {
-                try? await Task.sleep(for: .seconds(1))
-                guard let self, let pane, runPane === pane, let text = pane.screenText() else { return }
-                quiet = text == last ? quiet + 1 : 0
-                last = text
-                guard quiet == 2, let entry = pane.entry else { continue }
-                takeBuildProblems(Problems.parse(text, directory: entry.directory))
-                if !buildProblems.isEmpty { pane.select(.problems) }
+            for _ in 0 ..< 7200 {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let self, let pane, runPane === pane else { return }
+                guard let text = try? String(contentsOfFile: marker, encoding: .utf8),
+                      let code = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { continue }
+                try? FileManager.default.removeItem(atPath: marker)
+                // The terminal has the last of the output a moment after the command is done.
+                try? await Task.sleep(for: .milliseconds(300))
+                guard let entry = pane.entry else { return }
+                takeBuildProblems(Problems.parse(pane.screenText() ?? "", directory: entry.directory))
+                let complaints = buildProblems.contains { $0.level == .error || $0.level == .warning }
+                if complaints || code != 0 {
+                    setBuild(result: code == 0 ? "" : "✗ Build failed", failed: true)
+                    showBuildPane()
+                    pane.select(complaints ? .problems : .output)
+                } else {
+                    setBuild(result: "✓ Build succeeded")
+                    try? await Task.sleep(for: .seconds(6))
+                    if status.buildResult == "✓ Build succeeded" { setBuild() }
+                }
                 return
             }
         }
