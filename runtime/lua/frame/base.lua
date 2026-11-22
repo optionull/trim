@@ -36,12 +36,35 @@ o.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
 o.foldlevelstart = 99
 o.confirm = true
 o.pumheight = 12
+-- Completion: a menu even for one candidate, matched fuzzily, nothing taken until it is chosen, with what the server says of
+-- the candidate beside it.
+o.completeopt = 'menu,menuone,noselect,popup,fuzzy'
 o.shortmess = o.shortmess .. 'cI'
 
 -- What the settings' `[editor]` says (tab width, wrap, line numbers...) wins over the above.
 require('frame.options').apply(editor)
 -- The last line stays near the bottom of a window: scrolling does not take it to the top.
 require('frame.scrollpast').setup(editor.scrollpast)
+
+-- Taking a completion: Tab and Shift-Tab walk the menu (or a snippet's places), Enter takes the one chosen, Ctrl-Space asks
+-- for the menu, Ctrl-S for the signature of what is being called.
+local function pumvisible() return vim.fn.pumvisible() == 1 end
+vim.keymap.set('i', '<Tab>', function()
+  if pumvisible() then return '<C-n>' end
+  if vim.snippet.active({ direction = 1 }) then return '<Cmd>lua vim.snippet.jump(1)<CR>' end
+  return '<Tab>'
+end, { expr = true, desc = 'Next completion, next snippet place, or a tab' })
+vim.keymap.set('i', '<S-Tab>', function()
+  if pumvisible() then return '<C-p>' end
+  if vim.snippet.active({ direction = -1 }) then return '<Cmd>lua vim.snippet.jump(-1)<CR>' end
+  return '<S-Tab>'
+end, { expr = true, desc = 'Previous completion or snippet place' })
+vim.keymap.set('i', '<CR>', function()
+  if pumvisible() and vim.fn.complete_info({ 'selected' }).selected >= 0 then return '<C-y>' end
+  return '<CR>'
+end, { expr = true, desc = 'Take the completion chosen, or a new line' })
+vim.keymap.set('i', '<C-Space>', function() vim.lsp.completion.get() end, { desc = 'Complete' })
+vim.keymap.set({ 'i', 's' }, '<C-s>', function() vim.lsp.buf.signature_help() end, { desc = 'Signature help' })
 
 -- The plugins Frame carries: in the app (`runtime/pack/frame/start/*`), or in the source tree (`Vendor/plugins/*`). A
 -- name in `plugins.disabled` of the settings is left out.

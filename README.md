@@ -629,6 +629,8 @@ deaths inside a minute; the status bar shows it as `name ↻` while it waits and
 touched. `:FrameLsp [status|restart|stop] [name]`, `<leader>lR`. Keys on a buffer with a server: `gd` `gr` `gI` `K`,
 `gd` `gy` `gr` `gI` (definition, type, usages, implementations) and `<leader>ls` `lS` (symbols of the file, of the workspace) list their answers in Frame's own list, the line with its file beside it, Return going there (one answer is gone to at once). `<leader>la`, Alt+Enter or Cmd+. (code actions, in Frame's own list: type `/` to filter, Return applies) `lr` (rename) `lf` (format) `ld` `ll` (diagnostics).
 
+Completion comes from the language server as you type: the menu (with the server's notes on each candidate beside it) comes up on every letter, digit and `.`, matched fuzzily; Tab and Shift-Tab walk it (or a snippet's places), Enter takes the one chosen, Ctrl-Space asks for the menu and Ctrl-S for the signature of what is being called.
+
 Scrolling stops near the end of a file: the last line can go up to two rows from the bottom of the window (`[editor] scrollpast`),
 not to the top, with a wheel, a trackpad or the keys.
 

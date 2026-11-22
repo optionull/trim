@@ -238,6 +238,22 @@ end
 M.progress = {}
 local progress_stamp = 0
 
+--- Completion as you type, from the server: the list comes up on the characters the server names and on every letter,
+--- digit and underscore (so a word being typed is completed without asking), and a snippet is expanded when taken.
+function M.complete(client, buf)
+  local provider = client.server_capabilities and client.server_capabilities.completionProvider
+  if not provider then return end
+  local triggers = vim.deepcopy(provider.triggerCharacters or {})
+  local have = {}
+  for _, c in ipairs(triggers) do have[c] = true end
+  for code = 33, 126 do
+    local c = string.char(code)
+    if (c:match('[%w_]') or c == '.') and not have[c] then triggers[#triggers + 1] = c end
+  end
+  provider.triggerCharacters = triggers
+  vim.lsp.completion.enable(true, client.id, buf, { autotrigger = true })
+end
+
 local function push_progress()
   if M.progress_timer then return end
   M.progress_timer = vim.defer_fn(function()
@@ -547,6 +563,7 @@ function M.setup()
     callback = function(args)
       -- Servers other than Roslyn say what is wrong with every file once they are up.
       local client = vim.lsp.get_client_by_id(args.data.client_id)
+      if client and client.name:match('^frame_') then M.complete(client, args.buf) end
       if client and client.name:match('^frame_') and client.name ~= 'frame_csharp' and not client.frame_scanned then
         client.frame_scanned = true
         vim.defer_fn(function() M.workspace_diagnostics(client) end, 500)

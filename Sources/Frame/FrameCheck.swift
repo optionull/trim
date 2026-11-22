@@ -1567,7 +1567,7 @@ struct FrameCheck {
           return {
             request = function(method, _, callback)
               vim.schedule(function()
-                if method == 'initialize' then callback(nil, { capabilities = { codeActionProvider = true, referencesProvider = true, definitionProvider = true } })
+                if method == 'initialize' then callback(nil, { capabilities = { codeActionProvider = true, referencesProvider = true, definitionProvider = true, completionProvider = { triggerCharacters = { '.' } } } })
                 elseif method == 'textDocument/codeAction' then
                   callback(nil, {
                     { title = 'Use primary constructor', kind = 'refactor', edit = edit('FIRST') },
@@ -1578,6 +1578,12 @@ struct FrameCheck {
                     { uri = uri, range = { start = { line = 0, character = 0 }, ['end'] = { line = 0, character = 5 } } },
                     { uri = uri, range = { start = { line = 1, character = 2 }, ['end'] = { line = 1, character = 4 } } },
                   })
+                elseif method == 'textDocument/completion' then
+                  callback(nil, { isIncomplete = false, items = {
+                    { label = 'alphabet', kind = 6, detail = 'string', insertText = 'alphabet' },
+                    { label = 'alpha', kind = 3, detail = 'int', insertText = 'alpha' },
+                    { label = 'beta', kind = 3, detail = 'int', insertText = 'beta' },
+                  } })
                 elseif method == 'textDocument/definition' then
                   callback(nil, { { uri = uri, range = { start = { line = 1, character = 3 }, ['end'] = { line = 1, character = 5 } } } })
                 else callback(nil, nil) end
@@ -1704,6 +1710,32 @@ struct FrameCheck {
         }
         guard shell.listPicker == nil else { fail("a single definition opened a list") }
         step("a single answer is gone to without a list")
+        // Completion as you type: the server's candidates come up by themselves, in the popup, matched to what is
+        // typed;
+        // Tab walks them and Enter takes the one chosen.
+        _ =
+            await lua(
+                "require('frame.lsp').complete(vim.lsp.get_clients({ name = 'fake' })[1], vim.api.nvim_get_current_buf())"
+            )
+        shell.focusEditor()
+        channel.send(keys: "Go")
+        try? await Task.sleep(for: .milliseconds(200))
+        channel.send(keys: "alp")
+        await wait("the completion menu to come up as a word is typed") {
+            shell.editor.screen.popupMenu?.items.count ?? 0 >= 2
+        }
+        guard let menu = shell.editor.screen.popupMenu, menu.items.map(\.word).contains("alpha"),
+              !menu.items.map(\.word).contains("beta")
+        else {
+            fail("the menu is not the candidates that match: \(shell.editor.screen.popupMenu?.items.map(\.word) ?? [])")
+        }
+        channel.send(keys: "<Tab><CR>")
+        await waitAsync("the candidate chosen to be taken") {
+            let line = await lua("return vim.api.nvim_get_current_line()")?.stringValue ?? ""
+            return line == "alpha" || line == "alphabet"
+        }
+        channel.send(keys: "<Esc>")
+        step("completion comes up as a word is typed, matched to it; Tab chooses and Enter takes")
         // Any prompt of nvim's: the answer comes back, put away it is nil.
         _ =
             await lua(

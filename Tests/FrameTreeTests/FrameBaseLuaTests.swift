@@ -327,6 +327,18 @@ struct FrameBaseLuaTests {
         """#)
     }
 
+    @Test(
+        "completion: a menu even for one candidate, fuzzy, nothing taken until chosen; Tab, Enter and Ctrl-Space are bound"
+    )
+    func completionKeys() throws {
+        try check(settings: "{}", #"""
+        assert(vim.o.completeopt:find('menuone') and vim.o.completeopt:find('noselect') and vim.o.completeopt:find('fuzzy'), vim.o.completeopt)
+        for _, lhs in ipairs({ '<Tab>', '<S-Tab>', '<CR>', '<C-Space>', '<C-S>' }) do
+          assert(vim.fn.maparg(lhs, 'i') ~= '', lhs .. ' is bound')
+        end
+        """#)
+    }
+
     @Test("autostart: the settings can turn it off")
     func autostartOff() throws {
         try check(settings: #"{"lsp":{"autostart":false}}"#, #"""
