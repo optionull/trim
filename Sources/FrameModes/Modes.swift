@@ -34,6 +34,8 @@ public enum ModeEffect: Equatable, Sendable {
     case closeFilter
     /// The open files' list closes and the keyboard goes back to this surface.
     case closePicker(restoring: Surface)
+    /// The open files' filter ends (the list stays, as it was).
+    case endPickerFilter
     /// The switcher closes and the keyboard goes back to this surface.
     case closeSwitcher(restoring: Surface)
 }
@@ -46,6 +48,8 @@ public struct Modes: Equatable, Sendable {
     /// Where Escape goes from the editor's normal mode: the tree, unless the person went into the editor themselves
     /// (a click). A fresh editor has not been entered from anywhere, so it is the tree.
     public private(set) var editorEscape: Surface? = .tree
+    /// Whether the open files' list is being filtered (typed into) and not browsed (j and k move).
+    public private(set) var pickerFiltering = false
     /// What had the keyboard when the switcher came up, to give it back.
     private var beneathSwitcher: Surface = .editor
 
@@ -84,6 +88,12 @@ public struct Modes: Equatable, Sendable {
         guard !surface.isOverlay else { return }
         beneathSwitcher = surface
         surface = overlay
+        pickerFiltering = false
+    }
+
+    /// The filter of the open files' list began or ended.
+    public mutating func pickerFilterChanged(open: Bool) {
+        if surface == .picker { pickerFiltering = open }
     }
 
     /// The switcher is done (a workspace was chosen, say): the surface the keyboard goes back to.
@@ -99,6 +109,7 @@ public struct Modes: Equatable, Sendable {
     public mutating func closePicker() -> Surface {
         guard surface == .picker else { return surface }
         surface = beneathSwitcher
+        pickerFiltering = false
         return surface
     }
 
@@ -113,6 +124,7 @@ public struct Modes: Equatable, Sendable {
     public mutating func editorRestarted() {
         surface = .editor
         treeMode = .normal
+        pickerFiltering = false
         editorEscape = .tree
         beneathSwitcher = .editor
     }
@@ -127,6 +139,10 @@ public struct Modes: Equatable, Sendable {
         case .switcher:
             return .closeSwitcher(restoring: closeSwitcher())
         case .picker:
+            if pickerFiltering {
+                pickerFiltering = false
+                return .endPickerFilter
+            }
             return .closePicker(restoring: closePicker())
         case .tree:
             if treeMode != .normal {
@@ -150,7 +166,7 @@ public struct Modes: Equatable, Sendable {
     public func label(editorMode: String) -> String {
         switch surface {
         case .switcher: "SWITCH"
-        case .picker: "TABS"
+        case .picker: pickerFiltering ? "FILTER" : "TABS"
         case .tree: treeMode == .filter ? "FILTER" : "TREE"
         case .editor: Self.name(ofEditorMode: editorMode)
         }

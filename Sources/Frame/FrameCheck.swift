@@ -1089,6 +1089,52 @@ struct FrameCheck {
         guard shell.tabPicker == nil, shell.modes.surface == .editor, shell.window.firstResponder === editor else {
             fail("the list stayed, or the keyboard is not the editor's: \(shell.modes.surface)")
         }
+        // Filtering: `/` starts it, letters (j and k too) type, Escape ends the filter and not the list, then j and k move.
+        guard let other = shell.tabs.first(where: { !$0.current && $0.path.hasPrefix(dir) && $0.name.first != "t" })
+        else {
+            fail("no other tab to filter for")
+        }
+        shell.showTabPicker()
+        guard let filtering = shell.tabPicker else { fail("the list did not come up to filter") }
+        let all = filtering.tabs.count
+        filtering.keyDown(with: key("/", code: 44))
+        guard filtering.filter == "", shell.modes.pickerFiltering,
+              shell.modes.label(editorMode: "normal") == "FILTER"
+        else {
+            fail("`/` did not start the filter")
+        }
+        filtering.keyDown(with: key("j", code: 38))
+        guard filtering.filter == "j",
+              filtering.visible.isEmpty else { fail("j did not type into the filter: \(filtering.filter ?? "nil")") }
+        filtering.keyDown(with: key("\u{7F}", code: 51))
+        guard filtering.filter == "", filtering.visible.count == all else { fail("backspace did not take it back") }
+        let letter = String(other.name.prefix(1))
+        filtering.keyDown(with: key(letter, code: 2))
+        guard filtering.visible.map(\.name) == [other.name], filtering.cursor == other.id else {
+            fail("the filter did not narrow to \(other.name): \(filtering.visible.map(\.name))")
+        }
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            try? await Task.sleep(for: .milliseconds(150))
+            do { try shot(editor: editor, to: path.replacingOccurrences(of: ".png", with: "-pickfilter.png")) } catch {
+                fail("the filter's shot: \(error)")
+            }
+        }
+        filtering.keyDown(with: key("\u{1B}", code: 53))
+        guard shell.tabPicker === filtering, filtering.filter == nil, !shell.modes.pickerFiltering,
+              filtering.visible.count == all, shell.modes.surface == .picker
+        else { fail("Escape did not end the filter and keep the list") }
+        let cursorBefore = filtering.cursor
+        filtering.keyDown(with: key("j", code: 38))
+        guard filtering.cursor != cursorBefore else { fail("j does not move once the filter has ended") }
+        filtering.keyDown(with: key("/", code: 44))
+        filtering.keyDown(with: key(letter, code: 2))
+        filtering.keyDown(with: key("\r", code: 36))
+        await wait("Return in the filter to show \(other.name)") { current() == other.name }
+        guard shell.tabPicker == nil,
+              shell.modes.surface == .editor else { fail("the list stayed after Return in the filter") }
+        step(
+            "`/` filters the open files by typing; j and k move when not filtering; Escape ends the filter, then the list"
+        )
         // Escape puts it away and the keyboard goes back to where it was.
         shell.showTabPicker()
         guard let again = shell.tabPicker else { fail("the list did not come up again") }
@@ -1150,7 +1196,16 @@ struct FrameCheck {
         guard NSCursor.current == NSCursor.iBeam else { fail("the editor lost its I-beam over the grid") }
         step("Option-Command-E and `:FrameTabs list` bring up the list; over it the pointer is not the editor's I-beam")
         // Every mode on the leader (whatever nvim's is): the keys are bound, and they do what they say.
-        for lhs in ["<leader>e", "<leader>E", "<leader>o", "<leader>O", "<leader>fw", "<leader>fo", "<C-w>e"] {
+        for lhs in [
+            "<leader>e",
+            "<leader>E",
+            "<leader>w",
+            "<leader>t",
+            "<leader>o",
+            "<leader>fw",
+            "<leader>fo",
+            "<C-w>e",
+        ] {
             let mapped = await lua("return vim.fn.maparg('\(lhs)', 'n')")?.stringValue ?? ""
             guard !mapped.isEmpty else { fail("\(lhs) is not bound") }
         }
@@ -1159,12 +1214,16 @@ struct FrameCheck {
         )
         shell.focusEditor()
         let leader = await lua("return vim.g.mapleader or '\\\\'")?.stringValue ?? "\\"
-        channel.send(keys: leader + "O")
-        await wait("<leader>O to bring up the open files") { shell.tabPicker != nil }
+        channel.send(keys: leader + "t")
+        await wait("<leader>t to bring up the open files") { shell.tabPicker != nil }
         shell.escape()
         guard shell.tabPicker == nil else { fail("Escape did not put the list away") }
         channel.send(keys: leader + "o")
-        await wait("<leader>o to bring up the workspace switcher") { shell.switcher != nil }
+        await wait("<leader>o to bring up the open files too") { shell.tabPicker != nil }
+        shell.escape()
+        guard shell.tabPicker == nil else { fail("Escape did not put the list away") }
+        channel.send(keys: leader + "w")
+        await wait("<leader>w to bring up the workspace switcher") { shell.switcher != nil }
         shell.escape()
         guard shell.switcher == nil else { fail("Escape did not put the switcher away") }
         channel.send(keys: leader + "E")
@@ -1172,7 +1231,9 @@ struct FrameCheck {
         shell.escape()
         await wait("Escape to end the filter") { shell.modes.treeMode == .normal }
         shell.focusEditor()
-        step("every mode is on the leader: e the tree, E its filter, o the workspaces, O the open files (and fw, fo)")
+        step(
+            "every mode is on the leader: e the tree, E its filter, w the workspaces, t or o the open files (and fw, fo)"
+        )
         shell.app.setTabs(placement: .right)
         await wait("the bar to stop offering the list") { bar.state.picker == 0 }
         step(

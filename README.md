@@ -552,7 +552,7 @@ status line (lualine and the like) as it is.
 
 The open files are tabs (nvim's buffers; tab pages, which are layouts of windows, are not shown), and show only when
 more than one file is open. By default they are in the status bar: the file's name there, with `▾ 3`, brings up a list of the open files in the
-tree's font and colours when clicked, or by keyboard: ⌥⌘E (Go ▸ Open Files…), `:FrameTabs list`, or `<leader>fo`
+tree's font and colours when clicked, or by keyboard: ⌥⌘E (Go ▸ Open Files…), `:FrameTabs list`, or `<leader>t`
 where your config has nothing there (↑ ↓ or j k move, Return shows a file, x or ⌫ closes it, Escape goes back), and there
 is no strip at all. View ▸ Tabs puts them over the grid instead, under it, or as a list at its right, or hides them;
 `:FrameTabs top|bottom|right|statusbar|hide|show|toggle` does the same, and the choice is remembered. They sit on nvim's own
@@ -574,9 +574,11 @@ slides goes on from where the window is drawn, as one move of all the lines, so 
 restarting at every line.
 
 Every mode has a key on the leader, bound only where your config has nothing there (yours are never replaced), each with a
-description for which-key: `<leader>e` the file tree (`<C-w>e` goes into it), `<leader>E` its filter, `<leader>o` the
-workspace switcher (also `<leader>fw`), `<leader>O` the list of open files (also `<leader>fo`). Each is a `<Plug>` mapping to
-bind to other keys: `<Plug>(frame-tree-toggle)`, `-tree-focus`, `-tree-filter`, `-workspace`, `-tabs-list`.
+description for which-key, the common jumps lowercase: `<leader>e` the file tree (`<C-w>e` goes into it), `<leader>E` its
+filter, `<leader>w` the workspace switcher (also `<leader>fw`), `<leader>t` and `<leader>o` the list of open files (also
+`<leader>fo`). Each is a `<Plug>` mapping to bind to other keys: `<Plug>(frame-tree-toggle)`, `-tree-focus`, `-tree-filter`,
+`-workspace`, `-tabs-list`. In the list of open files `j` and `k` move; `/` starts a filter (type to narrow by name, ↑ ↓ or
+Return to choose, Escape ends the filter and the next Escape closes the list).
 
 ### As git's merge and diff tool
 

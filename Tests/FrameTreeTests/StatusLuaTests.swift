@@ -160,14 +160,14 @@ struct KeysLuaTests {
         for _, plug in ipairs({ 'tree-toggle', 'tree-focus', 'tree-filter', 'workspace', 'tabs-list' }) do
           assert(what['<Plug>(frame-' .. plug .. ')'], 'a key for ' .. plug)
         end
-        for _, lhs in ipairs({ '<leader>e', '<leader>E', '<leader>o', '<leader>O' }) do
+        for _, lhs in ipairs({ '<leader>e', '<leader>w', '<leader>t', '<leader>o' }) do
           local found = false
           for _, key in ipairs(keys.defaults) do if key[1] == lhs then found = true end end
           assert(found, 'one-letter key ' .. lhs)
         end
         local bound = keys.apply()
         assert(#bound == #keys.defaults, 'all bound: ' .. #bound)
-        assert(vim.fn.maparg('<leader>o', 'n') ~= '' and vim.fn.maparg('<leader>O', 'n') ~= '')
+        assert(vim.fn.maparg('<leader>w', 'n') ~= '' and vim.fn.maparg('<leader>t', 'n') ~= '')
         """)
     }
 
@@ -175,12 +175,12 @@ struct KeysLuaTests {
     func leavesYours() throws {
         try check("""
         vim.g.mapleader = ','
-        vim.keymap.set('n', '<leader>o', 'ihello<Esc>', { desc = 'mine' })
+        vim.keymap.set('n', '<leader>w', 'ihello<Esc>', { desc = 'mine' })
         local bound = require('frame.keys').apply()
-        local map = vim.fn.maparg('<leader>o', 'n', false, true)
+        local map = vim.fn.maparg('<leader>w', 'n', false, true)
         assert(map.desc == 'mine', 'still mine: ' .. vim.inspect(map))
-        for _, lhs in ipairs(bound) do assert(lhs ~= '<leader>o', 'not rebound') end
-        assert(vim.fn.maparg('<leader>O', 'n') ~= '', 'the others are')
+        for _, lhs in ipairs(bound) do assert(lhs ~= '<leader>w', 'not rebound') end
+        assert(vim.fn.maparg('<leader>t', 'n') ~= '', 'the others are')
         """)
     }
 }

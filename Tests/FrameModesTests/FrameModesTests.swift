@@ -275,3 +275,28 @@ import Testing
         #expect(modes.surface == .switcher)
     }
 }
+
+@Suite struct PickerFilterModeTests {
+    @Test func `Escape ends the filter first, and the next Escape closes the list`() {
+        var modes = Modes()
+        modes.focused(.tree)
+        modes.openPicker()
+        modes.pickerFilterChanged(open: true)
+        #expect(modes.pickerFiltering && modes.label(editorMode: "normal") == "FILTER")
+        #expect(modes.escape(editorMode: "normal", sidebarVisible: true) == .endPickerFilter)
+        #expect(!modes.pickerFiltering && modes.surface == .picker && modes.label(editorMode: "normal") == "TABS")
+        #expect(modes.escape(editorMode: "normal", sidebarVisible: true) == .closePicker(restoring: .tree))
+        #expect(modes.surface == .tree)
+    }
+
+    @Test func `a list opened again is not filtering, and only a list can be`() {
+        var modes = Modes()
+        modes.pickerFilterChanged(open: true)
+        #expect(!modes.pickerFiltering)
+        modes.openPicker()
+        modes.pickerFilterChanged(open: true)
+        _ = modes.closePicker()
+        modes.openPicker()
+        #expect(!modes.pickerFiltering)
+    }
+}

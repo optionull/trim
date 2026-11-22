@@ -843,6 +843,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case .closeFilter: tree.closeFilter()
         case let .closeSwitcher(restoring): closeSwitcher(restoring: true, to: restoring)
         case let .closePicker(restoring): closeTabPicker(restoring: true, to: restoring)
+        case .endPickerFilter: tabPicker?.endFilter()
         }
     }
 
@@ -930,6 +931,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         let button = statusBar.fileButton.isEmpty ? nil : statusBar.convert(statusBar.fileButton, to: view)
         picker.anchor = NSPoint(x: button?.minX ?? statusBar.frame.minX + 12, y: statusBar.frame.minY)
         picker.onDismiss = { [weak self] in self?.escape() }
+        picker.onFilterChange = { [weak self] open in self?.modes.pickerFilterChanged(open: open) }
         picker.onChoose = { [weak self] id in
             guard let self else { return }
             closeTabPicker()
