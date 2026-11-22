@@ -1021,6 +1021,7 @@ struct FrameCheck {
     /// and under it when it is not, the keyboard stays in the code, ⌘J goes into the pane and back, and the pane
     /// closes. What is run comes from the folder (Makefile, VS Code, project files): see `RunEntriesTests`.
     private func runSteps() async {
+        shell.problemScope = .project
         let channel = shell.session.channel
         func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
         #if SILL_GHOSTTY
@@ -1219,6 +1220,7 @@ struct FrameCheck {
         let channel = shell.session.channel
         func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
         shell.takeBuildProblems([])
+        shell.problemScope = .project
         let folder = (shell.tree.rootPath ?? shell.workspace) + "/problems-fixture"
         try? FileManager.default.createDirectory(atPath: folder + "/sub/deep", withIntermediateDirectories: true)
         try? "one\ntwo\nthree\n".write(toFile: folder + "/sub/deep/a.txt", atomically: true, encoding: .utf8)
@@ -1358,20 +1360,21 @@ struct FrameCheck {
         pane.displayIfNeeded()
         let chips = pane.chipsView
         let frames = chips.chipFrames()
+        let scopes = BuildPane.scopeGroup(in: pane.bounds, header: BuildPane.headerHeight(for: pane.look))
         guard frames.count == 4, !chips.isHidden, let last = frames.last,
-              chips.frame.minX + last.rect.maxX >= pane.minimizeRect.minX - 24,
-              chips.frame.minX + last.rect.maxX <= pane.minimizeRect.minX,
+              chips.frame.minX + last.rect.maxX >= scopes.minX - 24, scopes.maxX <= pane.minimizeRect.minX,
+              chips.frame.minX + last.rect.maxX <= scopes.minX,
               chips.frame.minX >= pane.rebuildRect.maxX, list.chips.allSatisfy({ !$0.glyph.isEmpty }),
               list.chipFrames.isEmpty || list.isHidden || list.frame.minY >= BuildPane.headerHeight(for: list.look)
         else {
             fail(
-                "the toggles are not icons at the right of the header, next to minimize: \(frames) \(pane.minimizeRect)"
+                "the toggles are not icons at the right of the header, next to the scope buttons and minimize: \(frames) \(pane.minimizeRect)"
             )
         }
         step("the toggles are icons with their counts, in the header, right next to the minimize button")
         // The controls of the header have a pointer and a hover, the rebuild button runs again, and Output opens with
         // nothing run.
-        guard pane.pointerRects().count(where: { !$0.isEmpty }) == 4, !pane.minimizeRect.isEmpty,
+        guard pane.pointerRects().count(where: { !$0.isEmpty }) == 7, !pane.minimizeRect.isEmpty,
               !pane.rebuildRect.isEmpty
         else { fail("the header's controls are not all pointers: \(pane.pointerRects())") }
         func sample(_ rect: NSRect) -> NSColor? {
@@ -1453,6 +1456,40 @@ struct FrameCheck {
         guard list.cursor == picked
         else { fail("the list jumped away from the row that was clicked: \(String(describing: list.cursor))") }
         step("problems keep their places between listings, and a click leaves the keyboard on the row clicked")
+        // How much the list covers: this file, its folder, or all of it.
+        try? "one\n".write(toFile: folder + "/sub/c.txt", atomically: true, encoding: .utf8)
+        let c = RealPath.of(folder) + "/sub/c.txt"
+        _ = await lua("""
+        vim.cmd('edit ' .. vim.fn.fnameescape('\(c)'))
+        vim.diagnostic.set(vim.api.nvim_create_namespace('frame_check'), 0, { { lnum = 0, col = 0, message = 'neighbour', severity = 3 } })
+        vim.cmd('edit ' .. vim.fn.fnameescape('\(b)'))
+        """)
+        await wait("the file in the window to be known") { shell.activeFile == b }
+        await wait("all four problems") { list.all.count == 4 }
+        pane.onScope?(.file)
+        await wait("the list to cover only this file") { list.all.map(\.title) == ["careful", "consider"] }
+        pane.onScope?(.folder)
+        await wait("the list to cover this folder") {
+            Set(list.all.map(\.title)) == ["careful", "consider", "neighbour"]
+        }
+        pane.onScope?(.project)
+        await wait("the list to cover the whole project") { list.all.count == 4 }
+        step("the problems can be scoped to this file, its folder, or the whole project")
+        shell.lspProgress = [ProgressItem(
+            id: "x",
+            client: "Roslyn",
+            title: "Analysing files",
+            message: "",
+            percentage: nil
+        )]
+        pane.loading = true
+        pane.layoutSubtreeIfNeeded()
+        pane.displayIfNeeded()
+        guard pane.showsLoader else { fail("no loader on the Problems tab while the servers are working") }
+        pane.loading = false
+        shell.lspProgress = []
+        guard !pane.showsLoader else { fail("the loader stayed on the Problems tab") }
+        step("a loader turns on the Problems tab while the servers are still sending problems")
         // The list follows the diagnostics as they change, without being asked.
         _ = await lua("vim.diagnostic.reset()")
         await wait("the list to follow the diagnostics going") { list.all.isEmpty }
@@ -1522,6 +1559,7 @@ struct FrameCheck {
                 .contains { $0.title == "Loading projects" && $0.percentage == 10 && $0.client == "fake" }
                 && toast.items.contains { $0.title == "Indexing" && $0.message == "12 of 40" && $0.percentage == nil }
         }
+        shell.view.layoutSubtreeIfNeeded()
         guard !toast.isHidden, toast.frame.height > 0, toast.frame.maxX < shell.editor.frame.maxX
         else { fail("the progress toast is not showing: \(toast.frame)") }
         toast.layoutSubtreeIfNeeded()
@@ -1677,8 +1715,8 @@ struct FrameCheck {
         func other() async -> Int {
             await lua("""
             local n = 0
-            for _, d in ipairs(vim.diagnostic.get()) do
-              if vim.api.nvim_buf_get_name(d.bufnr):find('Other.cs', 1, true) then n = n + 1 end
+            for _, d in ipairs(require('frame.diag').list({ limit = 10000 })) do
+              if d.path:find('Other.cs', 1, true) then n = n + 1 end
             end
             return n
             """)?.integerValue.map(Int.init) ?? 0
@@ -1747,12 +1785,52 @@ struct FrameCheck {
             if n > 0 { break }
             try? await Task.sleep(for: .milliseconds(100))
         }
-        // Give the server time to load its projects and begin analysing, as it does for a person who has just opened
-        // it.
-        try? await Task.sleep(for: .seconds(20))
+        // Give the server time to load its projects and analyse, as it does for a person who has just opened the
+        // folder:
+        // nvim is asked for something every 50ms all the while (a click on a file is such a request), and its Lua
+        // profiled.
+        let profile = ProcessInfo.processInfo.environment["FRAME_LOAD_PROFILE"]
+        if let profile { _ = await lua("require('frame.profile').start('\(profile)')") }
+        var warm: [Double] = []
+        let warmStart = Date()
+        while Date().timeIntervalSince(warmStart) < 45 {
+            let t = Date()
+            _ = await lua("return 1")
+            warm.append(Date().timeIntervalSince(t))
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        if profile != nil { _ = await lua("require('frame.profile').stop()") }
+        warm.sort()
+        print(String(
+            format: "load  while the server analysed (no build): nvim answered in at most %.0fms (p95 %.0fms, %d over 100ms) over %d requests",
+            (warm.last ?? 0) * 1000,
+            (warm.isEmpty ? 0 : warm[min(warm.count - 1, Int(Double(warm.count) * 0.95))]) * 1000,
+            warm.count(where: { $0 > 0.1 }), warm.count
+        ))
+        if ProcessInfo.processInfo.environment["FRAME_LOAD_NO_BUILD"] != nil { return }
+        // Clicks: files of the solution opened one after another, each timed from the request to nvim showing it.
+        let sources = (FileManager.default.enumerator(atPath: copy)?.allObjects as? [String] ?? [])
+            .filter { $0.hasSuffix(".cs") && !$0.contains("/obj/") && !$0.contains("/bin/") }.sorted()
+        var clicks: [Double] = []
+        var nextClick = 0
+        func click() async {
+            guard !sources.isEmpty else { return }
+            let path = RealPath.of(copy + "/" + sources[(nextClick * 37) % sources.count])
+            nextClick += 1
+            let began = Date()
+            shell.open(file: path, toEditor: true)
+            for _ in 0 ..< 400 {
+                if await lua("return vim.api.nvim_buf_get_name(0)")?.stringValue == path { break }
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            clicks.append(Date().timeIntervalSince(began))
+        }
         let stalls = StallMonitor()
         stalls.start()
         var trips: [Double] = []
+        if let profile = ProcessInfo.processInfo.environment["FRAME_LOAD_PROFILE_BUILD"] {
+            _ = await lua("require('frame.profile').start('\(profile)')")
+        }
         let build = RunEntry(
             title: "Build proc.slnx", source: "dotnet", kind: .build,
             command: "dotnet build \(ProcessInfo.processInfo.environment["FRAME_LOAD_SOLUTION"] ?? "proc.slnx")",
@@ -1765,8 +1843,21 @@ struct FrameCheck {
             _ = await lua("return 1")
             trips.append(Date().timeIntervalSince(t))
             if shell.status.building.isEmpty { break }
+            if trips.count % 10 == 0 { await click() }
             try? await Task.sleep(for: .milliseconds(50))
         }
+        if ProcessInfo.processInfo.environment["FRAME_LOAD_PROFILE_BUILD"] != nil {
+            _ = await lua("require('frame.profile').stop()")
+        }
+        clicks.sort()
+        print(String(
+            format: "load  clicking a file while it builds: shown after at most %.0fms (p95 %.0fms) over %d clicks",
+            (clicks.last ?? 0) * 1000, (clicks.isEmpty ? 0 : clicks[min(
+                clicks.count - 1,
+                Int(Double(clicks.count) * 0.95)
+            )]) * 1000,
+            clicks.count
+        ))
         let (worst, count) = stalls.stop()
         trips.sort()
         let p95 = trips.isEmpty ? 0 : trips[min(trips.count - 1, Int(Double(trips.count) * 0.95))]
@@ -1817,8 +1908,8 @@ struct FrameCheck {
         guard await clients() == 1 else { fail("Roslyn did not start on the solution at launch") }
         func found() async -> Bool {
             await lua("""
-            for _, d in ipairs(vim.diagnostic.get()) do
-              if vim.api.nvim_buf_get_name(d.bufnr):find('Program.cs', 1, true) then return true end
+            for _, d in ipairs(require('frame.diag').list({ limit = 10000 })) do
+              if d.path:find('Program.cs', 1, true) then return vim.fn.bufexists(d.path) == 0 end
             end
             return false
             """)?.boolValue == true

@@ -123,6 +123,7 @@ function M.capabilities()
   local capabilities = vim.lsp.protocol.make_client_capabilities()
   capabilities.workspace = capabilities.workspace or {}
   capabilities.workspace.didChangeWatchedFiles = { dynamicRegistration = false, relativePatternSupport = false }
+  capabilities.workspace.diagnostics = { refreshSupport = true }
   return capabilities
 end
 
@@ -134,7 +135,13 @@ local function config_at(name, spec, root, command)
     root_dir = root,
     init_options = spec.init_options,
     on_init = spec.on_init,
-    handlers = spec.handlers,
+    handlers = vim.tbl_extend('force', spec.handlers or {}, {
+      ['textDocument/publishDiagnostics'] = function(...) return M.publish(...) end,
+      ['workspace/diagnostic/refresh'] = function(_, _, ctx)
+        M.refresh(ctx.client_id)
+        return vim.NIL
+      end,
+    }),
     on_exit = function(code, signal)
       vim.schedule(function() M.exited(name, code, signal) end)
     end,
@@ -143,13 +150,86 @@ end
 
 local function config(name, spec, buf, command) return config_at(name, spec, root_of(spec, buf), command) end
 
---- The diagnostics of every file, not only the open ones, when the server can give them (LSP's workspace diagnostics).
+--- Whether a file is open in nvim (loaded), by its path.
+local function buffer_loaded(path)
+  for _, name in ipairs({ path, vim.uv.fs_realpath(path) or path }) do
+    local buf = vim.fn.bufnr('^' .. vim.fn.escape(name, '\\.*$^~[]') .. '$')
+    if buf ~= -1 and vim.api.nvim_buf_is_loaded(buf) then return true end
+  end
+  return false
+end
+
+--- What a server pushes about a file: nvim's own for one that is open; for the rest kept as counts and rows, not as a
+--- buffer (see `frame.diag`).
+function M.publish(err, result, ctx, config)
+  if not result or not result.uri then return end
+  local path = vim.uri_to_fname(result.uri)
+  if buffer_loaded(path) then return vim.lsp.handlers['textDocument/publishDiagnostics'](err, result, ctx, config) end
+  local client = ctx and ctx.client_id and vim.lsp.get_client_by_id(ctx.client_id)
+  require('frame.diag').set_remote(path, result.diagnostics, client and client.name)
+end
+
+local pulling = {}
+
+--- The diagnostics of every file, not only the open ones, when the server can give them (LSP's workspace diagnostics):
+--- asked for here and kept by `frame.diag`, in slices so that nvim is never held up by a report of thousands of files.
 function M.workspace_diagnostics(client)
   local provider = client.server_capabilities and client.server_capabilities.diagnosticProvider
-  if provider and provider.workspaceDiagnostics then
-    pcall(vim.lsp.buf.workspace_diagnostics, { client_id = client.id })
-    M.track_analysis(client)
+  -- Offered when the server starts or registered later (Roslyn does it later), which `supports_method` knows of.
+  local offered = (provider and provider.workspaceDiagnostics) or client:supports_method('workspace/diagnostic')
+  if not offered then return end
+  if pulling[client.id] then
+    pulling[client.id] = 'again'
+    return
   end
+  pulling[client.id] = true
+  M.track_analysis(client)
+  local params = { identifier = provider and provider.identifier, previousResultIds = {} }
+  local attempts = 0
+  local function ask()
+    client:request('workspace/diagnostic', params, function(err, result)
+      -- The server cancels a request it cannot answer yet (its projects are still loading): asked again, as nvim does.
+      if err and err.code == -32802 and (err.data == nil or err.data.retriggerRequest ~= false) and attempts < 60 then
+        attempts = attempts + 1
+        return vim.defer_fn(ask, 500)
+      end
+      local again = pulling[client.id] == 'again'
+      pulling[client.id] = nil
+      local items = (not err and result and result.items) or {}
+      local index = 1
+      local function slice()
+        local stop = math.min(index + 299, #items)
+        for i = index, stop do
+          local report = items[i]
+          if report.uri and (report.items or report.kind == 'full') then
+            local path = vim.uri_to_fname(report.uri)
+            if not buffer_loaded(path) then require('frame.diag').set_remote(path, report.items, client.name) end
+          end
+        end
+        index = stop + 1
+        if index <= #items then
+          vim.schedule(slice)
+        else
+          M.analysis_done(client)
+          if again then M.workspace_diagnostics(client) end
+        end
+      end
+      slice()
+    end)
+  end
+  ask()
+end
+
+--- The server says its diagnostics changed (it asks the client to pull again): once, a moment after the last time.
+local refreshing = {}
+function M.refresh(client_id)
+  if refreshing[client_id] then return end
+  refreshing[client_id] = true
+  vim.defer_fn(function()
+    refreshing[client_id] = nil
+    local client = vim.lsp.get_client_by_id(client_id)
+    if client then M.workspace_diagnostics(client) end
+  end, 800)
 end
 
 --- What the servers are busy with (indexing, loading projects, analysing), by client and token, newest last.
@@ -199,6 +279,16 @@ function M.track_analysis(client)
   M.progress[key] = { client = (client.name:gsub('^frame_', '')), title = 'Analysing files', stamp = progress_stamp }
   push_progress()
   analysis_quiet_timer(key)
+end
+
+--- The server has given all it has: the analysis is over (a moment on, so that it is seen).
+function M.analysis_done(client)
+  local key = 'analysis:' .. client.id
+  if analysis_timers[key] then analysis_timers[key]:stop() end
+  vim.defer_fn(function()
+    M.progress[key] = nil
+    push_progress()
+  end, 600)
 end
 
 --- Diagnostics arrived (told by `frame.diag`): an analysis going on has found more.
@@ -257,6 +347,7 @@ end
 
 --- A server's process ended. Told it was stopped on purpose, that is the end; else it crashed.
 function M.exited(name, code, signal)
+  require('frame.diag').clear_remote('frame_' .. name)
   for key, entry in pairs(M.progress) do
     if entry.client == name then M.progress[key] = nil end
   end
@@ -292,6 +383,7 @@ end
 
 --- Stops the server (its clients), for good until started again.
 function M.stop(name)
+  require('frame.diag').clear_remote('frame_' .. name)
   -- Each client stopped will report its end: those are not crashes.
   for _, client in ipairs(vim.lsp.get_clients({ name = 'frame_' .. name })) do
     stopping[name] = (stopping[name] or 0) + 1

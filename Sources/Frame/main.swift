@@ -422,6 +422,16 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// What the language servers are busy with, as nvim last said.
     var lspProgress: [ProgressItem] = []
     var problemsReloading = false
+    /// The file in the window, for the problems list scoped to it or to its folder.
+    var activeFile: String?
+    var problemScope = ProblemScope.stored {
+        didSet {
+            ProblemScope.store(problemScope)
+            runPane?.scope = problemScope
+            reloadProblems()
+        }
+    }
+
     var problemsDirty = false
     var buildDiagnostics: [String: DiagnosticLevel] = [:]
     /// What the last build printed, as problems.
@@ -820,6 +830,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
                 )
             }
             updateProgressToast()
+            runPane?.loading = !lspProgress.isEmpty
         case "frame_run":
             switch args.first?.stringValue {
             case "build": buildDefault(nil)
@@ -847,7 +858,12 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             tree.themeSelection = args.first?.dictionaryValue?[.string("selection")]?.integerValue.map { Int($0) }
         case "frame_tabs_option": tabsOption(args.first?.stringValue ?? "", args.dropFirst().first?.stringValue ?? "")
         case "frame_buffer":
-            if let path = args.first?.stringValue { tree.reveal(path) }
+            if let path = args.first?.stringValue {
+                tree.reveal(path)
+                activeFile = path
+                // The problems of this file or its folder are another list now.
+                if problemScope != .project { reloadProblems() }
+            }
             return
         case "frame_cwd":
             if let path = args.first?.stringValue { tree.setRoot(path) }

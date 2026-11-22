@@ -10,7 +10,7 @@ final class BuildPane: NSView {
     enum Tab { case output, problems }
 
     /// Something in the header that can be pointed at.
-    enum Control: Equatable { case tab(Tab), rebuild, minimize }
+    enum Control: Equatable { case tab(Tab), rebuild, minimize, scope(ProblemScope) }
 
     var look: TreeLook {
         didSet {
@@ -45,6 +45,29 @@ final class BuildPane: NSView {
     var onFocus: (() -> Void)?
     var onEscape: (() -> Void)?
 
+    /// How much the Problems list covers (this file, its folder, all of it), chosen in the header.
+    var scope = ProblemScope.project {
+        didSet { if scope != oldValue { needsDisplay = true } }
+    }
+
+    var onScope: ((ProblemScope) -> Void)?
+
+    /// Language servers are working (loading projects, analysing files): problems are still arriving. A loader turns on
+    /// the Problems tab until they are done, so they do not come as a surprise.
+    var loading = false {
+        didSet {
+            guard loading != oldValue else { return }
+            loader.isHidden = !loading
+            needsDisplay = true
+        }
+    }
+
+    private let loader = LoaderView(.spinner)
+    /// Whether the loader on the Problems tab is turning (for the self-check).
+    var showsLoader: Bool { !loader.isHidden && loader.isGoing }
+    private var loaderAt = NSRect.zero
+    private(set) var scopeRects: [(ProblemScope, NSRect)] = []
+
     /// The toggles for each level, in the header.
     let chipsView = ChipsView()
     private let hint = NSTextField(wrappingLabelWithString: "")
@@ -78,6 +101,8 @@ final class BuildPane: NSView {
         addSubview(problems)
         addSubview(hint)
         addSubview(chipsView)
+        loader.isHidden = true
+        addSubview(loader)
     }
 
     @available(*, unavailable)
@@ -143,9 +168,17 @@ final class BuildPane: NSView {
         )
         // The toggles fill what the tabs and the rebuild button leave, up to the minimize button.
         let from = (rebuildRect.isEmpty ? 8 : rebuildRect.maxX) + 12
-        let to = bounds.width - header - 4
+        let to = Self.scopeGroup(in: bounds, header: header).minX - 10
         chipsView.frame = NSRect(x: from, y: 0, width: max(0, to - from), height: header)
         chipsView.isHidden = problems.chips.isEmpty || to - from < 60
+        updateToolTips()
+    }
+
+    /// The three scope buttons as a group, from the right: left of the minimize button.
+    static func scopeGroup(in bounds: NSRect, header: CGFloat) -> NSRect {
+        let size = header - 8
+        let width = CGFloat(ProblemScope.allCases.count) * size + CGFloat(ProblemScope.allCases.count - 1) * 2
+        return NSRect(x: bounds.width - size - 8 - 12 - width, y: 4, width: width, height: size)
     }
 
     override func draw(_: NSRect) {
@@ -164,8 +197,10 @@ final class BuildPane: NSView {
             let color = selected ? look.text : look.muted
             let icon = NSAttributedString(string: glyph, attributes: [.font: iconFont, .foregroundColor: color])
             let text = NSAttributedString(string: name, attributes: [.font: look.font, .foregroundColor: color])
-            let width = 10 + max(icon.size().width, look.iconSize) + 7 + ceil(text.size().width) + 12
+            let extra: CGFloat = which == .problems && loading ? 20 : 0
+            let width = 10 + max(icon.size().width, look.iconSize) + 7 + ceil(text.size().width) + 12 + extra
             let rect = NSRect(x: x, y: 4, width: width, height: header - 8)
+            if which == .problems { loaderAt = NSRect(x: rect.maxX - 12 - 14, y: rect.midY - 6, width: 12, height: 12) }
             if selected {
                 look.focusedSelection.setFill()
                 NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
@@ -195,7 +230,30 @@ final class BuildPane: NSView {
         let newMinimize = NSRect(x: bounds.width - size - 8, y: 4, width: size, height: size)
         button(newRebuild, "\u{f021}", .rebuild)
         button(newMinimize, "\u{f068}", .minimize)
+        // How much the list covers: three buttons, the one in use filled like a selected tab.
+        let group = Self.scopeGroup(in: bounds, header: header)
+        var newScopes: [(ProblemScope, NSRect)] = []
+        var gx = group.minX
+        for which in ProblemScope.allCases {
+            let rect = NSRect(x: gx, y: group.minY, width: size, height: size)
+            if which == scope {
+                look.focusedSelection.setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+            } else if hovered == .scope(which) {
+                look.selection.setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+            }
+            let icon = NSAttributedString(string: which.glyph, attributes: [
+                .font: iconFont, .foregroundColor: which == scope ? look.text : look.muted,
+            ])
+            icon.draw(at: NSPoint(x: rect.midX - icon.size().width / 2, y: rect.midY - icon.size().height / 2))
+            newScopes.append((which, rect))
+            gx += size + 2
+        }
+        scopeRects = newScopes
+        if loading, loader.frame != loaderAt { loader.frame = loaderAt }
         let moved = newRebuild != rebuildRect || newMinimize != minimizeRect || newTabs.map(\.1) != tabFrames.map(\.1)
+            || newScopes.map(\.1) != scopeRects.map(\.1)
         rebuildRect = newRebuild
         minimizeRect = newMinimize
         tabFrames = newTabs
@@ -210,14 +268,48 @@ final class BuildPane: NSView {
     private func control(at point: NSPoint) -> Control? {
         if minimizeRect.contains(point) { return .minimize }
         if rebuildRect.contains(point) { return .rebuild }
+        if let hit = scopeRects.first(where: { $0.1.contains(point) }) { return .scope(hit.0) }
         return tabFrames.first { $0.1.contains(point) }.map { .tab($0.0) }
     }
 
     /// The header's controls, where the pointer is a hand.
-    func pointerRects() -> [NSRect] { tabFrames.map(\.1) + [rebuildRect, minimizeRect] }
+    func pointerRects() -> [NSRect] { tabFrames.map(\.1) + scopeRects.map(\.1) + [rebuildRect, minimizeRect] }
 
     override func resetCursorRects() {
         pointerRects().filter { !$0.isEmpty }.forEach { addCursorRect($0, cursor: .pointingHand) }
+    }
+
+    /// What each control is called, as its tooltip.
+    private func updateToolTips() {
+        removeAllToolTips()
+        for (which, rect) in scopeRects {
+            addToolTip(
+                rect,
+                owner: self,
+                userData: UnsafeMutableRawPointer(bitPattern: 1 + (ProblemScope.allCases.firstIndex(of: which) ?? 0))
+            )
+        }
+        if !rebuildRect
+            .isEmpty { addToolTip(rebuildRect, owner: self, userData: UnsafeMutableRawPointer(bitPattern: 10)) }
+        if !minimizeRect.isEmpty { addToolTip(
+            minimizeRect,
+            owner: self,
+            userData: UnsafeMutableRawPointer(bitPattern: 11)
+        ) }
+    }
+
+    @objc func view(
+        _: NSView,
+        stringForToolTip _: NSView.ToolTipTag,
+        point _: NSPoint,
+        userData: UnsafeMutableRawPointer?
+    ) -> String {
+        switch Int(bitPattern: userData) {
+        case 1 ... 3: "Problems: " + ProblemScope.allCases[Int(bitPattern: userData) - 1].title.lowercased()
+        case 10: "Run it again"
+        case 11: "Minimize"
+        default: ""
+        }
     }
 
     override func updateTrackingAreas() {
@@ -242,6 +334,7 @@ final class BuildPane: NSView {
         case .minimize: onMinimize?()
         case .rebuild: onRebuild?()
         case let .tab(which): select(which)
+        case let .scope(which): onScope?(which)
         case nil: window?.makeFirstResponder(focusView)
         }
     }

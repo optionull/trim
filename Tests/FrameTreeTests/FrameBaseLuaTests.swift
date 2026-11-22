@@ -289,6 +289,44 @@ struct FrameBaseLuaTests {
         """#)
     }
 
+    @Test(
+        "diagnostics for files that are not open are kept without a buffer each, scoped and capped, and handed over on open"
+    )
+    func remoteDiagnostics() throws {
+        try check(settings: "{}", #"""
+        local diag, lsp = require('frame.diag'), require('frame.lsp')
+        diag.start()
+        local before = #vim.api.nvim_list_bufs()
+        local root = vim.fn.tempname()
+        vim.fn.mkdir(root, 'p')
+        root = vim.uv.fs_realpath(root)
+        local function report(severity, line) return { range = { start = { line = line, character = 2 } }, severity = severity, message = 'm' .. line .. '\nmore', code = 'X' .. line } end
+        vim.fn.writefile({ 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l' }, root .. '/f9.cs')
+        for i = 1, 400 do
+          diag.set_remote(root .. '/f' .. i .. '.cs', { report(i % 4 + 1, i), report(1, i + 1) })
+        end
+        -- Through the handler a server's push goes by, too.
+        lsp.publish(nil, { uri = vim.uri_from_fname(root .. '/pushed.cs'), diagnostics = { report(2, 0) } }, {}, nil)
+        assert(#vim.api.nvim_list_bufs() == before, 'no buffer was made: ' .. #vim.api.nvim_list_bufs() .. ' of ' .. before)
+        assert(diag.remote_files() == 401, 'files kept: ' .. diag.remote_files())
+        local totals = diag.totals()
+        assert(totals[1] + totals[2] + totals[3] + totals[4] == 801, 'counted: ' .. vim.inspect(totals))
+        local rows = diag.list({ limit = 3000 })
+        assert(#rows == 801 and rows[1].message == 'm' .. rows[1].line - 1 or rows[1].message:match('^m%d+$'), 'rows are one line')
+        assert(#diag.list({ limit = 100 }) == 100, 'capped')
+        assert(diag.list({ limit = 100 })[1].severity == 1, 'the worst first when capped')
+        local scoped = diag.list({ scope = 'file', active = root .. '/f7.cs' })
+        assert(#scoped == 2, 'a file: ' .. #scoped)
+        assert(#diag.list({ scope = 'folder', active = root .. '/f7.cs' }) == 801, 'a folder')
+        -- Opened, the file is nvim's: what was kept of it goes.
+        local path = root .. '/f9.cs'
+        vim.cmd('edit ' .. vim.fn.fnameescape(path))
+        vim.wait(50)
+        assert(#diag.list({ scope = 'file', active = path }) == 0, 'nvim has the open file, the store does not')
+        assert(diag.remote_files() == 400, 'one fewer kept: ' .. diag.remote_files())
+        """#)
+    }
+
     @Test("autostart: the settings can turn it off")
     func autostartOff() throws {
         try check(settings: #"{"lsp":{"autostart":false}}"#, #"""

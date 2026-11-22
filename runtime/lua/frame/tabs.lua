@@ -19,8 +19,10 @@ end
 
 --- A buffer that is a tab: loaded or not, listed, a file with a name.
 local function is_tab(buf)
-  return vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buflisted and vim.bo[buf].buftype == ''
-    and vim.api.nvim_buf_get_name(buf) ~= ''
+  -- A buffer that is neither loaded nor ever visited is not a file the person has open (a plugin or a server can make
+  -- thousands of them: they are not tabs, and looking at each is not free).
+  return vim.api.nvim_buf_is_valid(buf) and (vim.api.nvim_buf_is_loaded(buf) or used[buf] ~= nil)
+    and vim.bo[buf].buflisted and vim.bo[buf].buftype == '' and vim.api.nvim_buf_get_name(buf) ~= ''
 end
 
 --- Whether anything was written in the buffer since it was loaded: what its change counter says, which no event can

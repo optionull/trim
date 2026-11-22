@@ -4,6 +4,44 @@ import FrameRun
 import FrameTree
 import MessagePack
 
+/// How much of the project the problems list covers: the file in the window, the folder it is in, or all of it.
+enum ProblemScope: String, CaseIterable {
+    case file, folder, project
+
+    static var stored: ProblemScope {
+        UserDefaults.standard.string(forKey: "frame.problemScope").flatMap(ProblemScope.init) ?? .project
+    }
+
+    static func store(_ scope: ProblemScope) { UserDefaults.standard.set(scope.rawValue, forKey: "frame.problemScope") }
+
+    var title: String {
+        switch self {
+        case .file: "This file"
+        case .folder: "This folder"
+        case .project: "The whole project"
+        }
+    }
+
+    var glyph: String {
+        switch self {
+        case .file: "\u{f15b}"
+        case .folder: "\u{f07b}"
+        case .project: "\u{f1b3}"
+        }
+    }
+
+    /// Whether a problem in `path` is in the scope when `active` is the file in the window (no file: all of it).
+    func includes(_ path: String, active: String?) -> Bool {
+        guard let active else { return true }
+        switch self {
+        case .file: return path == active
+        case .folder: return (path as NSString).deletingLastPathComponent == (active as NSString)
+            .deletingLastPathComponent
+        case .project: return true
+        }
+    }
+}
+
 /// One line of the problems list: from nvim's diagnostics (the files it has open) or from a build's output.
 struct ProblemRow: Equatable {
     var path: String
@@ -94,9 +132,11 @@ extension FrameWindowController {
 
     /// The list's rows for what nvim said and the build printed: merged, the levels shown, with the counts of each.
     nonisolated static func listing(
-        _ reply: MessagePackValue?, build: [ProblemRow], levels: Set<DiagnosticLevel>, root: String
+        _ reply: MessagePackValue?, build: [ProblemRow], levels: Set<DiagnosticLevel>, root: String,
+        scope: ProblemScope = .project, active: String? = nil
     ) -> (items: [PickerItem], rows: [String: ProblemRow], counts: [DiagnosticLevel: Int]) {
         let all = ProblemRow.merged(nvim: rows(from: reply), build: build)
+            .filter { scope.includes($0.path, active: active) }
         var counts: [DiagnosticLevel: Int] = [:]
         for row in all {
             counts[row.level, default: 0] += 1
@@ -163,6 +203,9 @@ extension FrameWindowController {
             return true
         }
         pane.onMinimize = { [weak self] in self?.hideBuildPane() }
+        pane.scope = problemScope
+        pane.loading = !lspProgress.isEmpty
+        pane.onScope = { [weak self] scope in self?.problemScope = scope }
         pane.onTabChange = { [weak self] _ in self?.reloadProblems() }
         pane.onRebuild = { [weak self] in self?.rebuild() }
         pane.onFocus = { [weak self] in self?.terminalFocused() }
@@ -187,15 +230,25 @@ extension FrameWindowController {
         problemsReloading = true
         Task { [weak self] in
             guard let self else { return }
-            let reply = try? await session.channel.lua("return require('frame.diag').list()")
+            let options: [MessagePackValue: MessagePackValue] = [
+                .string("scope"): .string(problemScope.rawValue), .string("limit"): .int(3000),
+                .string("active"): activeFile.map { .string($0) } ?? .nil,
+            ]
+            let reply = try? await session.channel.lua(
+                "return require('frame.diag').list(...)", args: [.map(options)]
+            )
             let build = buildProblems, levels = problemLevels, root = workspace
-            let listing = await Task.detached { Self.listing(reply, build: build, levels: levels, root: root) }.value
+            let scope = problemScope, active = activeFile
+            let listing = await Task.detached {
+                Self.listing(reply, build: build, levels: levels, root: root, scope: scope, active: active)
+            }.value
             if let pane = runPane {
                 problemRows = listing.rows
                 pane.problems.chips = DiagnosticLevel.allCases.sorted(by: >).map { level in
                     ListChip(
                         id: String(level.rawValue), title: ProblemRow.name(level), glyph: ProblemRow.glyph(level),
-                        color: SquiggleView.color(level), count: listing.counts[level] ?? 0,
+                        color: SquiggleView.color(level),
+                        count: (problemScope == .project ? problemTotals?[level] : nil) ?? listing.counts[level] ?? 0,
                         on: problemLevels.contains(level), key: ProblemRow.keys[level] ?? ""
                     )
                 }
