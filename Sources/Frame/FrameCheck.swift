@@ -1291,6 +1291,18 @@ struct FrameCheck {
         #endif
     }
 
+    /// The view as it is drawn, saved as a PNG in the folder FRAME_CHECK_SHOTS names (nothing without it): to look at.
+    private func shot(_ view: NSView, _ name: String) {
+        guard let folder = ProcessInfo.processInfo.environment["FRAME_CHECK_SHOTS"] else { return }
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?
+            .write(to: URL(fileURLWithPath: folder + "/" + name + ".png"))
+    }
+
     /// The Run tab: what the folder can run, each row saying where it comes from; a copy of one made into a
     /// configuration of
     /// the person's own, with an environment variable, kept in `.frame/run.json` and run; and deleted again.
@@ -1313,6 +1325,7 @@ struct FrameCheck {
             await wait("hello in the list, with the file it comes from") {
                 list.all.contains { $0.title == "hello" && $0.subtitle == "Makefile:1" && $0.detail.contains("make") }
             }
+            shot(pane, "run-list")
             step("the Run tab lists what the folder can run, each with the file (and line) it comes from")
             for _ in 0 ..< 40 where list.all.first(where: { $0.id == list.cursor })?.title != "hello" {
                 list.keyDown(with: key("j", code: 38))
@@ -1326,6 +1339,7 @@ struct FrameCheck {
                 )
             }
             pane.form.environment.string = "FRAME_X=42"
+            shot(pane, "run-form")
             pane.form.onSave?(pane.form.config, true)
             await wait("the configuration to be kept") {
                 RunConfigs.load(in: root).first?.environment == ["FRAME_X": "42"]

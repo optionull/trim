@@ -44,6 +44,7 @@ final class RunForm: NSView {
         command.placeholderString = "The command line, arguments and all: dotnet run --project src/App -- --port 8080"
         directory.placeholderString = "Where it runs, from the folder's root (empty: the root)"
         environment.isRichText = false
+        environment.textContainerInset = NSSize(width: 8, height: 6)
         environment.isAutomaticQuoteSubstitutionEnabled = false
         environment.isAutomaticDashSubstitutionEnabled = false
         environment.isAutomaticTextReplacementEnabled = false

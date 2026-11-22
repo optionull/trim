@@ -222,7 +222,8 @@ final class BuildPane: NSView {
         let from = (rebuildRect.isEmpty ? 8 : rebuildRect.maxX) + 12
         let to = Self.scopeGroup(in: bounds, header: header).minX - 10
         chipsView.frame = NSRect(x: from, y: 0, width: max(0, to - from), height: header)
-        chipsView.isHidden = problems.chips.isEmpty || to - from < 60
+        // The toggles and the scope are for the problems: on the other tabs they would mean nothing.
+        chipsView.isHidden = tab != .problems || problems.chips.isEmpty || to - from < 60
         updateToolTips()
     }
 
@@ -287,7 +288,7 @@ final class BuildPane: NSView {
         let group = Self.scopeGroup(in: bounds, header: header)
         var newScopes: [(ProblemScope, NSRect)] = []
         var gx = group.minX
-        for which in ProblemScope.allCases {
+        for which in ProblemScope.allCases where tab == .problems {
             let rect = NSRect(x: gx, y: group.minY, width: size, height: size)
             if which == scope {
                 look.focusedSelection.setFill()
