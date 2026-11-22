@@ -185,10 +185,13 @@ public final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient
     }
 
     override public var acceptsFirstResponder: Bool { true }
+    /// The surface has the keyboard now (a click, or asked for).
+    public var onFocus: (() -> Void)?
 
     override public func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
         if result, let surface { ghostty_surface_set_focus(surface, true) }
+        if result { onFocus?() }
         return result
     }
 

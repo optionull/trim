@@ -632,6 +632,16 @@ touched. `:FrameLsp [status|restart|stop] [name]`, `<leader>lR`. Keys on a buffe
 Scrolling stops near the end of a file: the last line can go up to two rows from the bottom of the window (`[editor] scrollpast`),
 not to the top, with a wheel, a trackpad or the keys.
 
+### Run and build
+
+F5 runs, ⇧⌘B builds, ⇧⌘R (or `<leader>rp`) chooses what to run from everything the folder offers, and the output appears in a real terminal
+pane (Ghostty's): to the right of the code when the window is at least 1300 points wide, under it when it is not. The keyboard stays in
+the code; ⌘J goes into the pane and back, ⇧⌘J closes it. `<leader>rr` `rb` `rp` `rt` `rx` do the same from nvim, and `:FrameRun [default|build|pick|terminal|close]`.
+What can be run is read from the folder, never built to find out: `.sln`/`.slnx`/`.csproj` and `Package.swift` and `Cargo.toml` (build, run, test),
+Makefile targets, mise tasks, justfile recipes, `package.json` scripts, and VS Code's `.vscode/tasks.json` (the task in the default build group is
+what ⇧⌘B builds) and `.vscode/launch.json` (node, python, .NET dll and native programs). F5 runs what was run last in the folder, else the first program.
+Each run is a fresh shell, so the output stays to read and scroll when the command has ended.
+
 ### As git's merge and diff tool
 
 ```sh

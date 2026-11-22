@@ -294,6 +294,25 @@ final class FrameApp: NSObject, NSApplicationDelegate {
         previousAlternate.allowsKeyEquivalentWhenHidden = true
         goMenu.addItem(withTitle: "Close Tab", action: #selector(Window.closeCurrentTab(_:)), keyEquivalent: "w")
         goItem.submenu = goMenu
+        let runItem = NSMenuItem()
+        menu.addItem(runItem)
+        let runMenu = NSMenu(title: "Run")
+        let f5 = String(UnicodeScalar(NSF5FunctionKey)!)
+        let runDefault = runMenu.addItem(withTitle: "Run", action: #selector(Window.runDefault(_:)), keyEquivalent: f5)
+        runDefault.keyEquivalentModifierMask = []
+        let build = runMenu.addItem(withTitle: "Build", action: #selector(Window.buildDefault(_:)), keyEquivalent: "b")
+        build.keyEquivalentModifierMask = [.command, .shift]
+        let choose = runMenu.addItem(
+            withTitle: "Choose What to Run…", action: #selector(Window.showRunPicker(_:)), keyEquivalent: "r"
+        )
+        choose.keyEquivalentModifierMask = [.command, .shift]
+        runMenu.addItem(.separator())
+        runMenu.addItem(withTitle: "Terminal", action: #selector(Window.toggleTerminal(_:)), keyEquivalent: "j")
+        let closeTerminal = runMenu.addItem(
+            withTitle: "Close Terminal", action: #selector(Window.closeTerminal(_:)), keyEquivalent: "j"
+        )
+        closeTerminal.keyEquivalentModifierMask = [.command, .shift]
+        runItem.submenu = runMenu
         let viewItem = NSMenuItem()
         menu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")

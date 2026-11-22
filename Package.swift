@@ -89,7 +89,8 @@ targets.append(.executableTarget(
         "SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", "SillAgent", "FrameTree", "FrameWorkspaces",
         "FrameModes", "FrameRun",
         messagePack,
-    ]
+    ] + (hasGhostty ? ["SillTerminal"] : []),
+    swiftSettings: hasGhostty ? [.define("SILL_GHOSTTY")] : []
 ))
 targets.append(.executableTarget(
     name: "SillApp",

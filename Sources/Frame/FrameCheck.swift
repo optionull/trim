@@ -1,5 +1,6 @@
 import AppKit
 import FrameModes
+import FrameRun
 import FrameTree
 import FrameWorkspaces
 import MessagePack
@@ -106,6 +107,7 @@ struct FrameCheck {
             await dotnetSteps()
         }
         await group("actions") { await actionSteps() }
+        await group("run") { await runSteps() }
         await group("finder") { await finderSteps() }
         await group("packages") { await packagesSteps() }
         await group("settings") { await settingsSteps() }
@@ -1008,6 +1010,90 @@ struct FrameCheck {
         step("a server killed from outside leaves nvim alone and is started again")
         _ = await lua("require('frame.lsp').stop('sourcekit')")
         try? FileManager.default.removeItem(atPath: folder)
+    }
+
+    /// Running and building: a command goes to a real terminal pane (libghostty) beside the code when the window is
+    /// wide
+    /// and under it when it is not, the keyboard stays in the code, ⌘J goes into the pane and back, and the pane
+    /// closes. What is run comes from the folder (Makefile, VS Code, project files): see `RunEntriesTests`.
+    private func runSteps() async {
+        #if SILL_GHOSTTY
+            let folder = RealPath.of(NSTemporaryDirectory()) + "/frame-run-\(UUID().uuidString)"
+            try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(atPath: folder) }
+            shell.focusEditor()
+            let before = shell.editor.frame
+            shell.run(RunEntry(
+                title: "marker", source: "make", kind: .run, command: "echo frame-run-marker-$((6*7)); pwd",
+                directory: folder, environment: ["FRAME_RUN_ENV": "yes"]
+            ))
+            await wait("the terminal pane") { shell.runPane != nil && shell.view.terminal != nil }
+            guard let pane = shell.runPane else { fail("no pane") }
+            await wait("the command's output in the pane") {
+                pane.surface.visibleText()?.contains("frame-run-marker-42") == true
+            }
+            guard pane.surface.visibleText()?.contains(folder) == true
+            else { fail("the command did not run in its folder: \(pane.surface.visibleText() ?? "")") }
+            step("a command runs in a real terminal pane, in its folder, and its output stays")
+            guard shell.modes.surface == .editor else { fail("running took the keyboard: \(shell.modes.surface)") }
+            let width = shell.view.bounds.width
+            let editorNow = shell.editor.frame, paneFrame = pane.frame
+            switch RunPlacement.for(width: width) {
+            case .right: guard paneFrame.minX >= editorNow.maxX, paneFrame.height == editorNow.height else {
+                    fail("a wide window should have the pane at the right: \(paneFrame) \(editorNow)")
+                }
+            case .bottom: guard paneFrame.minY >= editorNow.maxY, paneFrame.width == editorNow.width else {
+                    fail("a narrow window should have the pane under the code: \(paneFrame) \(editorNow)")
+                }
+            }
+            guard editorNow != before else { fail("the code did not make room") }
+            step(
+                "the pane is at the \(RunPlacement.for(width: width) == .right ? "right" : "bottom") of this \(Int(width))pt window, the code made room"
+            )
+            // The other placement.
+            let original = shell.window.frame
+            let wide = RunPlacement.for(width: width) == .bottom
+            shell.window.setContentSize(NSSize(width: wide ? 1500 : 900, height: original.height))
+            await wait("the pane to change sides") {
+                shell.view.layoutSubtreeIfNeeded()
+                return wide ? pane.frame.minX >= shell.editor.frame.maxX : pane.frame.minY >= shell.editor.frame.maxY
+            }
+            shell.window.setFrame(original, display: true)
+            shell.view.layoutSubtreeIfNeeded()
+            step("a wide window puts the pane beside the code, a narrow one under it")
+            // The keyboard: ⌘J into the pane, and back.
+            shell.toggleTerminal(nil)
+            guard shell.modes.surface == .terminal, shell.window.firstResponder === pane.surface
+            else { fail("⌘J did not go into the pane: \(shell.modes.surface)") }
+            shell.toggleTerminal(nil)
+            guard shell.modes.surface == .editor, shell.window.firstResponder === shell.editor
+            else { fail("⌘J did not come back: \(shell.modes.surface)") }
+            step("⌘J goes into the pane and back to the code")
+            // The default build is the task marked as one; a run that was chosen is run again.
+            let build = RunEntry(title: "b1", source: "make", kind: .build, command: "make b1", directory: folder)
+            let marked = RunEntry(
+                title: "b2",
+                source: "VS Code",
+                kind: .build,
+                command: "x",
+                directory: folder,
+                isDefault: true
+            )
+            let program = RunEntry(title: "p", source: "dotnet", kind: .run, command: "dotnet run", directory: folder)
+            guard shell.defaultBuild(from: [build, marked, program]) == marked,
+                  shell.defaultBuild(from: [build, program]) == build,
+                  shell.defaultRun(from: [build, program]) == program
+            else { fail("the default build and run are not picked as they should be") }
+            step("the default build is the one marked as such, else the first; the default run the program")
+            shell.closeTerminal(nil)
+            guard shell.runPane == nil, shell.view.terminal == nil else { fail("the pane did not close") }
+            shell.view.layoutSubtreeIfNeeded()
+            guard shell.editor.frame == before
+            else { fail("the code did not take its room back: \(shell.editor.frame) \(before)") }
+            step("closing the pane gives the code its room back")
+        #else
+            step("built without GhosttyKit: the terminal pane was not exercised")
+        #endif
     }
 
     /// What can be done here: Alt+Enter (and Cmd+.) asks the server for code actions and the answer is the frame's own

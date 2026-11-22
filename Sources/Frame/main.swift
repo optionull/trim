@@ -132,6 +132,15 @@ final class FrameView: NSView {
     }
 
     static let tabListWidth: CGFloat = 210
+    /// The terminal pane a run or build shows in, beside the code or under it (`RunPlacement`).
+    var terminal: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let terminal { addSubview(terminal) }
+            needsLayout = true
+        }
+    }
+
     let divider = DividerView()
     /// Whether the bar shows under the grid (a config can keep its own status line instead).
     var statusVisible = true {
@@ -240,6 +249,18 @@ final class FrameView: NSView {
 
         // The grid's column, and the tabs in it: a strip over or under the grid, or a list at its right.
         var column = NSRect(x: x, y: top, width: frame.maxX - x, height: max(0, frame.maxY - top - barStrip))
+        if let terminal {
+            switch RunPlacement.for(width: bounds.width) {
+            case .right:
+                let width = max(RunPlacement.leastWidth, (column.width * RunPlacement.fraction).rounded())
+                terminal.frame = NSRect(x: column.maxX - width, y: column.minY, width: width, height: column.height)
+                column.size.width -= width + gap
+            case .bottom:
+                let height = max(RunPlacement.leastHeight, (column.height * RunPlacement.fraction).rounded())
+                terminal.frame = NSRect(x: column.minX, y: column.maxY - height, width: column.width, height: height)
+                column.size.height -= height + gap
+            }
+        }
         let tabsShown = Tabs.isShown(count: tabStrip.tabs.count, placement: tabsPlacement)
         let stripHeight = TabsView.stripHeight(for: statusBar.look)
         tabStrip.isHidden = !(tabsShown && tabsPlacement.isStrip)
@@ -385,6 +406,10 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     private(set) var tabPicker: TabPickerView?
     /// A list of choices (the colour schemes) while it is up, and what to do if it is put away without one chosen.
     private(set) var listPicker: ListPickerView?
+    #if SILL_GHOSTTY
+        /// The terminal pane, while one shows.
+        var runPane: RunPane?
+    #endif
     private var listCancelled: (() -> Void)?
     /// Which surface has the keyboard, and what Escape does from each: the window's modes.
     private(set) var modes = Modes() {
@@ -669,6 +694,13 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
       { desc = 'Switch workspace: a repository or worktree, in a window of its own' })
     vim.keymap.set('n', '<Plug>(frame-packages)', function() tell('frame_packages', '') end, { desc = 'Packages' })
     vim.api.nvim_create_user_command('FramePackages', function() tell('frame_packages', '') end, { desc = 'Browse, install and remove packages' })
+    for plug, what in pairs({ run = 'default', build = 'build', ['run-pick'] = 'pick', terminal = 'terminal', ['terminal-close'] = 'close' }) do
+      vim.keymap.set('n', '<Plug>(frame-' .. plug .. ')', function() tell('frame_run', what) end, { desc = 'Run: ' .. what })
+    end
+    vim.api.nvim_create_user_command('FrameRun', function(opts) tell('frame_run', opts.args ~= '' and opts.args or 'default') end, {
+      nargs = '?', complete = function() return { 'default', 'build', 'pick', 'terminal', 'close' } end,
+      desc = 'Run (default), build, pick what to run, or show/close the terminal pane',
+    })
     vim.keymap.set('n', '<Plug>(frame-find)', function() tell('frame_find', 'files') end, { desc = 'Find file' })
     vim.keymap.set('n', '<Plug>(frame-grep)', function() tell('frame_find', 'grep') end, { desc = 'Find in files' })
     vim.api.nvim_create_user_command('FrameFind', function() tell('frame_find', 'files') end, { desc = 'Find a file in the workspace' })
@@ -710,6 +742,14 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case "frame_theme_pick": showThemePicker(nil)
         case "frame_packages": showPackages(nil)
         case "frame_select": showSelect(args)
+        case "frame_run":
+            switch args.first?.stringValue {
+            case "build": buildDefault(nil)
+            case "pick": showRunPicker(nil)
+            case "terminal": toggleTerminal(nil)
+            case "close": closeTerminal(nil)
+            default: runDefault(nil)
+            }
         case "frame_find": findFiles(grep: args.first?.stringValue == "grep")
         case "frame_theme_set":
             if let name = args.first?.stringValue, !name.isEmpty { FrameSettings.set(
@@ -814,8 +854,15 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     }
 
     /// The keyboard to a surface (the tree's filter if it is filtering; the editor if there is no sidebar to be in).
-    private func focus(_ surface: Surface) {
+    func terminalFocused() { modes.focused(.terminal) }
+    func terminalGone() { modes.terminalHidden() }
+
+    func focus(_ surface: Surface) {
         switch surface {
+        case .terminal:
+            #if SILL_GHOSTTY
+                if let pane = runPane { window.makeFirstResponder(pane.surface) }
+            #endif
         case .tree where view.sidebarVisible:
             if modes.treeMode == .filter { tree.focusFilter() } else { tree.focus() }
         case .tree, .editor: window.makeFirstResponder(editor)
