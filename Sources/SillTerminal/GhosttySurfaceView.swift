@@ -11,10 +11,14 @@ public struct TerminalLaunch: Sendable {
     /// Typed into the shell once it starts.
     public var initialInput: String?
     public var environment: [String: String]
+    /// With a `command`: the pane stays when it ends, showing what it printed (else it closes).
+    public var waitAfterCommand: Bool
 
     public init(
-        directory: String, command: String? = nil, initialInput: String? = nil, environment: [String: String]
+        directory: String, command: String? = nil, initialInput: String? = nil, environment: [String: String],
+        waitAfterCommand: Bool = false
     ) {
+        self.waitAfterCommand = waitAfterCommand
         self.directory = directory
         self.command = command
         self.initialInput = initialInput
@@ -73,6 +77,7 @@ public final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient
 
         config.working_directory = UnsafePointer(c(launch.directory))
         if let command = launch.command { config.command = UnsafePointer(c(command)) }
+        config.wait_after_command = launch.waitAfterCommand
         // Typed into the shell once it is up (Ghostty waits for it), as Run types the project's run command.
         if let input = launch.initialInput { config.initial_input = UnsafePointer(c(input)) }
         var env = launch.environment.map { ghostty_env_var_s(key: c($0.key), value: c($0.value)) }
@@ -207,6 +212,8 @@ public final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient
     override public var acceptsFirstResponder: Bool { true }
     /// The surface has the keyboard now (a click, or asked for).
     public var onFocus: (() -> Void)?
+    /// The command the pane was started with has ended, with its exit code.
+    public var onChildExit: ((Int) -> Void)?
 
     override public func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()

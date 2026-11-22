@@ -569,7 +569,9 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         editor.isCovered = { [weak self] event in self?.cardHasPointer(event) ?? false }
         externalUI = ExternalUI(editor: editor)
         // What nvim says about its own routine (a file written, a search count) does not interrupt the code.
-        externalUI.showsAsToast = { message in !Self.routineMessageKinds.contains(message.kind) }
+        externalUI.showsAsToast = { message in
+            !Self.routineMessageKinds.contains(message.kind) && !message.text.hasPrefix("watch.watch")
+        }
         view = FrameView(
             editor: editor, overlay: externalUI.overlay, sidebar: sidebar, statusBar: statusBar, chip: chip,
             tabStrip: tabStrip, tabList: tabList, persisting: !checking

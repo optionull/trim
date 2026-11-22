@@ -1205,6 +1205,15 @@ struct FrameCheck {
                 "a file written popped up over the code: \(shell.editor.screen.messages.map { $0.kind + "/" + $0.text })"
             )
         }
+        // A server asking for a folder that is not there to be watched is nvim's own noise, not the person's business.
+        _ = await lua("vim.notify_once('watch.watch: ENOENT', vim.log.levels.INFO)")
+        await wait("the watcher's message to arrive") {
+            shell.editor.screen.messages.contains { $0.text.hasPrefix("watch.watch") }
+        }
+        try? await Task.sleep(for: .milliseconds(300))
+        guard !shell.view.overlay.subviews
+            .contains(where: { ($0 as? ToastView)?.message?.text.hasPrefix("watch.watch") == true })
+        else { fail("the file watcher's ENOENT popped up over the code") }
         _ = await lua("vim.api.nvim_echo({ { 'broken thing' } }, true, { err = true })")
         await wait("an error to still be shown") { shell.view.overlay.subviews.contains { $0 is ToastView } }
         step("routine messages (a file written) stay quiet; errors still show")

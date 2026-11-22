@@ -37,13 +37,18 @@ enum RunPlacement: Equatable {
                 view.needsLayout = true
             }
             GhosttyRuntime.font = (EditorFont.font(12).familyName ?? "JetBrains Mono", EditorFont.size)
-            // A build says when it ended, and how, by a file: the shell it is typed into stays.
+            // The command is the pane's own process, its line printed first (dimmed) so it reads as in a shell, and the
+            // pane stays when it ends. Nothing is typed: a build says how it ended by a file the script writes.
             let marker = isBuild ? NSTemporaryDirectory() + "frame-build-\(UUID().uuidString).exit" : nil
-            let line = marker.map {
-                "sh -c " + Runnables.quoted("(" + entry.command + "); echo $? > " + Runnables.quoted($0))
-            } ?? entry.command
+            var script = "printf '\\033[2m❯ %s\\033[0m\\n' " + Runnables.quoted(entry.command) + "; "
+            if let marker {
+                script += "(" + entry.command + "); c=$?; echo $c > " + Runnables.quoted(marker) + "; exit $c"
+            } else {
+                script += entry.command
+            }
             let surface = GhosttySurfaceView(launch: TerminalLaunch(
-                directory: entry.directory, initialInput: line + "\n", environment: entry.environment
+                directory: entry.directory, command: "/bin/sh -c " + Runnables.quoted(script),
+                environment: entry.environment, waitAfterCommand: true
             ))
             surface.onFocus = { [weak self] in self?.terminalFocused() }
             pane.setTerminal(surface, entry: entry) { [weak surface] in surface?.screenText() }
@@ -147,9 +152,11 @@ extension FrameWindowController {
         })
     }
 
-    /// A build that ends (it says so by a file): what it printed is read, the files it complained of are marked in the
-    /// tree, and the pane comes up only when there are errors or warnings (or it failed): on its Problems tab, the
-    /// keyboard where it was. A clean build is a line in the status bar and its problems are counts there, clickable.
+    /// A build says it has ended, and its exit code, by a file: then what it printed is read (off the main thread), the
+    /// files it complained of are marked in the tree, and the pane comes up only when there are errors or warnings (or
+    /// it
+    /// failed): on its Problems tab, the keyboard where it was. A clean build is a line in the status bar and its
+    /// problems are counts there, clickable.
     func watchBuild(_ pane: BuildPane, marker: String) {
         Task { [weak self, weak pane] in
             for _ in 0 ..< 7200 {
@@ -158,21 +165,30 @@ extension FrameWindowController {
                 guard let text = try? String(contentsOfFile: marker, encoding: .utf8),
                       let code = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { continue }
                 try? FileManager.default.removeItem(atPath: marker)
-                // The terminal has the last of the output a moment after the command is done.
-                try? await Task.sleep(for: .milliseconds(300))
-                guard let entry = pane.entry else { return }
-                takeBuildProblems(Problems.parse(pane.screenText() ?? "", directory: entry.directory))
-                let complaints = buildProblems.contains { $0.level == .error || $0.level == .warning }
-                if complaints || code != 0 {
-                    setBuild(result: code == 0 ? "" : "✗ Build failed", failed: true)
-                    showBuildPane()
-                    pane.select(complaints ? .problems : .output)
-                } else {
-                    setBuild(result: "✓ Build succeeded")
-                    try? await Task.sleep(for: .seconds(6))
-                    if status.buildResult == "✓ Build succeeded" { setBuild() }
-                }
+                buildEnded(pane, code: code)
                 return
+            }
+        }
+    }
+
+    func buildEnded(_ pane: BuildPane, code: Int) {
+        Task { [weak self, weak pane] in
+            // The terminal has the last of the output a moment after the command is done.
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self, let pane, runPane === pane, let entry = pane.entry else { return }
+            let text = pane.screenText() ?? "", directory = entry.directory
+            let problems = await Task.detached { Problems.parse(text, directory: directory) }.value
+            guard runPane === pane else { return }
+            takeBuildProblems(problems)
+            let complaints = buildProblems.contains { $0.level == .error || $0.level == .warning }
+            if complaints || code != 0 {
+                setBuild(result: code == 0 ? "" : "✗ Build failed", failed: true)
+                showBuildPane()
+                pane.select(complaints ? .problems : .output)
+            } else {
+                setBuild(result: "✓ Build succeeded")
+                try? await Task.sleep(for: .seconds(6))
+                if status.buildResult == "✓ Build succeeded" { setBuild() }
             }
         }
     }

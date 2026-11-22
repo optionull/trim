@@ -256,6 +256,29 @@ struct FrameBaseLuaTests {
         """#)
     }
 
+    @Test("a diagnostic for a line that is gone does not throw when its file is opened (nor hold nvim at a prompt)")
+    func staleDiagnostics() throws {
+        try check(settings: "{}", #"""
+        require('frame.diag').harden()
+        local file = vim.fn.tempname() .. '.txt'
+        vim.fn.writefile({ 'one', 'two' }, file)
+        local buf = vim.fn.bufadd(file)
+        local ns = vim.api.nvim_create_namespace('stale')
+        vim.diagnostic.set(ns, buf, {
+          { lnum = 1, col = 0, message = 'there', severity = 2 },
+          { lnum = 40, col = 0, message = 'gone', severity = 1 },
+        })
+        vim.v.errmsg = ''
+        vim.cmd('edit ' .. vim.fn.fnameescape(file))
+        vim.wait(100)
+        assert(vim.v.errmsg == '', 'opening the file raised: ' .. vim.v.errmsg)
+        assert(vim.g.frame_diagnostic_error == nil, 'a handler failed: ' .. tostring(vim.g.frame_diagnostic_error))
+        assert(#vim.diagnostic.get(buf) == 2, 'the diagnostics themselves are kept')
+        local marks = vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, {})
+        assert(#marks > 0, 'the line that is there is still marked once the file is open')
+        """#)
+    }
+
     @Test("autostart: the settings can turn it off")
     func autostartOff() throws {
         try check(settings: #"{"lsp":{"autostart":false}}"#, #"""

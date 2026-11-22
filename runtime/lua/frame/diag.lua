@@ -40,6 +40,45 @@ function M.list()
   return rows
 end
 
+--- Diagnostics from a server can be stale: for a file that changed since (a build rewrites files, and workspace
+--- diagnostics cover files that were never open), a line may be gone. nvim's handlers read the line with strict
+--- indexing and throw when it is, at BufReadPost, with a prompt that holds nvim until a key is pressed. They are given
+--- only the diagnostics whose lines exist, and an error in one is its own: it never reaches the person.
+local waiting = {}
+function M.harden()
+  for name, handler in pairs(vim.diagnostic.handlers) do
+    if type(handler) == 'table' and type(handler.show) == 'function' and not handler.frame_hardened then
+      local show = handler.show
+      handler.frame_hardened = true
+      handler.show = function(namespace, bufnr, diagnostics, opts)
+        if not vim.api.nvim_buf_is_valid(bufnr) then return end
+        -- A file that is not loaded has no lines to measure against: shown when it is (nvim would show it then, with
+        -- what it was given now).
+        if not vim.api.nvim_buf_is_loaded(bufnr) then
+          local key = namespace .. ':' .. bufnr
+          if not waiting[key] then
+            waiting[key] = true
+            vim.api.nvim_create_autocmd('BufReadPost', {
+              buffer = bufnr, once = true,
+              callback = function()
+                waiting[key] = nil
+                vim.schedule(function() if vim.api.nvim_buf_is_valid(bufnr) then pcall(vim.diagnostic.show, namespace, bufnr) end end)
+              end,
+            })
+          end
+          return
+        end
+        local count = vim.api.nvim_buf_line_count(bufnr)
+        diagnostics = vim.tbl_filter(function(d)
+          return d.lnum < count and (d.end_lnum or d.lnum) < count
+        end, diagnostics)
+        local ok, err = pcall(show, namespace, bufnr, diagnostics, opts)
+        if not ok then vim.schedule(function() vim.g.frame_diagnostic_error = name .. ': ' .. tostring(err) end) end
+      end
+    end
+  end
+end
+
 local timer
 local function schedule()
   if timer then timer:stop() end
@@ -48,6 +87,7 @@ local function schedule()
 end
 
 function M.start()
+  M.harden()
   vim.api.nvim_create_autocmd({ 'DiagnosticChanged', 'BufDelete', 'BufWipeout' }, {
     group = vim.api.nvim_create_augroup('frame_diag', { clear = true }),
     callback = schedule,

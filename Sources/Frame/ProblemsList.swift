@@ -197,9 +197,11 @@ extension FrameWindowController {
     /// A click on the build in the status bar: its output; again, the pane folds away.
     func showBuildOutput() { toggleBuildPane(on: .output) }
 
-    /// A click on the status bar's section for the pane: it opens on that tab, and the same click again puts it away.
+    /// A click on the status bar's section for the pane: it opens on that tab, and a click while it is open puts it
+    /// away.
     func toggleBuildPane(on tab: BuildPane.Tab) {
-        if let pane = runPane, !pane.isHidden, pane.tab == tab { return hideBuildPane() }
+        // Open, it folds away at once, whichever tab it is on; folded, it opens on this section's tab.
+        if let pane = runPane, !pane.isHidden { return hideBuildPane() }
         showBuildPane()
         runPane?.select(tab)
         reloadProblems()
