@@ -406,6 +406,11 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     private(set) var tabPicker: TabPickerView?
     /// A list of choices (the colour schemes) while it is up, and what to do if it is put away without one chosen.
     private(set) var listPicker: ListPickerView?
+    /// The worst level of each file nvim has diagnostics for, and of each file the last build complained of.
+    var nvimDiagnostics: [String: DiagnosticLevel] = [:]
+    var buildDiagnostics: [String: DiagnosticLevel] = [:]
+    /// What the last build printed, as problems.
+    var buildProblems: [ProblemRow] = []
     #if SILL_GHOSTTY
         /// The terminal pane, while one shows.
         var runPane: RunPane?
@@ -557,6 +562,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         // A card over the grid (the switcher, the list of open files) has the pointer: no I-beam over its rows.
         editor.isCovered = { [weak self] event in self?.cardHasPointer(event) ?? false }
         externalUI = ExternalUI(editor: editor)
+        // What nvim says about its own routine (a file written, a search count) does not interrupt the code.
+        externalUI.showsAsToast = { message in !Self.routineMessageKinds.contains(message.kind) }
         view = FrameView(
             editor: editor, overlay: externalUI.overlay, sidebar: sidebar, statusBar: statusBar, chip: chip,
             tabStrip: tabStrip, tabList: tabList, persisting: !checking
@@ -673,6 +680,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     require('frame.theme').start()
     -- Choices nvim or a plugin asks for (code actions among them) are the frame's list, not a prompt in the message area.
     require('frame.ui').setup()
+    -- The tree's wavy lines: the worst diagnostic of each file.
+    require('frame.diag').start()
     -- Each mode on the leader, where the config has bound nothing: <leader>e, E, o, O (and fw, fo).
     require('frame.keys').apply()
     -- :FrameTree shows, hides or goes into the sidebar; <Plug> mappings to bind your own keys to.
@@ -735,6 +744,16 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     end
     """
 
+    /// Messages that are nvim reporting what it just did, not something to act on.
+    static let routineMessageKinds: Set<String> = [
+        "bufwrite",
+        "progress",
+        "search_count",
+        "undo",
+        "quickfix",
+        "verbose",
+    ]
+
     /// What nvim asked of the frame.
     private func nvimAsked(_ method: String, _ args: [MessagePackValue]) {
         switch method {
@@ -742,6 +761,17 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case "frame_theme_pick": showThemePicker(nil)
         case "frame_packages": showPackages(nil)
         case "frame_select": showSelect(args)
+        case "frame_diag":
+            var files: [String: DiagnosticLevel] = [:]
+            for (key, value) in args.first?.dictionaryValue ?? [:] {
+                if let path = key.stringValue, let raw = value.integerValue,
+                   let level = DiagnosticLevel(rawValue: Int(raw))
+                {
+                    files[path] = level
+                }
+            }
+            nvimDiagnostics = files
+            sendDiagnosticsToTree()
         case "frame_run":
             switch args.first?.stringValue {
             case "build": buildDefault(nil)
@@ -855,6 +885,11 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     }
 
     /// The keyboard to a surface (the tree's filter if it is filtering; the editor if there is no sidebar to be in).
+    /// What the tree marks: nvim's diagnostics and the build's, the worse of the two for a file.
+    func sendDiagnosticsToTree() {
+        tree.setDiagnostics(nvimDiagnostics.merging(buildDiagnostics) { max($0, $1) })
+    }
+
     func terminalFocused() { modes.focused(.terminal) }
     func terminalGone() { modes.terminalHidden() }
 

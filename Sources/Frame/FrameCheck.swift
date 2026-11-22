@@ -108,6 +108,7 @@ struct FrameCheck {
         }
         await group("actions") { await actionSteps() }
         await group("run") { await runSteps() }
+        await group("problems") { await problemsSteps() }
         await group("finder") { await finderSteps() }
         await group("packages") { await packagesSteps() }
         await group("settings") { await settingsSteps() }
@@ -1096,12 +1097,11 @@ struct FrameCheck {
             ))
             guard let buildPane = shell.runPane else { fail("no pane for the build") }
             await wait("the build's output") { buildPane.surface.screenText()?.contains("boom") == true }
-            try? await Task.sleep(for: .milliseconds(300))
-            shell.showProblems(nil)
-            await wait("the problems as a list") { shell.listPicker != nil }
+            await wait("the problems list to come up by itself when the build goes quiet", seconds: 10) {
+                shell.listPicker != nil
+            }
             guard let list = shell.listPicker, list.all.map(\.title) == ["boom", "quiet"],
-                  list.all[0].detail == "A.cs:3",
-                  shell.modes.label(editorMode: "normal").hasPrefix("PROBLEMS (1 ERRORS")
+                  list.all[0].detail.hasSuffix("A.cs:3"), shell.modes.label(editorMode: "normal") == "PROBLEMS"
             else {
                 fail(
                     "the problems are not the build's: \(shell.listPicker?.all.map(\.title) ?? []) \(shell.modes.label(editorMode: "normal"))"
@@ -1113,7 +1113,9 @@ struct FrameCheck {
                 let at = await lua("return vim.api.nvim_win_get_cursor(0)")?.arrayValue?.compactMap(\.integerValue)
                 return name == folder + "/A.cs" && at?.first == 3
             }
-            step("a build's errors and warnings are read from the pane and listed; Return goes to the line")
+            step(
+                "a build that goes quiet brings up its problems (one mode with the diagnostics); Return goes to the line"
+            )
             shell.closeTerminal(nil)
             guard shell.runPane == nil, shell.view.terminal == nil else { fail("the pane did not close") }
             shell.view.layoutSubtreeIfNeeded()
@@ -1123,6 +1125,99 @@ struct FrameCheck {
         #else
             step("built without GhosttyKit: the terminal pane was not exercised")
         #endif
+    }
+
+    /// Diagnostics: the worst level of each file as a wavy line in the tree, folders taking the worst below them
+    /// (folded
+    /// off the main thread), and every problem in one list with a toggle per level and Alt+Enter on a row.
+    private func problemsSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        shell.takeBuildProblems([])
+        let folder = (shell.tree.rootPath ?? shell.workspace) + "/problems-fixture"
+        try? FileManager.default.createDirectory(atPath: folder + "/sub/deep", withIntermediateDirectories: true)
+        try? "one\ntwo\nthree\n".write(toFile: folder + "/sub/deep/a.txt", atomically: true, encoding: .utf8)
+        try? "one\ntwo\nthree\n".write(toFile: folder + "/sub/b.txt", atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let a = RealPath.of(folder) + "/sub/deep/a.txt", b = RealPath.of(folder) + "/sub/b.txt"
+        shell.focusEditor()
+        // nvim's report of what it just did (a file written) is not a popup over the code; an error still is.
+        _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(b)')); vim.cmd('write')")
+        await wait("the write message") { shell.editor.screen.messages.contains { $0.text.contains("written") } }
+        try? await Task.sleep(for: .milliseconds(300))
+        guard !shell.view.overlay.subviews.contains(where: { $0 is ToastView })
+        else {
+            fail(
+                "a file written popped up over the code: \(shell.editor.screen.messages.map { $0.kind + "/" + $0.text })"
+            )
+        }
+        _ = await lua("vim.api.nvim_echo({ { 'broken thing' } }, true, { err = true })")
+        await wait("an error to still be shown") { shell.view.overlay.subviews.contains { $0 is ToastView } }
+        step("routine messages (a file written) stay quiet; errors still show")
+        shell.focusEditor()
+        _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(a)'))")
+        _ = await lua("""
+        local ns = vim.api.nvim_create_namespace('frame_check')
+        vim.diagnostic.set(ns, 0, { { lnum = 0, col = 0, message = 'boom', severity = 1, code = 'X1' } })
+        vim.cmd('edit ' .. vim.fn.fnameescape('\(b)'))
+        vim.diagnostic.set(ns, 0, {
+          { lnum = 1, col = 2, message = 'careful', severity = 2 },
+          { lnum = 2, col = 0, message = 'consider', severity = 4 },
+        })
+        """)
+        func level(_ path: String) -> DiagnosticLevel? { shell.tree.tree?.node(at: path)?.diagnostic }
+        let top = RealPath.of(folder)
+        await wait("the folder to take the worst of what is below it") { level(top) == .error }
+        shell.tree.reveal(a)
+        await wait("the files' wavy lines in the tree") { level(a) == .error && level(top + "/sub") == .error }
+        guard level(b) == .warning, level(top + "/sub/deep") == .error
+        else { fail("the folders did not take the worst below them: \(String(describing: level(top + "/sub/deep")))") }
+        step("a file's worst diagnostic marks it in the tree, and every folder above takes the worst below")
+        _ = await lua("vim.diagnostic.reset()")
+        await wait("the marks to go") { level(a) == nil && level(top) == nil }
+        step("marks go when the diagnostics do")
+        _ = await lua("""
+        local ns = vim.api.nvim_create_namespace('frame_check')
+        vim.diagnostic.set(ns, vim.fn.bufnr('\(
+            a
+        )'), { { lnum = 0, col = 0, message = 'boom', severity = 1, code = 'X1' } })
+        vim.diagnostic.set(ns, vim.fn.bufnr('\(b)'), {
+          { lnum = 1, col = 2, message = 'careful', severity = 2 },
+          { lnum = 2, col = 0, message = 'consider', severity = 4 },
+        })
+        """)
+        shell.showProblems(nil)
+        await wait("the problems list") { shell.listPicker != nil }
+        guard let list = shell.listPicker,
+              shell.modes.label(editorMode: "normal") == "PROBLEMS" else { fail("no problems mode") }
+        await wait("the problems") { list.all.count == 3 }
+        guard list.all.map(\.title) == ["boom", "careful", "consider"], list.chips.map(\.count) == [1, 1, 0, 1]
+        else { fail("not the problems in order, or the counts: \(list.all.map(\.title)) \(list.chips.map(\.count))") }
+        step("the problems of every open file in one list, worst first, with a count per level")
+        list.keyDown(with: key("w", code: 13))
+        guard list.all.count == 2, list.chips.first(where: { $0.id == "2" })?.on == false
+        else { fail("w did not switch the warnings off: \(list.all.map(\.title))") }
+        list.onChip?("2")
+        guard list.all.count == 3 else { fail("a click on the chip did not switch warnings back on") }
+        step("each level is switched off and on by its key or by a click")
+        // Alt+Enter on the warning: the list goes, the cursor is at the problem.
+        _ =
+            await lua(
+                "vim.g.asked_actions = false; vim.lsp.buf.code_action = function() vim.g.asked_actions = true end"
+            )
+        list.keyDown(with: key("j", code: 38))
+        list.keyDown(with: key("\r", code: 36, flags: [.option]))
+        await waitAsync("Alt+Enter to go to the problem") {
+            let name = await lua("return vim.api.nvim_buf_get_name(0)")?.stringValue
+            let at = await lua("return vim.api.nvim_win_get_cursor(0)")?.arrayValue?.compactMap(\.integerValue)
+            return name == b && at == [2, 2]
+        }
+        await waitAsync("the code actions to be asked for") {
+            await lua("return vim.g.asked_actions")?.boolValue == true
+        }
+        guard shell.listPicker == nil, shell.modes.surface == .editor else { fail("the list stayed after Alt+Enter") }
+        step("Alt+Enter on a row goes to the problem (and asks for its code actions)")
+        _ = await lua("vim.diagnostic.reset(); vim.cmd('silent! %bwipeout!')")
     }
 
     /// What can be done here: Alt+Enter (and Cmd+.) asks the server for code actions and the answer is the frame's own

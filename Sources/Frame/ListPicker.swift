@@ -19,6 +19,66 @@ struct PickerItem: Equatable {
     var isCurrent = false
 }
 
+/// A toggle shown under a list's heading: a coloured dot, a count, a word and the key that flips it.
+struct ListChip: Equatable {
+    var id: String
+    var title: String
+    var color: NSColor
+    var count: Int
+    var on: Bool
+    var key: String
+}
+
+/// The row of `ListChip`s: clicking one flips it.
+final class ChipsView: NSView {
+    var look = TreeLook() {
+        didSet { needsDisplay = true }
+    }
+
+    var chips: [ListChip] = [] {
+        didSet { needsDisplay = true }
+    }
+
+    var onToggle: ((String) -> Void)?
+    private var frames: [(String, NSRect)] = []
+
+    static let height: CGFloat = 36
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_: NSRect) {
+        frames = []
+        var x: CGFloat = 18
+        for chip in chips {
+            let text = NSAttributedString(string: "\(chip.count) \(chip.title)", attributes: [
+                .font: look.smallFont, .foregroundColor: chip.on ? look.text : look.faint,
+            ])
+            let key = NSAttributedString(string: chip.key, attributes: [
+                .font: look.smallFont, .foregroundColor: look.faint,
+            ])
+            let width = 12 + 14 + text.size().width + 8 + key.size().width + 12
+            let rect = NSRect(x: x, y: 6, width: width, height: Self.height - 12)
+            (chip.on ? chip.color.withAlphaComponent(0.16) : NSColor.clear).setFill()
+            let pill = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
+            pill.fill()
+            (chip.on ? chip.color.withAlphaComponent(0.5) : look.faint.withAlphaComponent(0.4)).setStroke()
+            pill.lineWidth = 1
+            pill.stroke()
+            (chip.on ? chip.color : look.faint).setFill()
+            NSBezierPath(ovalIn: NSRect(x: rect.minX + 12, y: rect.midY - 3.5, width: 7, height: 7)).fill()
+            text.draw(at: NSPoint(x: rect.minX + 26, y: rect.midY - text.size().height / 2))
+            key.draw(at: NSPoint(x: rect.minX + 26 + text.size().width + 8, y: rect.midY - key.size().height / 2))
+            frames.append((chip.id, rect))
+            x += width + 8
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let hit = frames.first(where: { $0.1.contains(point) }) { onToggle?(hit.0) }
+    }
+}
+
 /// The rows of a `ListPickerView`: the keyboard's row on the colour scheme's selection fill, the rest quiet, in the
 /// editor's font as the tree has it.
 final class PickerRowsView: NSView {
@@ -206,6 +266,22 @@ final class ListPickerView: NSView {
     var onQuery: ((String) -> Void)?
     /// A key the list does not use itself, pressed on the row the keyboard is on (not while typing): true when handled.
     var onKey: ((String, PickerItem) -> Bool)?
+    /// Toggles under the heading (the problems' levels), flipped by a click; their keys are the owner's (`onKey`).
+    var chips: [ListChip] = [] {
+        didSet {
+            chipsView.chips = chips
+            needsLayout = true
+        }
+    }
+
+    var onChip: ((String) -> Void)? {
+        get { chipsView.onToggle }
+        set { chipsView.onToggle = newValue }
+    }
+
+    /// Room for long rows (a problem's message and its place).
+    var wide = false
+    private let chipsView = ChipsView()
     private let card = FlippedView()
     private let header = FlippedView()
     private let divider = FlippedView()
@@ -239,6 +315,7 @@ final class ListPickerView: NSView {
         heading.lineBreakMode = .byTruncatingHead
         divider.wantsLayer = true
         header.addSubview(divider)
+        card.addSubview(chipsView)
         card.addSubview(rows)
         rows.onChoose = { [weak self] id in
             guard let self, let item = all.first(where: { $0.id == id }) else { return }
@@ -261,6 +338,7 @@ final class ListPickerView: NSView {
         count.font = look.smallFont
         count.textColor = look.faint
         rows.look = look
+        chipsView.look = look
         updateHeading()
         needsLayout = true
     }
@@ -321,10 +399,13 @@ final class ListPickerView: NSView {
 
     override func layout() {
         super.layout()
-        let width = min(520, bounds.width - 32)
+        let width = min(wide ? 820 : 520, bounds.width - 32)
         let headerHeight = ceil(look.rowHeight) + 16
-        let shown = CGFloat(min(max(visible.count, 1), Self.maxRows))
-        let height = headerHeight + shown * ceil(rows.rowHeight) + 12
+        let chipsHeight = chips.isEmpty ? 0 : ChipsView.height
+        let shown = CGFloat(min(max(visible.count, 1), wide ? 14 : Self.maxRows))
+        let height = headerHeight + chipsHeight + shown * ceil(rows.rowHeight) + 12
+        chipsView.isHidden = chips.isEmpty
+        chipsView.frame = NSRect(x: 0, y: headerHeight, width: width, height: chipsHeight)
         card.frame = NSRect(
             x: (bounds.width - width) / 2,
             y: min(70, max(16, bounds.height * 0.1)),
@@ -342,7 +423,10 @@ final class ListPickerView: NSView {
             width: max(0, count.frame.minX - 26),
             height: textHeight
         )
-        rows.frame = NSRect(x: 0, y: headerHeight + 6, width: width, height: max(0, height - headerHeight - 12))
+        rows.frame = NSRect(
+            x: 0, y: headerHeight + chipsHeight + 6, width: width,
+            height: max(0, height - headerHeight - chipsHeight - 12)
+        )
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -369,6 +453,13 @@ final class ListPickerView: NSView {
     override func keyDown(with event: NSEvent) {
         let characters = event.charactersIgnoringModifiers ?? ""
         let control = event.modifierFlags.contains(.control), command = event.modifierFlags.contains(.command)
+        // Alt+Enter: what can be done to the row (a problem's code actions).
+        if event.modifierFlags.contains(.option), event.keyCode == 36 || event.keyCode == 76,
+           let item = visible.first(where: { $0.id == cursor })
+        {
+            _ = onKey?("<M-CR>", item)
+            return
+        }
         if filter != nil {
             switch (event.keyCode, characters) {
             case (125, _): move(by: 1)
@@ -400,7 +491,9 @@ final class ListPickerView: NSView {
         case (53, _): onDismiss?()
         case (_, "/"): beginFilter()
         default:
-            if let item = visible.first(where: { $0.id == cursor }), !control, !command { _ = onKey?(characters, item) }
+            guard !control, !command else { return }
+            if let chip = chips.first(where: { $0.key == characters }) { return onChip?(chip.id) ?? () }
+            if let item = visible.first(where: { $0.id == cursor }) { _ = onKey?(characters, item) }
         }
     }
 

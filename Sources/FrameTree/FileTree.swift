@@ -12,6 +12,8 @@ public final class TreeNode: Hashable {
     public internal(set) var status: GitState.Status?
     /// A folder with a changed file somewhere below it.
     public internal(set) var changedBelow = false
+    /// The worst diagnostic of the file, or of anything below the folder.
+    public internal(set) var diagnostic: DiagnosticLevel?
     /// A folder's entries once read; nil until then.
     public internal(set) var children: [TreeNode]?
     public internal(set) weak var parent: TreeNode?
@@ -126,6 +128,23 @@ public final class FileTree {
         return (folders, nil)
     }
 
+    /// The marks, as last handed in (nodes made later take theirs from it).
+    public private(set) var diagnostics = DiagnosticMarks.none
+
+    /// Hands in diagnostics: the nodes whose mark changed take the new one, and are returned to be drawn again. Only
+    /// the
+    /// differences are visited, so it is cheap however big the tree is.
+    @discardableResult
+    public func apply(_ marks: DiagnosticMarks) -> [TreeNode] {
+        let changed = marks.changed(from: diagnostics)
+        diagnostics = marks
+        return changed.compactMap { path in
+            guard let node = nodes[path] else { return nil }
+            node.diagnostic = marks.level(of: path)
+            return node
+        }
+    }
+
     /// Hands in what git said: files marked, folders marked for a change below, ignored ones flagged (and, unless
     /// shown, dropped from the folders read so far). The folders whose entries changed, to be shown again.
     @discardableResult
@@ -199,6 +218,7 @@ public final class FileTree {
     /// Ignored when git lists the path or a folder above it.
     private func style(_ node: TreeNode) {
         node.status = git.status[node.path]
+        node.diagnostic = diagnostics.level(of: node.path)
         node.changedBelow = node.isDirectory && changedFolders.contains(node.path)
         var path = node.path
         var ignored = false

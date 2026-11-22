@@ -20,6 +20,8 @@ package final class ExternalUI {
     /// Output up to this serial has been read (a key was pressed after it).
     private var outputDismissed = 0
     private var expiry: Timer?
+    /// Which short messages are shown as notifications (all, unless the host says some are too quiet to interrupt).
+    package var showsAsToast: (Message) -> Bool = { _ in true }
 
     package init(editor: EditorView) {
         self.editor = editor
@@ -115,7 +117,7 @@ package final class ExternalUI {
 
         // Short messages as notifications, newest at the bottom, each until it has been shown long enough.
         let live = screen.messages.filter { message in
-            guard !message.isOutput, let first = seen[message.serial] else { return false }
+            guard !message.isOutput, showsAsToast(message), let first = seen[message.serial] else { return false }
             return now.timeIntervalSince(first) < Self.lifetime(message)
         }
         let liveSerials = Set(live.map(\.serial))

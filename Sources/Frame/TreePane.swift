@@ -488,8 +488,48 @@ final class TreeRowView: NSTableRowView {
     override var interiorBackgroundStyle: NSView.BackgroundStyle { .dark }
 }
 
+/// A wavy line under a name: the worst diagnostic of a file, or of what is in a folder.
+final class SquiggleView: NSView {
+    var level: DiagnosticLevel? {
+        didSet {
+            guard level != oldValue else { return }
+            isHidden = level == nil
+            needsDisplay = true
+        }
+    }
+
+    static func color(_ level: DiagnosticLevel) -> NSColor {
+        switch level {
+        case .error: Design.error
+        case .warning: Design.modified
+        case .info: NSColor(hex: 0x7FB4F0)
+        case .hint: NSColor(hex: 0x4FD6BE)
+        }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_: NSRect) {
+        guard let level else { return }
+        Self.color(level).setStroke()
+        let path = NSBezierPath()
+        path.lineWidth = 1
+        let step: CGFloat = 2
+        var x: CGFloat = 0
+        var up = false
+        path.move(to: NSPoint(x: 0, y: bounds.height - 1))
+        while x < bounds.width {
+            x = min(x + step, bounds.width)
+            up.toggle()
+            path.line(to: NSPoint(x: x, y: up ? 0.5 : bounds.height - 0.5))
+        }
+        path.stroke()
+    }
+}
+
 /// A row's content: the icon, the name, and what git says at the right.
 final class TreeCellView: NSTableCellView {
+    let squiggle = SquiggleView()
     let icon = NSTextField(labelWithString: "")
     let name = NSTextField(labelWithString: "")
     let badge = NSTextField(labelWithString: "")
@@ -502,6 +542,8 @@ final class TreeCellView: NSTableCellView {
             view.isBordered = false
             addSubview(view)
         }
+        squiggle.isHidden = true
+        addSubview(squiggle)
     }
 
     @available(*, unavailable)
@@ -559,6 +601,7 @@ final class TreeCellView: NSTableCellView {
         } else {
             badge.stringValue = ""
         }
+        squiggle.level = node.diagnostic
         alphaValue = node.ignored ? 0.45 : 1
         needsLayout = true
     }
@@ -580,6 +623,9 @@ final class TreeCellView: NSTableCellView {
             x: 26, y: (height - name.frame.height) / 2,
             width: max(0, badge.frame.minX - 26 - 4), height: name.frame.height
         )
+        // The wave runs under the name as far as it is drawn.
+        let drawn = min(name.attributedStringValue.size().width, name.frame.width)
+        squiggle.frame = NSRect(x: name.frame.minX, y: name.frame.maxY - 1, width: drawn, height: 3)
     }
 }
 
@@ -592,6 +638,8 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     private(set) var tree: FileTree?
     private var events: FileEvents?
     private var gitTask: Task<Void, Never>?
+    private var diagnosticTask: Task<Void, Never>?
+    private var fileDiagnostics: [String: DiagnosticLevel] = [:]
     private var pending: DispatchWorkItem?
     /// The editor's colours and font as they are now.
     private(set) var look = TreeLook()
@@ -897,9 +945,35 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
         self.events = events
         // The first read at once, so what git ignores is not shown for longer than it takes git to say.
         readGit()
+        setDiagnostics(fileDiagnostics)
     }
 
     var rootPath: String? { tree?.root.path }
+
+    /// The files that have diagnostics, as nvim and the last build say them (absolute paths, their worst level). The
+    /// folding up through the folders happens off the main thread; then only the rows whose mark changed are drawn
+    /// again, so a flurry of diagnostics costs the screen nothing.
+    func setDiagnostics(_ files: [String: DiagnosticLevel]) {
+        fileDiagnostics = files
+        guard let tree else { return }
+        let root = tree.root.path
+        diagnosticTask?.cancel()
+        diagnosticTask = Task { [weak self] in
+            let marks = await Task.detached(priority: .utility) {
+                var real: [String: DiagnosticLevel] = [:]
+                for (path, level) in files {
+                    let path = RealPath.of(path)
+                    real[path] = max(real[path] ?? level, level)
+                }
+                return DiagnosticMarks.fold(real, under: root)
+            }.value
+            guard !Task.isCancelled, let self, self.tree === tree else { return }
+            for node in tree.apply(marks) where node !== tree.root {
+                let row = outline.row(forItem: node)
+                if row >= 0 { outline.reloadData(forRowIndexes: [row], columnIndexes: [0]) }
+            }
+        }
+    }
 
     /// The chip at the foot: the git root's name and the branch, read from .git; the folder's name outside a
     /// repository.

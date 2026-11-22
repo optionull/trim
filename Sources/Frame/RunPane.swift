@@ -86,48 +86,15 @@ enum RunPlacement: Equatable {
             pane.surface.onFocus = { [weak self] in self?.terminalFocused() }
             showRunPane(pane)
             UserDefaults.standard.set(entry.id, forKey: "frame.lastRun." + workspace)
-            if entry.kind == .build { watchBuild(pane) }
+            if entry.kind == .build {
+                takeBuildProblems([])
+                watchBuild(pane)
+            }
             if focusing { focus(.terminal) }
         }
 
-        /// What the pane's output says is wrong: errors and warnings, as a mode; Return opens the file at the line.
-        @objc func showProblems(_: Any?) {
-            guard listPicker == nil else { return }
-            guard let pane = runPane, let text = pane.surface.screenText() else {
-                return notify("Frame: run or build something first; its problems are read from the terminal pane")
-            }
-            let problems = Problems.parse(text, directory: pane.entry.directory)
-            guard !problems.isEmpty else { return notify("Frame: no errors or warnings in the terminal pane") }
-            let root = pane.entry.directory
-            let items = problems.map { problem in
-                PickerItem(
-                    id: "\(problem.path)\t\(problem.line)", title: problem.message,
-                    detail: Self.relative(problem.path, to: root) + ":\(problem.line)",
-                    glyph: problem.severity == .error ? "\u{f057}" : "\u{f071}",
-                    subtitle: problem.code, file: (problem.path as NSString).lastPathComponent
-                )
-            }
-            let errors = problems.count(where: { $0.severity == .error })
-            showList(
-                title: "Problems (\(errors) errors, \(problems.count - errors) warnings)", items: items, current: nil,
-                onChoose: { [weak self] item in
-                    let parts = item.id.split(separator: "\t").map(String.init)
-                    self?.open(file: parts[0], toEditor: true, line: parts.count > 1 ? Int(parts[1]) : nil)
-                }
-            )
-        }
-
-        static func relative(_ path: String, to root: String) -> String {
-            path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : path
-        }
-
-        func notify(_ message: String) {
-            Task { [session] in
-                _ = try? await session.channel.lua("vim.notify(..., vim.log.levels.INFO)", args: [.string(message)])
-            }
-        }
-
-        /// A build that has gone quiet: said how it went, once, so the problems are one key away.
+        /// A build that has gone quiet: what it printed is read, the files it complained of are marked in the tree, and
+        /// the problems list comes up when there is anything to say. One mode: build, then its problems.
         func watchBuild(_ pane: RunPane) {
             Task { [weak self, weak pane] in
                 var last = "", quiet = 0
@@ -137,12 +104,8 @@ enum RunPlacement: Equatable {
                     quiet = text == last ? quiet + 1 : 0
                     last = text
                     guard quiet == 2 else { continue }
-                    let problems = Problems.parse(text, directory: pane.entry.directory)
-                    let errors = problems.count(where: { $0.severity == .error })
-                    notify(problems.isEmpty
-                        ? "Frame: \(pane.entry.title) is quiet, no problems found"
-                        :
-                        "Frame: \(pane.entry.title): \(errors) errors, \(problems.count - errors) warnings (⇧⌘M lists them)")
+                    takeBuildProblems(Problems.parse(text, directory: pane.entry.directory))
+                    if !buildProblems.isEmpty, listPicker == nil, !modes.surface.isOverlay { showProblems(nil) }
                     return
                 }
             }
@@ -228,7 +191,6 @@ enum RunPlacement: Equatable {
     extension FrameWindowController {
         @objc func toggleTerminal(_: Any?) { noTerminal() }
         @objc func closeTerminal(_: Any?) {}
-        @objc func showProblems(_: Any?) { noTerminal() }
         @objc func runDefault(_: Any?) { noTerminal() }
         @objc func buildDefault(_: Any?) { noTerminal() }
         @objc func showRunPicker(_: Any?) { noTerminal() }
