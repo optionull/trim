@@ -443,7 +443,9 @@ TypeScript, JavaScript, Rust, Swift, Python, Go, Java, Kotlin, Ruby, the web's a
 grammar at the revision nvim-treesitter pins, with nvim-treesitter's queries, built ahead of time, so nothing is
 compiled on your Mac. The sign column marks what changed since the branch left its
 base (committed or not, so an agent's commits stay marked) and tints the line number; `]h` and `[h` go to the next and
-previous change. Clicking the language servers in the status bar (or `<leader>lp`, `:FrameRun lsp`) opens a panel of them: each server that has been wanted, how it is (ready, starting, restarting, failed, stopped), what it is busy with, where it is rooted, and how much of a core and how much memory it and the processes it started use (read from `ps`, kept up to date while the panel is open); `r` restarts the server under the keyboard and `s` stops it.
+previous change. Links into Frame: `frame://open?path=/abs/file.cs&line=12&column=3` opens the file at its place (in the window that is on its folder, else in one on its repository), `frame://workspace?path=/abs/folder` a folder, and `open -a Frame file.cs` (or Finder's Open With) a file.
+
+Clicking the language servers in the status bar (or `<leader>lp`, `:FrameRun lsp`) opens a panel of them: each server that has been wanted, how it is (ready, starting, restarting, failed, stopped), what it is busy with, where it is rooted, and how much of a core and how much memory it and the processes it started use (read from `ps`, kept up to date while the panel is open); `r` restarts the server under the keyboard and `s` stops it.
 
 Completion comes from the language server as you type, in sill's own menu; `<leader>ff` (or
 `:find`) finds a file fuzzily among the ones git knows, `<leader>/` searches the code, `<leader>e` shows the explorer;

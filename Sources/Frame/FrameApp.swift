@@ -1,6 +1,7 @@
 import AppKit
 import FrameModes
 import FrameTree
+import FrameWorkspaces
 import SillAgent
 import SillCore
 import SillEditor
@@ -102,6 +103,33 @@ final class FrameApp: NSObject, NSApplicationDelegate {
         controllers.append(controller)
         controller.start()
         return controller
+    }
+
+    // MARK: Links in
+
+    /// A link into the app, or a file handed over (`open -a Frame file.cs`, Finder's Open With): the file at its place
+    /// in
+    /// the window that is on its folder, else in a window of its own on its repository; a folder in a window.
+    @discardableResult
+    func handle(_ url: URL) -> Bool {
+        guard let link = FrameLink.parse(url) else { return false }
+        switch link {
+        case let .workspace(path):
+            open(folder: path).window.makeKeyAndOrderFront(nil)
+        case let .file(path, line, column):
+            let real = RealPath.of(path)
+            let known = controllers.filter { real.hasPrefix(($0.tree?.rootPath ?? $0.workspace) + "/") }
+                .max { ($0.tree?.rootPath ?? $0.workspace).count < ($1.tree?.rootPath ?? $1.workspace).count }
+            let controller = known ?? open(folder: FrameLink.workspace(for: real))
+            controller.window.makeKeyAndOrderFront(nil)
+            controller.open(file: real, toEditor: true, line: line, column: column)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        return true
+    }
+
+    func application(_: NSApplication, open urls: [URL]) {
+        urls.forEach { handle($0) }
     }
 
     // MARK: Control-Tab

@@ -894,20 +894,20 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
 
     /// A file opened from the tree: nvim shows it, and has the keyboard only when asked (Return, a double-click): a
     /// click or `l` leaves it in the tree, so the next key is the tree's.
-    func open(file path: String, toEditor: Bool, line: Int? = nil) {
+    func open(file path: String, toEditor: Bool, line: Int? = nil, column: Int? = nil) {
         Task { [weak self] in
             guard let self else { return }
             _ = try? await session.channel.lua(
                 """
-                local path, line = ...
+                local path, line, column = ...
                 local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape(path))
                 if not ok then return vim.notify(tostring(err), vim.log.levels.ERROR) end
                 if line and line > 0 then
-                  pcall(vim.api.nvim_win_set_cursor, 0, { line, 0 })
+                  pcall(vim.api.nvim_win_set_cursor, 0, { line, math.max((column or 1) - 1, 0) })
                   vim.cmd('normal! zz')
                 end
                 """,
-                args: [.string(path), line.map { .int(Int64($0)) } ?? .nil]
+                args: [.string(path), line.map { .int(Int64($0)) } ?? .nil, column.map { .int(Int64($0)) } ?? .nil]
             )
             if toEditor {
                 focusEditor()

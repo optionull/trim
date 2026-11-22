@@ -109,6 +109,7 @@ struct FrameCheck {
             await dotnetSteps()
             await startupSteps()
         }
+        await group("links") { await linkSteps() }
         await group("actions") { await actionSteps() }
         await group("run") { await runSteps() }
         await group("problems") { await problemsSteps() }
@@ -1570,6 +1571,36 @@ struct FrameCheck {
         step("the pane's list follows the diagnostics as they change")
         shell.closeTerminal(nil)
         _ = await lua("vim.cmd('silent! %bwipeout!')")
+    }
+
+    /// Links into the app: `frame://open?path=…&line=…&column=…` and a file handed over open the file at its place, in
+    /// the
+    /// window that is on its folder.
+    private func linkSteps() async {
+        let channel = shell.session.channel
+        let folder = (shell.tree.rootPath ?? shell.workspace) + "/links-fixture"
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        try? "one\ntwo three\nfour\n".write(toFile: folder + "/a.txt", atomically: true, encoding: .utf8)
+        try? "x\ny\n".write(toFile: folder + "/b.txt", atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let a = RealPath.of(folder) + "/a.txt", b = RealPath.of(folder) + "/b.txt"
+        let windows = app.controllers.count
+        guard let link = URL(string: "frame://open?path=\(a)&line=2&column=5"), app.handle(link)
+        else { fail("the link was not handled") }
+        await waitAsync("the link to open the file at its place") {
+            let name = await (try? channel.lua("return vim.api.nvim_buf_get_name(0)"))?.stringValue
+            let at = await (try? channel.lua("return vim.api.nvim_win_get_cursor(0)"))?.arrayValue?
+                .compactMap(\.integerValue)
+            return name == a && at == [2, 4]
+        }
+        guard app.controllers.count == windows else { fail("a link opened a window although one is on the folder") }
+        step("a frame:// link opens the file at its line and column, in the window that is on its folder")
+        guard app.handle(URL(fileURLWithPath: b)) else { fail("a file handed over was not handled") }
+        await waitAsync("a file handed over to open") {
+            await (try? channel.lua("return vim.api.nvim_buf_get_name(0)"))?.stringValue == b
+        }
+        guard !app.handle(URL(string: "frame://nothing")!) else { fail("a link that asks nothing was taken") }
+        step("a file handed to the app opens, and a link that asks nothing is left")
     }
 
     /// What can be done here: Alt+Enter (and Cmd+.) asks the server for code actions and the answer is the frame's own
