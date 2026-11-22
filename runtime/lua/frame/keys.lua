@@ -11,6 +11,8 @@ M.defaults = {
   { '<leader>w', '<Plug>(frame-workspace)', 'Switch workspace' },
   { '<leader>t', '<Plug>(frame-tabs-list)', 'Open files (tabs)' },
   { '<leader>c', '<Plug>(frame-theme)', 'Colour scheme' },
+  { '<leader>ff', '<Plug>(frame-find)', 'Find file' },
+  { '<leader>fg', '<Plug>(frame-grep)', 'Find in files' },
   { '<leader>o', '<Plug>(frame-tabs-list)', 'Open files (tabs)' },
   { '<leader>fw', '<Plug>(frame-workspace)', 'Switch workspace' },
   { '<leader>fo', '<Plug>(frame-tabs-list)', 'Open files' },

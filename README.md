@@ -600,6 +600,10 @@ Frame bundles which-key (the hints after the leader, `g`, `z`, `[` and `]`: `[wh
 mini.nvim's pairs, surround (`sa` `sd` `sr`), more text objects and `[` `]` jumps, and gitsigns (`]h` `[h`, `<leader>gs` `gr` `gp`
 `gb` `gd`). A plugin is left out with `[plugins] disabled = ["gitsigns.nvim"]`.
 
+The finder is a mode too: `<leader>ff` (⌘P, Go ▸ Find File…, `:FrameFind`) lists the workspace's files (git's own list in a repository, the
+ignored left out) and ranks them as you type, the name counting above its folders; `<leader>fg` (⇧⌘F, `:FrameGrep`) finds lines
+containing the text (git grep, no ripgrep needed). Return opens the file (on the line), Escape goes back at once.
+
 Language servers run on their own and come back when they crash. A server starts the first time a file of its kind opens
 (Rust, Swift, Markdown, HTML, CSS, JSON, TypeScript and JavaScript), unless your own config already runs one: Frame finds the
 program on your PATH (also rustup's, Xcode's and mise's), or else downloads it into its own cache at a pinned version with the

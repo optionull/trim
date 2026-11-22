@@ -193,3 +193,68 @@ import Testing
         #expect(found.first?.workspace.path == "/p/sill")
     }
 }
+
+@Suite("The finder's files")
+struct FileIndexTests {
+    private func folder(_ files: [String]) throws -> String {
+        let root = NSTemporaryDirectory() + "file-index-\(UUID().uuidString)"
+        for file in files {
+            let path = root + "/" + file
+            try FileManager.default.createDirectory(
+                atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true
+            )
+            try "needle in \(file)\nsecond line\n".write(toFile: path, atomically: true, encoding: .utf8)
+        }
+        return root
+    }
+
+    @Test("a walk lists the files, not the folders nothing is searched in")
+    func walk() async throws {
+        let root = try folder(["a.swift", "src/b.swift", "node_modules/x/c.js", ".git/config", "build/d.o"])
+        let files = await FileIndex.files(in: root)
+        #expect(files == ["a.swift", "src/b.swift"])
+    }
+
+    @Test("a repository lists what git lists: tracked and new files, the ignored left out")
+    func repository() async throws {
+        let root = try folder(["a.swift", "ignored.log", "src/new.swift"])
+        try "*.log\n".write(toFile: root + "/.gitignore", atomically: true, encoding: .utf8)
+        _ = FileIndex.git(["init", "-q"], in: root)
+        let files = await FileIndex.files(in: root)
+        #expect(files == [".gitignore", "a.swift", "src/new.swift"])
+    }
+
+    @Test(
+        "a query ranks the name above the folders, a shorter path above a longer, and finds nothing that is not there"
+    )
+    func ranking() {
+        let files = ["docs/readme-tree.md", "Sources/Tree/TreeView.swift", "Sources/Other/Thing.swift", "tree.swift"]
+        let ranked = FileIndex.rank("tree", in: files)
+        #expect(ranked.first == "tree.swift")
+        #expect(ranked.contains("Sources/Other/Thing.swift") == false)
+        #expect(FileIndex.rank("zzz", in: files).isEmpty)
+        #expect(FileIndex.rank("", in: files, limit: 2) == ["docs/readme-tree.md", "Sources/Tree/TreeView.swift"])
+        #expect(FileIndex.rank("tv", in: files).first == "Sources/Tree/TreeView.swift")
+    }
+
+    @Test("grep finds lines as text, by git or by grep, and tells the line")
+    func grep() async throws {
+        let root = try folder(["a.swift", "src/b.swift"])
+        let plain = await FileIndex.grep("NEEDLE in", in: root)
+        #expect(Set(plain.map(\.path)) == ["a.swift", "src/b.swift"])
+        #expect(plain.allSatisfy { $0.line == 1 })
+        _ = FileIndex.git(["init", "-q"], in: root)
+        let tracked = await FileIndex.grep("second", in: root)
+        #expect(tracked.map(\.line) == [2, 2])
+        #expect(await FileIndex.grep("a.b(", in: root).isEmpty, "a query is text, not a pattern")
+    }
+
+    @Test("rows of path:line:text parse, a colon in the text stays")
+    func parsing() {
+        let hits = FileIndex.parse("./a.swift:3:let x: Int\nbroken\nb.swift:10:y\n", limit: 10)
+        #expect(hits == [
+            FileIndex.Hit(path: "a.swift", line: 3, text: "let x: Int"),
+            FileIndex.Hit(path: "b.swift", line: 10, text: "y"),
+        ])
+    }
+}

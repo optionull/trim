@@ -2,6 +2,7 @@ import AppKit
 import CoreText
 import FrameModes
 import FrameTree
+import FrameWorkspaces
 import MessagePack
 import SillCore
 import SillEditor
@@ -662,6 +663,10 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     })
     vim.api.nvim_create_user_command('FrameWorkspace', function() tell('frame_workspace', 'toggle') end,
       { desc = 'Switch workspace: a repository or worktree, in a window of its own' })
+    vim.keymap.set('n', '<Plug>(frame-find)', function() tell('frame_find', 'files') end, { desc = 'Find file' })
+    vim.keymap.set('n', '<Plug>(frame-grep)', function() tell('frame_find', 'grep') end, { desc = 'Find in files' })
+    vim.api.nvim_create_user_command('FrameFind', function() tell('frame_find', 'files') end, { desc = 'Find a file in the workspace' })
+    vim.api.nvim_create_user_command('FrameGrep', function() tell('frame_find', 'grep') end, { desc = 'Find text in the workspace' })
     vim.keymap.set('n', '<Plug>(frame-theme)', function() tell('frame_theme_pick', '') end, { desc = 'Colour scheme' })
     vim.api.nvim_create_user_command('FrameTheme', function(opts)
       if opts.args == '' then return tell('frame_theme_pick', '') end
@@ -697,6 +702,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         switch method {
         case "frame_workspace": switchWorkspace(nil)
         case "frame_theme_pick": showThemePicker(nil)
+        case "frame_find": findFiles(grep: args.first?.stringValue == "grep")
         case "frame_theme_set":
             if let name = args.first?.stringValue, !name.isEmpty { FrameSettings.set(
                 ["theme", "colorscheme"],
@@ -743,15 +749,20 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
 
     /// A file opened from the tree: nvim shows it, and has the keyboard only when asked (Return, a double-click): a
     /// click or `l` leaves it in the tree, so the next key is the tree's.
-    func open(file path: String, toEditor: Bool) {
+    func open(file path: String, toEditor: Bool, line: Int? = nil) {
         Task { [weak self] in
             guard let self else { return }
             _ = try? await session.channel.lua(
                 """
-                local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape((...)))
-                if not ok then vim.notify(tostring(err), vim.log.levels.ERROR) end
+                local path, line = ...
+                local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape(path))
+                if not ok then return vim.notify(tostring(err), vim.log.levels.ERROR) end
+                if line and line > 0 then
+                  pcall(vim.api.nvim_win_set_cursor, 0, { line, 0 })
+                  vim.cmd('normal! zz')
+                end
                 """,
-                args: [.string(path)]
+                args: [.string(path), line.map { .int(Int64($0)) } ?? .nil]
             )
             if toEditor {
                 focusEditor()
@@ -905,12 +916,14 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// back).
     func showList(
         title: String, items: [PickerItem], current: String?, onMove: ((PickerItem) -> Void)? = nil,
-        onChoose: @escaping (PickerItem) -> Void, onCancel: (() -> Void)? = nil
+        onChoose: @escaping (PickerItem) -> Void, onCancel: (() -> Void)? = nil,
+        configure: ((ListPickerView) -> Void)? = nil
     ) {
         guard listPicker == nil, view != nil else { return }
         let picker = ListPickerView(title: title, look: tree.look)
         picker.frame = view.bounds
         picker.autoresizingMask = [.width, .height]
+        configure?(picker)
         picker.set(items, current: current)
         picker.onMove = onMove
         picker.onDismiss = { [weak self] in self?.escape() }
@@ -951,6 +964,74 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     }
 
     @objc func showOpenFiles(_: Any?) { showTabPicker() }
+
+    // MARK: The finder
+
+    @objc func showFinder(_: Any?) { findFiles(grep: false) }
+    @objc func showGrep(_: Any?) { findFiles(grep: true) }
+
+    /// Files of the workspace, or lines in them, as a list that asks as you type: the files ranked off the main thread,
+    /// the
+    /// lines by git grep after a short pause. Return opens the file (at the line).
+    func findFiles(grep: Bool) {
+        guard listPicker == nil else { return }
+        let root = workspace
+        var files: [String] = []
+        var pending: Task<Void, Never>?
+        func items(_ paths: [String]) -> [PickerItem] {
+            paths.map { path in
+                let name = (path as NSString).lastPathComponent
+                return PickerItem(
+                    id: path,
+                    title: name,
+                    detail: (path as NSString).deletingLastPathComponent,
+                    file: name
+                )
+            }
+        }
+        showList(
+            title: grep ? "Find in files" : "Find file", items: [], current: nil,
+            onChoose: { [weak self] item in
+                let parts = item.id.split(separator: "\t", maxSplits: 1).map(String.init)
+                self?.open(file: root + "/" + parts[0], toEditor: true, line: parts.count > 1 ? Int(parts[1]) : nil)
+            },
+            onCancel: { pending?.cancel() },
+            configure: { [weak self] picker in
+                picker.liveQuery = true
+                picker.onQuery = { query in
+                    pending?.cancel()
+                    pending = Task { @MainActor [weak picker] in
+                        if grep {
+                            try? await Task.sleep(for: .milliseconds(120))
+                            guard !Task.isCancelled else { return }
+                            let hits = await FileIndex.grep(query, in: root)
+                            guard !Task.isCancelled else { return }
+                            picker?.set(hits.map {
+                                PickerItem(
+                                    id: "\($0.path)\t\($0.line)", title: $0.text, detail: "\($0.path):\($0.line)",
+                                    file: ($0.path as NSString).lastPathComponent
+                                )
+                            }, current: nil)
+                        } else {
+                            let snapshot = files
+                            let ranked = await Task.detached { FileIndex.rank(query, in: snapshot) }.value
+                            guard !Task.isCancelled else { return }
+                            picker?.set(items(ranked), current: nil)
+                        }
+                    }
+                }
+                guard !grep else { return }
+                Task { @MainActor [weak picker] in
+                    files = await FileIndex.files(in: root)
+                    if let picker, picker.all.isEmpty { picker.set(
+                        items(FileIndex.rank(picker.filter ?? "", in: files)),
+                        current: nil
+                    ) }
+                    _ = self
+                }
+            }
+        )
+    }
 
     // MARK: Language servers
 

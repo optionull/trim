@@ -11,6 +11,8 @@ struct PickerItem: Equatable {
     var detail = ""
     /// A Nerd Font glyph before the title, if any.
     var glyph = ""
+    /// A file's name, to take the icon from (the tree's, in colour).
+    var file: String?
     /// What is chosen now: marked with a dot.
     var isCurrent = false
 }
@@ -77,9 +79,14 @@ final class PickerRowsView: NSView {
                 NSBezierPath(roundedRect: rect.insetBy(dx: 6, dy: 0), xRadius: 6, yRadius: 6).fill()
             }
             var x: CGFloat = 18
-            if !item.glyph.isEmpty {
+            let fileIcon = item.file.map { FileIcons.icon(name: $0, isDirectory: false) }
+            if !item.glyph.isEmpty || fileIcon != nil {
                 let glyph = NSAttributedString(
-                    string: item.glyph, attributes: [.font: iconFont, .foregroundColor: look.muted]
+                    string: fileIcon.map { String($0.glyph) } ?? item.glyph,
+                    attributes: [
+                        .font: iconFont,
+                        .foregroundColor: fileIcon.map { TreeCellView.color($0.tint, look: look) } ?? look.muted,
+                    ]
                 )
                 glyph.draw(at: NSPoint(x: x, y: rect.midY - glyph.size().height / 2))
                 x += max(glyph.size().width, look.iconSize) + 8
@@ -171,6 +178,15 @@ final class ListPickerView: NSView {
     var onChoose: ((PickerItem) -> Void)?
     var onDismiss: (() -> Void)?
     var onFilterChange: ((Bool) -> Void)?
+    /// A list that asks as you type (the finder): the text goes to `onQuery`, and what the owner answers with (`set`)
+    /// is
+    /// what shows, not a filtering of what is there. It is always typing: j and k are letters, Escape goes back at
+    /// once.
+    var liveQuery = false {
+        didSet { if liveQuery, filter == nil { filter = "" } }
+    }
+
+    var onQuery: ((String) -> Void)?
     private let card = FlippedView()
     private let header = FlippedView()
     private let divider = FlippedView()
@@ -231,14 +247,17 @@ final class ListPickerView: NSView {
     }
 
     private func updateHeading() {
-        if let filter {
+        if liveQuery {
+            heading.stringValue = title + "  " + (filter ?? "") + "▏"
+            heading.textColor = look.text
+        } else if let filter {
             heading.stringValue = "/" + filter + "▏"
             heading.textColor = look.text
         } else {
             heading.stringValue = title
             heading.textColor = look.muted
         }
-        count.stringValue = filter == nil ? "\(all.count)" : "\(visible.count) of \(all.count)"
+        count.stringValue = liveQuery ? "\(visible.count)" : filter == nil ? "\(all.count)" : "\(visible.count) of \(all.count)"
     }
 
     /// The choices, the keyboard on `current` (or the first).
@@ -249,7 +268,9 @@ final class ListPickerView: NSView {
     }
 
     private func refilter() {
-        if let filter, !filter.isEmpty {
+        if liveQuery {
+            visible = all
+        } else if let filter, !filter.isEmpty {
             visible = all.enumerated().compactMap { index, item -> (Int, Int, PickerItem)? in
                 Fuzzy.match(filter, in: item.title).map { ($0.score, index, item) }
             }.sorted { ($0.0, $1.1) > ($1.0, $0.1) }.map(\.2)
@@ -344,7 +365,8 @@ final class ListPickerView: NSView {
                 {
                     filter = (filter ?? "") + typed
                     refilter()
-                    if let item = visible.first(where: { $0.id == cursor }) { onMove?(item) }
+                    if liveQuery { onQuery?(filter ?? "") }
+                    else if let item = visible.first(where: { $0.id == cursor }) { onMove?(item) }
                 }
             }
             return
@@ -364,5 +386,6 @@ final class ListPickerView: NSView {
         text.removeLast()
         filter = text
         refilter()
+        if liveQuery { onQuery?(text) }
     }
 }

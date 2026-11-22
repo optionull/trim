@@ -101,6 +101,7 @@ struct FrameCheck {
         await group("theme") { await themeSteps() }
         await group("whichkey") { await whichKeySteps() }
         await group("lsp") { await lspSteps() }
+        await group("finder") { await finderSteps() }
         await group("windows") { await windowSteps() }
         await group("switcher") { await switcherSteps() }
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -1000,6 +1001,77 @@ struct FrameCheck {
         step("a server killed from outside leaves nvim alone and is started again")
         _ = await lua("require('frame.lsp').stop('sourcekit')")
         try? FileManager.default.removeItem(atPath: folder)
+    }
+
+    /// The finder: files of the workspace ranked as you type, lines found by grep, Return opening the file (at the
+    /// line), Escape
+    /// going back at once, and the leader key and command that bring it up.
+    private func finderSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        func buffer() async -> String { await lua("return vim.api.nvim_buf_get_name(0)")?.stringValue ?? "" }
+        let folder = shell.workspace + "/finder-fixture"
+        try? FileManager.default.createDirectory(atPath: folder + "/src", withIntermediateDirectories: true)
+        try? "one\n".write(toFile: folder + "/alpha.txt", atomically: true, encoding: .utf8)
+        try? "one\ntwo\nlet findermarker = 3\nfour\n".write(
+            toFile: folder + "/src/finder-beta.swift", atomically: true, encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        func type(_ text: String, into picker: ListPickerView) {
+            for letter in text {
+                picker.keyDown(with: key(String(letter), code: 0))
+            }
+        }
+        shell.focusEditor()
+        shell.showFinder(nil)
+        await wait("the finder as a list") { shell.listPicker != nil }
+        guard let picker = shell.listPicker, shell.modes.surface == .list,
+              shell.modes.label(editorMode: "normal") == "FIND FILE"
+        else { fail("the finder did not come up as a mode: \(shell.modes.surface)") }
+        await wait("the files of the workspace") { !picker.all.isEmpty }
+        type("betaf", into: picker)
+        await wait("the files to be ranked by the query") {
+            picker.visible.first?.id == "finder-fixture/src/finder-beta.swift"
+        }
+        guard picker.visible.first?.file == "finder-beta.swift", picker.visible.first?.detail == "finder-fixture/src"
+        else { fail("the row is not the file's name over its folder: \(String(describing: picker.visible.first))") }
+        step("the finder lists the workspace's files and ranks them as you type: the name first, its folder beside it")
+        picker.keyDown(with: key("\r", code: 36))
+        await waitAsync("the file to open") { await buffer() == folder + "/src/finder-beta.swift" }
+        guard shell.listPicker == nil,
+              shell.modes.surface == .editor else { fail("Return did not put the finder away") }
+        step("Return opens the file in nvim and the keyboard goes to it")
+        // Grep.
+        shell.showGrep(nil)
+        await wait("the grep list") { shell.listPicker != nil }
+        guard let grep = shell.listPicker, shell.modes.label(editorMode: "normal") == "FIND IN FILES"
+        else { fail("grep did not come up") }
+        _ = await lua("vim.cmd('enew')")
+        type("findermarker", into: grep)
+        await wait("a line found") { grep.visible.first?.id == "finder-fixture/src/finder-beta.swift\t3" }
+        guard grep.visible.first?.title == "let findermarker = 3"
+        else { fail("the row is not the line: \(String(describing: grep.visible.first))") }
+        grep.keyDown(with: key("\r", code: 36))
+        await waitAsync("the file to open at the line") { await buffer() == folder + "/src/finder-beta.swift" }
+        guard await lua("return vim.fn.line('.')")?.integerValue == 3
+        else { fail("the cursor is not on the line found") }
+        step("grep finds the line as text and Return opens the file on it")
+        // Escape at once, and the leader and the command.
+        shell.showFinder(nil)
+        await wait("the finder again") { shell.listPicker != nil }
+        type("x", into: shell.listPicker!)
+        shell.escape()
+        guard shell.listPicker == nil,
+              shell.modes.surface == .editor else { fail("Escape needed more than once, or did not close") }
+        let leader = await lua("return vim.g.mapleader or '\\\\'")?.stringValue ?? "\\"
+        channel.send(keys: leader + "ff")
+        await wait("<leader>ff to bring up the finder") { shell.listPicker != nil }
+        shell.escape()
+        _ = await lua("vim.cmd('FrameGrep')")
+        await wait(":FrameGrep to bring up grep") { shell.listPicker != nil }
+        shell.escape()
+        guard shell.listPicker == nil else { fail("Escape did not close") }
+        step("Escape goes back at once; <leader>ff and :FrameGrep bring the lists up")
     }
 
     /// Smooth scrolling of the text: a scroll of nvim's slides, and a scroll that comes while one slides goes on from
