@@ -443,7 +443,9 @@ TypeScript, JavaScript, Rust, Swift, Python, Go, Java, Kotlin, Ruby, the web's a
 grammar at the revision nvim-treesitter pins, with nvim-treesitter's queries, built ahead of time, so nothing is
 compiled on your Mac. The sign column marks what changed since the branch left its
 base (committed or not, so an agent's commits stay marked) and tints the line number; `]h` and `[h` go to the next and
-previous change. Razor: `.razor` and `.cshtml` files are served by the same Roslyn (it hosts Razor), as Sill does it: components, directives and the C# in a component's `@code` block answer from it, and Razor's questions about HTML go to the HTML server (found or provisioned like any other).
+previous change. The Run tab of the pane (⇧⌘R, `\rp`) lists everything the folder can run, each row saying what kind it is and the file (and line) it comes from, and the details of the highlighted one under the list: its command line, the folder it runs in, its environment variables. Return runs it. `c` copies an entry into a configuration of your own, to change its arguments, folder and environment variables in a form (kept in `.frame/run.json` of the folder, listed first, run like any other; F5 repeats it too); `e` changes one of your own, `d` deletes it, `n` makes a new one from nothing.
+
+Razor: `.razor` and `.cshtml` files are served by the same Roslyn (it hosts Razor), as Sill does it: components, directives and the C# in a component's `@code` block answer from it, and Razor's questions about HTML go to the HTML server (found or provisioned like any other).
 
 Zen (⌥⌘Z, View ▸ Zen Mode, `<leader>uz`, `:FrameRun zen`) puts the sidebar, tabs, status bar, build pane and progress toast away and the text in the middle, a hundred columns wide; the same again brings everything back as it was.
 

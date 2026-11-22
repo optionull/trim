@@ -206,7 +206,11 @@ extension FrameWindowController {
         pane.scope = problemScope
         pane.loading = !lspProgress.isEmpty
         pane.onScope = { [weak self] scope in self?.problemScope = scope }
-        pane.onTabChange = { [weak self] _ in self?.reloadProblems() }
+        pane.onTabChange = { [weak self] tab in
+            self?.reloadProblems()
+            if tab == .run { self?.reloadRunList() }
+        }
+        configureRunTab(pane)
         pane.onRebuild = { [weak self] in self?.rebuild() }
         pane.onFocus = { [weak self] in self?.terminalFocused() }
         pane.onEscape = { [weak self] in self?.focusEditor() }

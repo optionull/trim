@@ -182,7 +182,7 @@ public enum VSCode {
             entries.append(RunEntry(
                 title: name, source: "VS Code", kind: .run,
                 command: (words + arguments).map(shellWord).joined(separator: " "),
-                directory: directory(config["cwd"], root: root), environment: env
+                directory: directory(config["cwd"], root: root), environment: env, origin: ".vscode/launch.json"
             ))
         }
         return entries

@@ -1,6 +1,7 @@
 import AppKit
 import CoreText
 import FrameModes
+import FrameRun
 import FrameTree
 import FrameWorkspaces
 import MessagePack
@@ -444,6 +445,9 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// What the language servers are busy with, as nvim last said.
     var lspProgress: [ProgressItem] = []
     var problemsReloading = false
+    /// What the Run tab lists, by the row's id, and the saved configuration being changed (nil: a new one).
+    var runEntries: [String: RunEntry] = [:]
+    var editingConfig: String?
     /// The file in the window, for the problems list scoped to it or to its folder.
     var activeFile: String?
     var problemScope = ProblemScope.stored {
@@ -932,8 +936,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
                 local path, line, column = ...
                 local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape(path))
                 if not ok then return vim.notify(tostring(err), vim.log.levels.ERROR) end
-                if line and line > 0 then
-                  pcall(vim.api.nvim_win_set_cursor, 0, { line, math.max((column or 1) - 1, 0) })
+                if type(line) == 'number' and line > 0 then
+                  pcall(vim.api.nvim_win_set_cursor, 0, { line, math.max((type(column) == 'number' and column or 1) - 1, 0) })
                   vim.cmd('normal! zz')
                 end
                 """,

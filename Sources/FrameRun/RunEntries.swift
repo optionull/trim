@@ -20,11 +20,18 @@ public struct RunEntry: Equatable, Sendable, Hashable {
     public var environment: [String: String]
     /// What the person marked as the default (a task in the default build group).
     public var isDefault: Bool
+    /// The file it is read from, from the folder's root, with the line when there is one (`Makefile:12`): shown, so it
+    /// is
+    /// clear where an entry comes from and where to change it.
+    public var origin: String
+    /// A configuration of the person's own (saved in `.frame/run.json`), not one found in the project's files.
+    public var isCustom: Bool { source == RunConfigs.source }
 
     public init(
         title: String, source: String, kind: Kind, command: String, directory: String,
-        environment: [String: String] = [:], isDefault: Bool = false
+        environment: [String: String] = [:], isDefault: Bool = false, origin: String = ""
     ) {
+        self.origin = origin
         self.title = title
         self.source = source
         self.kind = kind
@@ -39,14 +46,22 @@ public enum RunEntries {
     /// Every entry for the folder `root`: what the project files run and build, Makefile targets, VS Code's tasks and
     /// launch configurations. Builds first, then runs, tests and the rest, each in the order found.
     public static func find(in root: String) -> [RunEntry] {
-        var found = builds(in: root)
+        var found = RunConfigs.entries(in: root)
+        found += builds(in: root)
         found += SillCore.Runnables.find(in: root).map { runnable in
-            RunEntry(
+            let manifest = [
+                "dotnet": runnable.project ?? "", "swift": "Package.swift", "cargo": "Cargo.toml",
+                "node": "package.json",
+                "mise": "mise.toml", "just": "justfile",
+            ][runnable.tool] ?? ""
+            let folder = runnable.directory.isEmpty ? "" : runnable.directory + "/"
+            return RunEntry(
                 title: runnable.name,
                 source: runnable.tool == "node" ? "npm" : runnable.tool,
                 kind: runnable.kind == .app ? .run : (runnable.kind == .test ? .test : .task),
                 command: runnable.command,
-                directory: runnable.directory.isEmpty ? root : root + "/" + runnable.directory
+                directory: runnable.directory.isEmpty ? root : root + "/" + runnable.directory,
+                origin: runnable.project != nil ? manifest : folder + manifest
             )
         }
         found += make(in: root)
@@ -68,19 +83,25 @@ public enum RunEntries {
     public static func builds(in root: String) -> [RunEntry] {
         let fm = FileManager.default
         let names = (try? fm.contentsOfDirectory(atPath: root)) ?? []
-        func entry(_ title: String, _ source: String, _ command: String) -> RunEntry {
-            RunEntry(title: title, source: source, kind: .build, command: command, directory: root)
+        func entry(_ title: String, _ source: String, _ command: String, from file: String) -> RunEntry {
+            RunEntry(title: title, source: source, kind: .build, command: command, directory: root, origin: file)
         }
         var found: [RunEntry] = []
         let solutions = names.filter { $0.hasSuffix(".slnx") || $0.hasSuffix(".sln") }.sorted()
         let projects = names.filter { $0.hasSuffix(".csproj") || $0.hasSuffix(".fsproj") }.sorted()
         for name in solutions.prefix(1) + (solutions.isEmpty ? projects.prefix(1) : []) {
-            found.append(entry("Build " + name, "dotnet", "dotnet build \(SillCore.Runnables.quoted(name))"))
+            found.append(entry(
+                "Build " + name,
+                "dotnet",
+                "dotnet build \(SillCore.Runnables.quoted(name))",
+                from: name
+            ))
         }
-        if names.contains("Package.swift") { found.append(entry("Build", "swift", "swift build")) }
-        if names.contains("Cargo.toml") { found.append(entry("Build", "cargo", "cargo build")) }
+        if names
+            .contains("Package.swift") { found.append(entry("Build", "swift", "swift build", from: "Package.swift")) }
+        if names.contains("Cargo.toml") { found.append(entry("Build", "cargo", "cargo build", from: "Cargo.toml")) }
         if names.contains("tsconfig.json"), !names.contains("package.json") {
-            found.append(entry("Build", "tsc", "npx tsc -p ."))
+            found.append(entry("Build", "tsc", "npx tsc -p .", from: "tsconfig.json"))
         }
         return found
     }
@@ -90,23 +111,28 @@ public enum RunEntries {
         guard let name = ["Makefile", "makefile", "GNUmakefile"].first(where: {
             FileManager.default.fileExists(atPath: root + "/" + $0)
         }), let text = try? String(contentsOfFile: root + "/" + name, encoding: .utf8) else { return [] }
-        var targets: [String] = []
-        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+        var targets: [(name: String, line: Int)] = []
+        for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
             guard let first = line.first, first.isLetter || first == "_" else { continue }
             guard let colon = line.firstIndex(of: ":") else { continue }
             let after = line[line.index(after: colon)...]
             if after.hasPrefix("=") || after.hasPrefix(":=") || after.hasPrefix("::=") { continue }
             for target in line[..<colon].split(separator: " ") {
                 let word = String(target)
-                if word.contains("%") || word.contains("$") || word.contains("=") || targets.contains(word) { continue }
-                targets.append(word)
+                if word.contains("%") || word.contains("$") || word.contains("=") || targets
+                    .contains(where: { $0.name == word })
+                {
+                    continue
+                }
+                targets.append((word, index + 1))
             }
         }
-        return targets.map {
+        return targets.map { target in
             RunEntry(
-                title: $0, source: "make",
-                kind: ["build", "all"].contains($0) ? .build : ($0.hasPrefix("test") ? .test : .task),
-                command: "make \(SillCore.Runnables.quoted($0))", directory: root
+                title: target.name, source: "make",
+                kind: ["build", "all"].contains(target.name) ? .build : (target.name.hasPrefix("test") ? .test : .task),
+                command: "make \(SillCore.Runnables.quoted(target.name))", directory: root,
+                origin: "\(name):\(target.line)"
             )
         }
     }

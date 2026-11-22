@@ -130,31 +130,6 @@ extension FrameWindowController {
         if let entry = defaultBuild(from: all) { run(entry) } else { showRunPicker(nil) }
     }
 
-    /// Everything that can be run here, as a mode: Return runs it in the pane.
-    @objc func showRunPicker(_: Any?) {
-        guard listPicker == nil else { return }
-        let all = entries()
-        guard !all.isEmpty else {
-            Task { [session] in
-                _ = try? await session.channel
-                    .lua("vim.notify('Frame: nothing to run or build in this folder', vim.log.levels.WARN)")
-            }
-            return
-        }
-        let items = all.map { entry in
-            PickerItem(
-                id: entry.id + "\t" + entry.command,
-                title: entry.title,
-                detail: entry.source + " · " + entry.kind.rawValue,
-                subtitle: entry.command
-            )
-        }
-        showList(title: "Run", items: items, current: nil, onChoose: { [weak self] item in
-            guard let entry = all.first(where: { $0.id + "\t" + $0.command == item.id }) else { return }
-            self?.run(entry)
-        })
-    }
-
     /// A build says it has ended, and its exit code, by a file: then what it printed is read (off the main thread), the
     /// files it complained of are marked in the tree, and the pane comes up only when there are errors or warnings (or
     /// it

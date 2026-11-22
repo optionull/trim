@@ -114,6 +114,7 @@ struct FrameCheck {
         await group("links") { await linkSteps() }
         await group("actions") { await actionSteps() }
         await group("run") { await runSteps() }
+        await group("runtab") { await runTabSteps() }
         await group("problems") { await problemsSteps() }
         await group("finder") { await finderSteps() }
         await group("packages") { await packagesSteps() }
@@ -1290,6 +1291,68 @@ struct FrameCheck {
         #endif
     }
 
+    /// The Run tab: what the folder can run, each row saying where it comes from; a copy of one made into a
+    /// configuration of
+    /// the person's own, with an environment variable, kept in `.frame/run.json` and run; and deleted again.
+    private func runTabSteps() async {
+        #if SILL_GHOSTTY
+            let root = shell.workspace
+            try? "hello:\n\t@echo hello-from-make-$$FRAME_X\n".write(
+                toFile: root + "/Makefile",
+                atomically: true,
+                encoding: .utf8
+            )
+            defer {
+                try? FileManager.default.removeItem(atPath: root + "/Makefile")
+                try? FileManager.default.removeItem(atPath: root + "/.frame")
+            }
+            shell.showRunPicker(nil)
+            await wait("the Run tab") { shell.runPane?.tab == .run }
+            guard let pane = shell.runPane else { fail("no pane") }
+            let list = pane.runList
+            await wait("hello in the list, with the file it comes from") {
+                list.all.contains { $0.title == "hello" && $0.subtitle == "Makefile:1" && $0.detail.contains("make") }
+            }
+            step("the Run tab lists what the folder can run, each with the file (and line) it comes from")
+            for _ in 0 ..< 40 where list.all.first(where: { $0.id == list.cursor })?.title != "hello" {
+                list.keyDown(with: key("j", code: 38))
+            }
+            guard list.all.first(where: { $0.id == list.cursor })?.title == "hello" else { fail("cannot reach hello") }
+            list.keyDown(with: key("c", code: 8))
+            guard pane.editing, pane.form.name.stringValue == "hello (mine)", pane.form.command.stringValue == "make hello"
+            else {
+                fail(
+                    "c did not make a copy to change: \(pane.form.name.stringValue) / \(pane.form.command.stringValue)"
+                )
+            }
+            pane.form.environment.string = "FRAME_X=42"
+            pane.form.onSave?(pane.form.config, true)
+            await wait("the configuration to be kept") {
+                RunConfigs.load(in: root).first?.environment == ["FRAME_X": "42"]
+            }
+            guard let kept = RunConfigs.load(in: root).first, kept.basedOn == "make:hello", kept.command == "make hello"
+            else { fail("what was kept is not the copy: \(RunConfigs.load(in: root))") }
+            await wait("it to run with the variable") { pane.screenText()?.contains("hello-from-make-42") == true }
+            step(
+                "c copies an entry into a configuration of one's own: changed in a form, kept in .frame/run.json, run with its environment"
+            )
+            pane.select(.run)
+            await wait("the copy first in the list, saying where it is kept") {
+                list.all.first?.title == "hello (mine)" && list.all.first?.subtitle == ".frame/run.json (from make:hello)"
+            }
+            for _ in 0 ..< 40 where list.cursor != list.all.first?.id {
+                list.keyDown(with: key("k", code: 40))
+            }
+            list.keyDown(with: key("d", code: 2))
+            await wait("the configuration to be deleted") { RunConfigs.load(in: root).isEmpty }
+            guard !FileManager.default.fileExists(atPath: RunConfigs.file(in: root)) else { fail("the file stayed") }
+            step("a configuration of one's own is listed first and d deletes it")
+            shell.closeTerminal(nil)
+        #else
+            step("built without GhosttyKit: the Run tab was not exercised")
+        #endif
+    }
+
     /// Diagnostics: the worst level of each file as a wavy line in the tree, folders taking the worst below them
     /// (folded
     /// off the main thread), and every problem in one list with a toggle per level and Alt+Enter on a row.
@@ -1451,7 +1514,7 @@ struct FrameCheck {
         step("the toggles are icons with their counts, in the header, right next to the minimize button")
         // The controls of the header have a pointer and a hover, the rebuild button runs again, and Output opens with
         // nothing run.
-        guard pane.pointerRects().count(where: { !$0.isEmpty }) == 7, !pane.minimizeRect.isEmpty,
+        guard pane.pointerRects().count(where: { !$0.isEmpty }) == 8, !pane.minimizeRect.isEmpty,
               !pane.rebuildRect.isEmpty
         else { fail("the header's controls are not all pointers: \(pane.pointerRects())") }
         func sample(_ rect: NSRect) -> NSColor? {

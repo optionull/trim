@@ -113,18 +113,23 @@ final class FrameApp: NSObject, NSApplicationDelegate {
     @discardableResult
     func handle(_ url: URL) -> Bool {
         guard let link = FrameLink.parse(url) else { return false }
+        // Brought forward, as a link is for (not in the self-check: a tiling window manager moves a window that is).
+        func forward(_ controller: FrameWindowController) {
+            guard !Self.checking else { return }
+            controller.window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
         switch link {
         case let .workspace(path):
-            open(folder: path).window.makeKeyAndOrderFront(nil)
+            forward(open(folder: path))
         case let .file(path, line, column):
             let real = RealPath.of(path)
             let known = controllers.filter { real.hasPrefix(($0.tree?.rootPath ?? $0.workspace) + "/") }
                 .max { ($0.tree?.rootPath ?? $0.workspace).count < ($1.tree?.rootPath ?? $1.workspace).count }
             let controller = known ?? open(folder: FrameLink.workspace(for: real))
-            controller.window.makeKeyAndOrderFront(nil)
+            forward(controller)
             controller.open(file: real, toEditor: true, line: line, column: column)
         }
-        NSApp.activate(ignoringOtherApps: true)
         return true
     }
 
