@@ -80,11 +80,14 @@ targets.append(.testTarget(
     name: "FrameWorkspacesTests",
     dependencies: ["FrameWorkspaces", "FrameTree", "SillCore", "SillAgent"]
 ))
+// What Frame can run and build in its terminal pane: project files, Makefile, mise, npm, VS Code's tasks and launches.
+targets.append(.target(name: "FrameRun", dependencies: ["SillCore"]))
+targets.append(.testTarget(name: "FrameRunTests", dependencies: ["FrameRun"]))
 targets.append(.executableTarget(
     name: "Frame",
     dependencies: [
         "SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", "SillAgent", "FrameTree", "FrameWorkspaces",
-        "FrameModes",
+        "FrameModes", "FrameRun",
         messagePack,
     ]
 ))
