@@ -349,6 +349,12 @@ final class FrameApp: NSObject, NSApplicationDelegate {
         menu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
         viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(Window.toggleSidebar(_:)), keyEquivalent: "b")
+        let zenItem = viewMenu.addItem(
+            withTitle: "Zen Mode",
+            action: #selector(Window.toggleZen(_:)),
+            keyEquivalent: "z"
+        )
+        zenItem.keyEquivalentModifierMask = [.command, .option]
         viewMenu.addItem(
             withTitle: "Status Bar Across Window", action: #selector(Window.toggleStatusAcrossWindow(_:)),
             keyEquivalent: ""

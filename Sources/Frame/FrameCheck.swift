@@ -109,6 +109,7 @@ struct FrameCheck {
             await dotnetSteps()
             await startupSteps()
         }
+        await group("zen") { await zenSteps() }
         await group("links") { await linkSteps() }
         await group("actions") { await actionSteps() }
         await group("run") { await runSteps() }
@@ -1571,6 +1572,40 @@ struct FrameCheck {
         step("the pane's list follows the diagnostics as they change")
         shell.closeTerminal(nil)
         _ = await lua("vim.cmd('silent! %bwipeout!')")
+    }
+
+    /// Zen: the sidebar, tabs, status bar and build pane out of the way, the text in the middle as wide as a page of
+    /// code,
+    /// and everything as it was when it is over.
+    private func zenSteps() async {
+        let channel = shell.session.channel
+        shell.focusEditor()
+        shell.showProblems(nil)
+        shell.focusEditor()
+        shell.view.layoutSubtreeIfNeeded()
+        let before = shell.editor.frame
+        guard let pane = shell.runPane, !pane.isHidden else { fail("no pane to put away") }
+        shell.toggleZen(nil)
+        shell.view.layoutSubtreeIfNeeded()
+        let view = shell.view!
+        guard view.zen, view.sidebar.isHidden, view.statusBar.isHidden, view.tabStrip.isHidden, view.tabList.isHidden,
+              pane.frame.maxX < 0
+        else { fail("zen left chrome on screen") }
+        let editor = shell.editor.frame
+        guard editor.width < before.width, editor.height >= before.height, abs(editor.midX - view.bounds.midX) < 2
+        else { fail("the text is not in the middle: \(editor) in \(view.bounds), was \(before)") }
+        await waitAsync("nvim to have a page of code for a width") {
+            let columns = await (try? channel.lua("return vim.o.columns"))?.integerValue ?? 999
+            return columns <= 110
+        }
+        step("zen puts the chrome away (the pane too) and the text in the middle, as wide as a page of code")
+        shell.toggleZen(nil)
+        shell.view.layoutSubtreeIfNeeded()
+        guard !view.sidebar.isHidden, !view.statusBar.isHidden, !pane.isHidden, pane.frame.maxX > 0,
+              shell.editor.frame == before
+        else { fail("zen did not leave everything as it was: \(shell.editor.frame) was \(before)") }
+        shell.closeTerminal(nil)
+        step("and when it is over everything is as it was, the pane too")
     }
 
     /// Links into the app: `frame://open?path=…&line=…&column=…` and a file handed over open the file at its place, in

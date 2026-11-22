@@ -142,6 +142,15 @@ final class FrameView: NSView {
     }
 
     let divider = DividerView()
+    /// Zen: the sidebar, the tabs, the status bar and the build pane are out of the way and the text is in the middle.
+    /// Only
+    /// the layout changes (what is shown when it is over is as it was).
+    var zen = false {
+        didSet { needsLayout = true }
+    }
+
+    /// How wide the text is in zen, in cells of the grid.
+    static let zenColumns: CGFloat = 100
     /// What is going on (servers loading and analysing, a build): a toast at the bottom left of the code.
     let progress = ProgressToastView()
     /// Whether the bar shows under the grid (a config can keep its own status line instead).
@@ -229,18 +238,19 @@ final class FrameView: NSView {
         // to put it under. The sidebar's island and the grid make room above them.
         let barHeight = StatusBarView.height(for: statusBar.look), gap: CGFloat = 6
         let across = statusPlacement == .window
-        let barStrip = statusVisible ? barHeight + gap : 0
+        let barStrip = statusVisible && !zen ? barHeight + gap : 0
         // The button is the sidebar's, under it; with the bar across the window it is the bar's first segment instead.
-        let chipShown = sidebarVisible && !across
+        let chipShown = sidebarVisible && !across && !zen
         let sidebarStrip = across ? barStrip : (chipShown ? barHeight + gap : 0)
-        statusBar.isHidden = !statusVisible
+        statusBar.isHidden = !statusVisible || zen
         chip.isHidden = !chipShown
         let top = frame.minY + top
         var x = frame.minX
-        sidebar.isHidden = !sidebarVisible
-        divider.isHidden = !sidebarVisible
+        let sidebarShown = sidebarVisible && !zen
+        sidebar.isHidden = !sidebarShown
+        divider.isHidden = !sidebarShown
         let footY = frame.maxY - barHeight
-        if sidebarVisible {
+        if sidebarShown {
             // Never more than half the window, so the grid is not squeezed out.
             let width = min(sidebarWidth, frame.width / 2)
             let height = max(0, frame.maxY - top - sidebarStrip)
@@ -253,7 +263,8 @@ final class FrameView: NSView {
 
         // The grid's column, and the tabs in it: a strip over or under the grid, or a list at its right.
         var column = NSRect(x: x, y: top, width: frame.maxX - x, height: max(0, frame.maxY - top - barStrip))
-        if let terminal, !terminal.isHidden {
+        if zen, let terminal { terminal.frame = NSRect(x: -20000, y: 0, width: 400, height: 400) }
+        if let terminal, !terminal.isHidden, !zen {
             switch RunPlacement.for(width: bounds.width) {
             case .right:
                 let width = max(RunPlacement.leastWidth, (column.width * RunPlacement.fraction).rounded())
@@ -265,7 +276,7 @@ final class FrameView: NSView {
                 column.size.height -= height + gap
             }
         }
-        let tabsShown = Tabs.isShown(count: tabStrip.tabs.count, placement: tabsPlacement)
+        let tabsShown = !zen && Tabs.isShown(count: tabStrip.tabs.count, placement: tabsPlacement)
         let stripHeight = TabsView.stripHeight(for: statusBar.look)
         tabStrip.isHidden = !(tabsShown && tabsPlacement.isStrip)
         tabList.isHidden = !(tabsShown && tabsPlacement == .right)
@@ -287,9 +298,20 @@ final class FrameView: NSView {
             )
             column.size.width -= Self.tabListWidth + gap
         }
+        if zen {
+            // The text alone, in the middle, as wide as a page of code.
+            let wanted = ceil(editor.metrics.width * Self.zenColumns) + 32
+            let width = min(column.width, wanted)
+            column = NSRect(
+                x: column.minX + (column.width - width) / 2,
+                y: column.minY,
+                width: width,
+                height: column.height
+            )
+        }
         editor.frame = column
         overlay.frame = editor.frame
-        let toastHeight = progress.contentHeight
+        let toastHeight = zen ? 0 : progress.contentHeight
         progress.frame = NSRect(
             x: column.minX + 12, y: column.maxY - toastHeight - 12, width: min(380, max(0, column.width - 24)),
             height: toastHeight
@@ -440,6 +462,13 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     var problemTotals: [DiagnosticLevel: Int]?
     /// The build pane (Output and Problems), while one shows.
     var runPane: BuildPane?
+    /// Zen on or off (⌥⌘Z, `:FrameZen`, `<leader>uz`).
+    @objc func toggleZen(_: Any?) {
+        guard view != nil else { return }
+        view.zen.toggle()
+        if view.zen, modes.surface == .tree || modes.surface == .terminal { focusEditor() }
+    }
+
     /// Which levels of problem the pane lists, kept as the person set them.
     var problemLevels = Set(DiagnosticLevel.allCases)
     /// Every problem the pane's list is built from, by its id.
@@ -742,11 +771,11 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
       { desc = 'Switch workspace: a repository or worktree, in a window of its own' })
     vim.keymap.set('n', '<Plug>(frame-packages)', function() tell('frame_packages', '') end, { desc = 'Packages' })
     vim.api.nvim_create_user_command('FramePackages', function() tell('frame_packages', '') end, { desc = 'Browse, install and remove packages' })
-    for plug, what in pairs({ run = 'default', build = 'build', ['run-pick'] = 'pick', terminal = 'terminal', ['terminal-close'] = 'close', problems = 'problems', lsp = 'lsp' }) do
+    for plug, what in pairs({ run = 'default', build = 'build', ['run-pick'] = 'pick', terminal = 'terminal', ['terminal-close'] = 'close', problems = 'problems', lsp = 'lsp', zen = 'zen' }) do
       vim.keymap.set('n', '<Plug>(frame-' .. plug .. ')', function() tell('frame_run', what) end, { desc = 'Run: ' .. what })
     end
     vim.api.nvim_create_user_command('FrameRun', function(opts) tell('frame_run', opts.args ~= '' and opts.args or 'default') end, {
-      nargs = '?', complete = function() return { 'default', 'build', 'pick', 'terminal', 'close', 'problems', 'lsp' } end,
+      nargs = '?', complete = function() return { 'default', 'build', 'pick', 'terminal', 'close', 'problems', 'lsp', 'zen' } end,
       desc = 'Run (default), build, pick what to run, or show/close the terminal pane',
     })
     vim.keymap.set('n', '<Plug>(frame-find)', function() tell('frame_find', 'files') end, { desc = 'Find file' })
@@ -840,6 +869,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             case "close": closeTerminal(nil)
             case "problems": showProblems(nil)
             case "lsp": showLspPanel(nil)
+            case "zen": toggleZen(nil)
             default: runDefault(nil)
             }
         case "frame_find": findFiles(grep: args.first?.stringValue == "grep")

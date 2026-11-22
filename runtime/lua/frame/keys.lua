@@ -19,6 +19,7 @@ M.defaults = {
   { '<leader>rp', '<Plug>(frame-run-pick)', 'Choose what to run' },
   { '<leader>rq', '<Plug>(frame-problems)', 'Problems from the terminal' },
   { '<leader>lp', '<Plug>(frame-lsp)', 'Language servers panel' },
+  { '<leader>uz', '<Plug>(frame-zen)', 'Zen mode' },
   { '<leader>rt', '<Plug>(frame-terminal)', 'Terminal pane' },
   { '<leader>rx', '<Plug>(frame-terminal-close)', 'Close the terminal pane' },
   { '<leader>o', '<Plug>(frame-tabs-list)', 'Open files (tabs)' },
