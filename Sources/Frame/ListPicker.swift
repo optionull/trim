@@ -53,8 +53,9 @@ final class ChipsView: NSView {
         var right = bounds.width - 12
         var found: [(String, NSRect)] = []
         for chip in chips.reversed() {
-            let count = NSAttributedString(string: "\(chip.count)", attributes: [.font: look.smallFont])
-            let width = 10 + max(look.iconSize, 14) + 6 + ceil(count.size().width) + 10
+            let label = chip.glyph.isEmpty ? "\(chip.title) \(chip.count)" : "\(chip.count)"
+            let count = NSAttributedString(string: label, attributes: [.font: look.smallFont])
+            let width = 10 + (chip.glyph.isEmpty ? 0 : max(look.iconSize, 14) + 6) + ceil(count.size().width) + 10
             let rect = NSRect(x: right - width, y: 5, width: width, height: bounds.height - 10)
             found.append((chip.id, rect))
             right -= width + 6
@@ -83,7 +84,7 @@ final class ChipsView: NSView {
         guard let raw = userData, case let index = Int(bitPattern: raw) - 1,
               chips.indices.contains(index) else { return "" }
         let chip = chips[index]
-        return "\(chip.title) (\(chip.key)): \(chip.on ? "shown" : "hidden")"
+        return chip.key.isEmpty ? "\(chip.title): \(chip.on ? "shown" : "hidden")" : "\(chip.title) (\(chip.key)): \(chip.on ? "shown" : "hidden")"
     }
 
     override func draw(_: NSRect) {
@@ -97,15 +98,17 @@ final class ChipsView: NSView {
             (chip.on ? chip.color.withAlphaComponent(0.5) : look.faint.withAlphaComponent(0.4)).setStroke()
             pill.lineWidth = 1
             pill.stroke()
-            let icon = NSAttributedString(string: chip.glyph, attributes: [.font: iconFont, .foregroundColor: tint])
-            let count = NSAttributedString(string: "\(chip.count)", attributes: [
+            let label = chip.glyph.isEmpty ? "\(chip.title) \(chip.count)" : "\(chip.count)"
+            let count = NSAttributedString(string: label, attributes: [
                 .font: look.smallFont, .foregroundColor: chip.on ? look.text : look.faint,
             ])
-            icon.draw(at: NSPoint(x: rect.minX + 10, y: rect.midY - icon.size().height / 2))
-            count.draw(at: NSPoint(
-                x: rect.minX + 10 + max(look.iconSize, 14) + 6,
-                y: rect.midY - count.size().height / 2
-            ))
+            var textX = rect.minX + 10
+            if !chip.glyph.isEmpty {
+                let icon = NSAttributedString(string: chip.glyph, attributes: [.font: iconFont, .foregroundColor: tint])
+                icon.draw(at: NSPoint(x: rect.minX + 10, y: rect.midY - icon.size().height / 2))
+                textX += max(look.iconSize, 14) + 6
+            }
+            count.draw(at: NSPoint(x: textX, y: rect.midY - count.size().height / 2))
         }
     }
 

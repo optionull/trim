@@ -468,6 +468,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// The Run pane, once wanted (a pane of its own, taking the build pane's slot while it is shown).
     var runListPane: RunPaneView?
     var editingConfig: String?
+    /// The origins the Run pane's pills have switched off.
+    var runSourcesOff: Set<String> = []
     /// The file in the window, for the problems list scoped to it or to its folder.
     var activeFile: String?
     var problemScope = ProblemScope.stored {

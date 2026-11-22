@@ -1304,22 +1304,24 @@ struct FrameCheck {
             .write(to: URL(fileURLWithPath: folder + "/" + name + ".png"))
     }
 
-    /// The Run pane, a pane and a mode of its own: what the folder can run, each row saying where it comes from; a copy
-    /// of
-    /// one made into a configuration of the person's own, with an environment variable, kept in `.frame/run.json` and
-    /// run
-    /// (the build pane comes back with the output); and deleted again.
+    /// The Run pane, a pane and a mode of its own, with tabs: the list (pills to filter by origin), and an Output tab
+    /// for each
+    /// run, several at once, each saying how its run went with a way to run it again; and a copy of an entry made into
+    /// a
+    /// configuration of one's own, kept in Frame's own folder, run with its environment, and deleted again.
     private func runTabSteps() async {
         #if SILL_GHOSTTY
             let root = shell.workspace
-            try? "hello:\n\t@echo hello-from-make-$$FRAME_X\n".write(
-                toFile: root + "/Makefile",
-                atomically: true,
-                encoding: .utf8
+            // Configurations are kept in Frame's own folder: a temporary one for this.
+            let realHome = RunConfigs.home
+            RunConfigs.home = NSTemporaryDirectory() + "frame-check-run-home-\(UUID().uuidString)"
+            try? "hello:\n\t@echo hello-from-make-$$FRAME_X\nbye:\n\t@echo goodbye\n".write(
+                toFile: root + "/Makefile", atomically: true, encoding: .utf8
             )
             defer {
                 try? FileManager.default.removeItem(atPath: root + "/Makefile")
-                try? FileManager.default.removeItem(atPath: root + "/.frame")
+                try? FileManager.default.removeItem(atPath: RunConfigs.home)
+                RunConfigs.home = realHome
             }
             shell.focusEditor()
             shell.showRunPicker(nil)
@@ -1332,20 +1334,33 @@ struct FrameCheck {
             await wait("hello in the list, with the file it comes from") {
                 list.all.contains { $0.title == "hello" && $0.subtitle == "Makefile:1" && $0.detail.contains("make") }
             }
+            // A pill for each origin, to filter by.
+            await wait("a pill for the Makefile's origin") {
+                pane.chipsView.chips.contains { $0.id == "make" && $0.count == 2 && $0.on }
+            }
+            pane.layoutSubtreeIfNeeded()
+            pane.displayIfNeeded()
+            pane.layoutSubtreeIfNeeded()
+            guard !pane.chipsView.isHidden, let last = pane.chipsView.chipFrames().last,
+                  pane.chipsView.frame.minX + last.rect.maxX <= pane.newRect.minX
+            else {
+                fail(
+                    "the origin pills are not in the header, left of the buttons: frame \(pane.chipsView.frame) hidden \(pane.chipsView.isHidden) chips \(pane.chipsView.chipFrames()) new \(pane.newRect) minimize \(pane.minimizeRect)"
+                )
+            }
             shot(pane, "run-list")
-            guard pane.pointerRects().count(where: { !$0.isEmpty }) == 2
-            else { fail("the Run pane's buttons are not pointers") }
+            pane.chipsView.onToggle?("make")
+            await wait("the Makefile's entries to leave the list") { !list.all.contains { $0.title == "hello" } }
+            pane.chipsView.onToggle?("make")
+            await wait("the Makefile's entries to come back") { list.all.contains { $0.title == "hello" } }
             step(
-                "Run is a pane and a mode of its own (RUN), listing what the folder can run with the file (and line) each comes from"
+                "Run is a pane and a mode of its own, listing what the folder can run with where each comes from, and a pill for each origin filters the list"
             )
             for _ in 0 ..< 40 where list.all.first(where: { $0.id == list.cursor })?.title != "hello" {
                 list.keyDown(with: key("j", code: 38))
             }
-            guard list.all.first(where: { $0.id == list.cursor })?.title == "hello" else { fail("cannot reach hello") }
             list.keyDown(with: key("c", code: 8))
-            guard pane.editing, pane.form.name.stringValue == "hello (mine)",
-                  pane.form.command.stringValue == "make hello",
-                  shell.window.firstResponder === pane.form.firstField || shell.window.firstResponder is NSText
+            guard pane.editing, pane.form.name.stringValue == "hello (mine)", pane.form.command.stringValue == "make hello"
             else {
                 fail(
                     "c did not make a copy to change: \(pane.form.name.stringValue) / \(pane.form.command.stringValue)"
@@ -1357,33 +1372,66 @@ struct FrameCheck {
             await wait("the configuration to be kept") {
                 RunConfigs.load(in: root).first?.environment == ["FRAME_X": "42"]
             }
-            guard let kept = RunConfigs.load(in: root).first, kept.basedOn == "make:hello", kept.command == "make hello"
-            else { fail("what was kept is not the copy: \(RunConfigs.load(in: root))") }
-            // What is run from the Run pane has its own output, under the list: the build pane is not brought in.
-            await wait("the output to be in the Run pane") {
-                pane.screenText()?.contains("hello-from-make-42") == true
-            }
-            guard !pane.isHidden, shell.runPane?.isHidden ?? true, shell.modes.surface == .run,
-                  pane.terminal != nil, pane.entry?.title == "hello (mine)"
-            else { fail("the Run pane did not keep its output: hidden \(pane.isHidden), mode \(shell.modes.surface)") }
-            guard let output = pane.terminal, output.frame.minY > list.frame.maxY, output.frame.height > 60
-            else { fail("the output is not under the list: \(String(describing: pane.terminal?.frame)) \(list.frame)") }
-            shot(pane, "run-output")
-            step("what is run from the Run pane has its own output under the list; the build pane is not brought in")
-            // The keyboard goes to the output and back.
-            list.keyDown(with: key("o", code: 31))
-            guard shell.window.firstResponder === output,
-                  shell.modes.surface == .run else { fail("o did not go to the output") }
-            shell.showRunPicker(nil)
-            guard shell.window.firstResponder === list
-            else { fail("the Run shortcut from the output did not go to the list") }
-            await wait("the copy first in the list, saying where it is kept") {
-                list.all.first?.title == "hello (mine)" && list.all.first?.subtitle == "your configurations (from make:hello)"
-            }
-            guard !FileManager.default.fileExists(atPath: root + "/.frame")
-            else { fail("something was written into the project") }
-            guard FileManager.default.fileExists(atPath: RunConfigs.file(in: root))
+            guard FileManager.default.fileExists(atPath: RunConfigs.file(in: root)),
+                  !FileManager.default.fileExists(atPath: root + "/.frame")
             else { fail("not kept in Frame's own folder") }
+            // Once something is run, only its output shows, in a tab of its own.
+            await wait("the run's tab") { pane.sessions.count == 1 }
+            guard let first = pane.sessions.first, pane.current === first, pane.list.isHidden, pane.chipsView.isHidden,
+                  first.terminal.isHidden == false, shell.runPane?.isHidden ?? true,
+                  shell.window.firstResponder === first.terminal
+            else { fail("what was run does not show alone in its own tab") }
+            await wait("the output") { first.screenText()?.contains("hello-from-make-42") == true }
+            await wait("the run to say how it ended") { first.status == .exited(0) }
+            guard first.summary.hasPrefix("exited 0 in ") else { fail("the status is not said: \(first.summary)") }
+            pane.layoutSubtreeIfNeeded()
+            guard !pane.rerunRect.isEmpty else { fail("no run-again button for the output") }
+            shot(pane, "run-output")
+            step(
+                "a run shows alone in a tab of its own, with how it ended (the exit code and how long) and a button to run it again"
+            )
+            // Run again, in the same tab.
+            let before = first.terminal
+            pane.onRerun?(first)
+            guard first.terminal !== before, pane.sessions.count == 1,
+                  first.status == .running else { fail("run again did not start afresh in the tab") }
+            await wait("the second run to end") {
+                first.status == .exited(0) && first.screenText()?.contains("hello-from-make-42") == true
+            }
+            step("run again starts it afresh in the same tab")
+            // More than one output at once.
+            pane.select(.list)
+            for _ in 0 ..< 40 where list.all.first(where: { $0.id == list.cursor })?.title != "bye" {
+                list.keyDown(with: key("j", code: 38))
+            }
+            list.keyDown(with: key("\r", code: 36))
+            await wait("a second tab") { pane.sessions.count == 2 }
+            guard let second = pane.sessions.last, pane.current === second else { fail("the second run does not show") }
+            await wait("the second output") { second.screenText()?.contains("goodbye") == true }
+            pane.select(.session(first.id))
+            guard pane.current === first, !first.terminal.isHidden, second.terminal.isHidden
+            else { fail("the tabs do not switch between the outputs") }
+            step("several runs have a tab each, and the tabs switch between their outputs")
+            // A failure shows its exit code.
+            shell.runInRunPane(RunEntry(
+                title: "broken",
+                source: "make",
+                kind: .run,
+                command: "echo oops; exit 7",
+                directory: root
+            ))
+            await wait("the failed run's tab") { pane.sessions.count == 3 }
+            guard let broken = pane.sessions.last else { fail("no tab") }
+            await wait("the failure to be said") { broken.status == .exited(7) }
+            guard broken.summary.hasPrefix("exited 7") else { fail("the failure is not said: \(broken.summary)") }
+            step("a run that fails says its exit code")
+            // Back to the list from the output, and a tab closes.
+            shell.showRunPicker(nil)
+            guard pane.selection == .list,
+                  shell.window.firstResponder === list
+            else { fail("the Run shortcut from an output did not go to the list") }
+            pane.onClose?(broken)
+            guard pane.sessions.count == 2 else { fail("closing a tab did not close the run") }
             for _ in 0 ..< 40 where list.cursor != list.all.first?.id {
                 list.keyDown(with: key("k", code: 40))
             }
@@ -1391,7 +1439,7 @@ struct FrameCheck {
             await wait("the configuration to be deleted") { RunConfigs.load(in: root).isEmpty }
             guard !FileManager.default.fileExists(atPath: RunConfigs.file(in: root)) else { fail("the file stayed") }
             step(
-                "a configuration of one's own is kept in Frame's own folder (nothing in the project), listed first, and d deletes it"
+                "the Run shortcut from an output goes to the list, a tab closes, and d deletes a configuration of one's own"
             )
             pane.onMinimize?()
             guard pane.isHidden, shell.modes.surface == .editor else { fail("minimize left the Run pane or its mode") }

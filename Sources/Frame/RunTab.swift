@@ -1,5 +1,6 @@
 import AppKit
 import FrameRun
+import SillEditor
 
 /// The Run pane (a pane and a mode of its own): everything the folder can run, each row saying what kind it is and the
 /// file it comes
@@ -45,7 +46,21 @@ extension FrameWindowController {
                 entries.map { ($0.id + "\t" + $0.command + "\t" + $0.directory, $0) },
                 uniquingKeysWith: { first, _ in first }
             )
-            let items = Self.runItems(entries)
+            // A pill for each origin, with how many it has; those switched off leave the list.
+            let off = runSourcesOff
+            let counts = Dictionary(grouping: entries, by: \.source).mapValues(\.count)
+            let sources = counts.keys.sorted { ($0 == RunConfigs.source ? 0 : 1, $0) < (
+                $1 == RunConfigs.source ? 0 : 1,
+                $1
+            ) }
+            pane.chipsView.chips = sources.map { source in
+                ListChip(
+                    id: source, title: source == RunConfigs.source ? "yours" : source, glyph: "", color: Design.accent,
+                    count: counts[source] ?? 0, on: !off.contains(source), key: ""
+                )
+            }
+            pane.needsLayout = true
+            let items = Self.runItems(entries.filter { !off.contains($0.source) })
             if pane.list.all != items { pane.list.set(items, current: pane.list.cursor) }
             if let cursor = pane.list.cursor, let entry = runEntries[cursor] {
                 pane.setDetail(Self.runDetail(entry, root: root))
@@ -63,6 +78,16 @@ extension FrameWindowController {
         let list = pane.list, root = { [unowned self] in workspace }
         pane.onFocus = { [weak self] in self?.runFocused() }
         pane.onMinimize = { [weak self] in self?.hideRunPane() }
+        pane.onRerun = { [weak self] session in self?.runInRunPane(session.entry, replacing: session) }
+        pane.onClose = { [weak self, weak pane] session in
+            pane?.close(session)
+            if self?.modes.surface == .run { self?.focus(.run) }
+        }
+        pane.chipsView.onToggle = { [weak self] source in
+            guard let self else { return }
+            if runSourcesOff.contains(source) { runSourcesOff.remove(source) } else { runSourcesOff.insert(source) }
+            reloadRunList()
+        }
         pane.onNew = { [weak self, weak pane] in
             guard let self, let pane else { return }
             editingConfig = nil
@@ -99,8 +124,10 @@ extension FrameWindowController {
                 editingConfig = config.name
                 pane.edit(config, isNew: false)
             case "o":
-                guard let output = pane.terminal else { return false }
-                window.makeFirstResponder(output)
+                // To the output of the last thing run.
+                guard let last = pane.sessions.last else { return false }
+                pane.select(.session(last.id))
+                focus(.run)
                 return true
             case "n":
                 editingConfig = nil
@@ -182,7 +209,10 @@ extension FrameWindowController {
         let pane = ensureRunPane()
         if !pane.isHidden, modes.surface == .run {
             // From its output the keyboard goes to the list; from the list, back to the code.
-            if let output = pane.terminal, window.firstResponder === output { return focus(.run) }
+            if pane.current != nil {
+                pane.select(.list)
+                return focus(.run)
+            }
             return focusEditor()
         }
         runPane?.isHidden = true

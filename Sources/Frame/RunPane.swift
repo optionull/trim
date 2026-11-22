@@ -37,16 +37,49 @@ enum RunPlacement: Equatable {
             ))
         }
 
-        /// Runs `entry` in the Run pane's own terminal (what is run from the Run pane shows there, under the list), the
-        /// command's line printed first as in a shell.
-        func runInRunPane(_ entry: RunEntry) {
+        /// Runs `entry` in the Run pane, in a terminal of its own with its own tab (`replacing` the tab of an earlier
+        /// run to
+        /// run it again). The command's line is printed first as in a shell, and its exit code is written to a file
+        /// when it
+        /// ends, which shows on its tab.
+        func runInRunPane(_ entry: RunEntry, replacing existing: RunSession? = nil) {
             guard view != nil else { return }
             let pane = ensureRunPane()
-            let script = "printf '\\033[2m❯ %s\\033[0m\\n' " + Runnables.quoted(entry.command) + "; " + entry.command
+            let marker = NSTemporaryDirectory() + "frame-run-\(UUID().uuidString).exit"
+            let script = "printf '\\033[2J\\033[3J\\033[H\\033[2m❯ %s\\033[0m\\n' " + Runnables
+                .quoted(entry.command) + "; (" + entry.command
+                + "); c=$?; echo $c > " + Runnables.quoted(marker) + "; exit $c"
             let surface = terminalSurface(running: script, for: entry)
             surface.onFocus = { [weak self] in self?.runFocused() }
-            pane.setTerminal(surface, entry: entry) { [weak surface] in surface?.screenText() }
+            let screen: () -> String? = { [weak surface] in surface?.screenText() }
+            let session: RunSession
+            if let existing {
+                pane.restart(existing, terminal: surface, marker: marker, screenText: screen)
+                session = existing
+            } else {
+                session = RunSession(entry: entry, terminal: surface, marker: marker, screenText: screen)
+                pane.add(session)
+            }
             UserDefaults.standard.set(entry.id, forKey: "frame.lastRun." + workspace)
+            watchRun(session, in: pane)
+            focus(.run)
+        }
+
+        /// Waits for the run to say it has ended (by the file), and shows how it ended on its tab.
+        func watchRun(_ session: RunSession, in pane: RunPaneView) {
+            let marker = session.marker
+            Task { [weak pane, weak session] in
+                for _ in 0 ..< 36000 {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    // Gone, or run again since (that has its own watch).
+                    guard let pane, let session, session.marker == marker else { return }
+                    guard let text = try? String(contentsOfFile: marker, encoding: .utf8),
+                          let code = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { continue }
+                    try? FileManager.default.removeItem(atPath: marker)
+                    pane.finish(session, code: code)
+                    return
+                }
+            }
         }
 
         func run(_ entry: RunEntry, focusing: Bool = false) {
@@ -61,7 +94,8 @@ enum RunPlacement: Equatable {
             // The command is the pane's own process, its line printed first (dimmed) so it reads as in a shell, and the
             // pane stays when it ends. Nothing is typed: a build says how it ended by a file the script writes.
             let marker = isBuild ? NSTemporaryDirectory() + "frame-build-\(UUID().uuidString).exit" : nil
-            var script = "printf '\\033[2m❯ %s\\033[0m\\n' " + Runnables.quoted(entry.command) + "; "
+            var script = "printf '\\033[2J\\033[3J\\033[H\\033[2m❯ %s\\033[0m\\n' " + Runnables
+                .quoted(entry.command) + "; "
             if let marker {
                 // A build yields to the editor: at a lower priority (it and what it starts take every core they are
                 // given).
@@ -89,7 +123,7 @@ enum RunPlacement: Equatable {
 
     extension FrameWindowController {
         func run(_: RunEntry, focusing _: Bool = false) { noTerminal() }
-        func runInRunPane(_: RunEntry) { noTerminal() }
+        func runInRunPane(_: RunEntry, replacing _: RunSession? = nil) { noTerminal() }
         func noTerminal() {
             Task {
                 _ = try? await session.channel
