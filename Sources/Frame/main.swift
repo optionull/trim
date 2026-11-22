@@ -36,7 +36,7 @@ enum StatusPlacement: String {
 /// How the window's panes are laid out, remembered between starts and across a switch of config.
 enum PaneLayout {
     static var tabsPlacement: TabsPlacement {
-        get { UserDefaults.standard.string(forKey: "tabsPlacement").flatMap(TabsPlacement.init) ?? .top }
+        get { UserDefaults.standard.string(forKey: "tabsPlacement").flatMap(TabsPlacement.init) ?? .statusbar }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "tabsPlacement") }
     }
 
@@ -48,7 +48,7 @@ enum PaneLayout {
 
     /// Where the tabs were before they were hidden, for "show" to go back to.
     static var tabsLastShown: TabsPlacement {
-        get { UserDefaults.standard.string(forKey: "tabsLastShown").flatMap(TabsPlacement.init) ?? .top }
+        get { UserDefaults.standard.string(forKey: "tabsLastShown").flatMap(TabsPlacement.init) ?? .statusbar }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "tabsLastShown") }
     }
 
@@ -123,7 +123,7 @@ final class FrameView: NSView {
     /// The tabs: a strip over or under the grid, or a list beside it.
     let tabStrip: TabsView
     let tabList: TabsView
-    var tabsPlacement: TabsPlacement = .top {
+    var tabsPlacement: TabsPlacement = .statusbar {
         didSet {
             needsLayout = true
             if persisting { PaneLayout.tabsPlacement = tabsPlacement }
@@ -185,7 +185,7 @@ final class FrameView: NSView {
         self.persisting = persisting
         sidebarVisible = persisting ? PaneLayout.sidebarVisible : true
         statusPlacement = persisting ? PaneLayout.statusPlacement : .editor
-        tabsPlacement = persisting ? PaneLayout.tabsPlacement : .top
+        tabsPlacement = persisting ? PaneLayout.tabsPlacement : .statusbar
         sidebarWidth = persisting ? PaneLayout.sidebarWidth : PaneLayout.defaultWidth
         super.init(frame: editor.frame)
         wantsLayer = true
@@ -892,7 +892,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// (not while the tabs are hidden: what is not seen is not tidied).
     func configureTabs() {
         let max = app.tabsMax
-        let autoclose = app.tabsAutoclose && (view?.tabsPlacement ?? .top) != .hidden
+        let autoclose = app.tabsAutoclose && (view?.tabsPlacement ?? .statusbar) != .hidden
         Task { [weak self] in
             _ = try? await self?.session.channel.lua(
                 "require('frame.tabs').configure({ max = \(max), autoclose = \(autoclose) })"

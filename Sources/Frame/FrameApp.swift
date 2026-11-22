@@ -147,7 +147,7 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var tabsMax = FrameApp.checking ? 10 : PaneLayout.tabsMax
     var tabsAutoclose = FrameApp.checking ? true : PaneLayout.tabsAutoclose
     /// Where the tabs were before they were hidden, for "show" to go back to.
-    var tabsLastShown = FrameApp.checking ? TabsPlacement.top : PaneLayout.tabsLastShown
+    var tabsLastShown = FrameApp.checking ? TabsPlacement.statusbar : PaneLayout.tabsLastShown
 
     /// Where the tabs are, in every window; hiding them remembers where they were.
     func setTabs(placement: TabsPlacement) {

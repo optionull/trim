@@ -893,6 +893,10 @@ struct FrameCheck {
             return NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
         }
         let strip = shell.tabStrip, list = shell.tabList, view = shell.view!, editor = shell.editor!
+        // By default the tabs are in the status bar: no strip, no list.
+        guard view.tabsPlacement == .statusbar, strip.isHidden, list.isHidden else {
+            fail("the tabs are not in the status bar by default: \(view.tabsPlacement)")
+        }
         // From nothing: the buffers of the steps before are tabs too.
         _ = await lua("vim.cmd('silent! %bwipeout!')")
         await wait("no tabs to begin with") { shell.tabs.isEmpty }
