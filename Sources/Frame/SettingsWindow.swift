@@ -284,6 +284,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             window.orderOut(nil)
             app.active?.showPackages(nil)
         })
+        let autostartOn = FrameSettings.load()["lsp"]?.table?["autostart"]?.bool ?? true
+        row(
+            "",
+            checkbox(
+                "lsp.autostart",
+                "Start language servers from the folder at launch",
+                on: autostartOn
+            ) { [self] on in
+                store(["lsp", "autostart"], .bool(on))
+            }
+        )
         row("", button("lsp.restart", "Restart language servers") { [self] in
             for controller in app.controllers {
                 let channel = controller.session.channel

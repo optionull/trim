@@ -105,6 +105,7 @@ struct FrameCheck {
         await group("lsp") {
             await lspSteps()
             await dotnetSteps()
+            await startupSteps()
         }
         await group("actions") { await actionSteps() }
         await group("run") { await runSteps() }
@@ -1596,6 +1597,72 @@ struct FrameCheck {
                 "require('frame.lsp').stop('fsautocomplete'); vim.diagnostic.reset(); vim.cmd('silent! %bwipeout!')"
             )
         try? FileManager.default.removeItem(atPath: fsFolder)
+    }
+
+    /// A folder's project files start the servers they call for at launch, without a file open: Roslyn begins on the
+    /// solution and the problems of files never opened reach the list; a file opened later finds the same server.
+    private func startupSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        guard FrameServers.onPath("dotnet") != nil
+        else { return step("no dotnet here: the server at launch was not exercised") }
+        let folder = RealPath.of(NSTemporaryDirectory()) + "/frame-warm-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: folder + "/src/App", withIntermediateDirectories: true)
+        try? "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>"
+            .write(toFile: folder + "/src/App/App.csproj", atomically: true, encoding: .utf8)
+        try? "<Solution><Project Path=\"src/App/App.csproj\" /></Solution>"
+            .write(toFile: folder + "/App.slnx", atomically: true, encoding: .utf8)
+        try? "class Program { static void Main() { int x = ; } }\n"
+            .write(toFile: folder + "/src/App/Program.cs", atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        _ =
+            await lua(
+                "vim.cmd('enew'); require('frame.lsp').state.csharp = nil; require('frame.lsp').autostart('\(folder)')"
+            )
+        func clients() async -> Int {
+            await lua("""
+            local n = 0
+            for _, c in ipairs(vim.lsp.get_clients({ name = 'frame_csharp' })) do
+              if c.root_dir == '\(folder)' then n = n + 1 end
+            end
+            return n
+            """)?.integerValue.map(Int.init) ?? 0
+        }
+        for _ in 0 ..< 100 {
+            if await clients() == 1 { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard await clients() == 1 else { fail("Roslyn did not start on the solution at launch") }
+        func found() async -> Bool {
+            await lua("""
+            for _, d in ipairs(vim.diagnostic.get()) do
+              if vim.api.nvim_buf_get_name(d.bufnr):find('Program.cs', 1, true) then return true end
+            end
+            return false
+            """)?.boolValue == true
+        }
+        for _ in 0 ..< 300 {
+            if await found() { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard await found()
+        else { fail("the problems of a file never opened did not arrive from the server started at launch") }
+        step(
+            "the folder's solution starts Roslyn at launch, and the problems of files never opened arrive in the background"
+        )
+        _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(folder)/src/App/Program.cs'))")
+        try? await Task.sleep(for: .milliseconds(800))
+        guard await clients() == 1,
+              await lua("return #vim.lsp.get_clients({ name = 'frame_csharp' })")?.integerValue == 1,
+              await lua("return #vim.lsp.get_clients({ bufnr = 0, name = 'frame_csharp' })")?.integerValue == 1
+        else { fail("opening a file started a second server instead of using the one running") }
+        step(
+            "a file opened later is attached to the server already running (one per solution, whatever the file's folder)"
+        )
+        _ =
+            await lua(
+                "require('frame.lsp').stop('csharp'); require('frame.lsp').warm = {}; vim.diagnostic.reset(); vim.cmd('silent! %bwipeout!')"
+            )
     }
 
     /// The finder: files of the workspace ranked as you type, lines found by grep, Return opening the file (at the

@@ -9,13 +9,11 @@ local function notify(method, ...)
   if channel then pcall(vim.rpcnotify, channel, method, ...) end
 end
 
-local function dotnet_root(name)
-  return name:match('%.slnx?$') or name:match('%.csproj$')
-end
-
-local function fsharp_root(name)
-  return name:match('%.fsproj$') or name:match('%.slnx?$')
-end
+-- A solution beats a project for where a .NET server is rooted (a list of markers is in order of priority): a file in
+-- src/Proc/ belongs to the solution at the top, so every file of it, and the folder at launch, share one server.
+local function solution_root(name) return name:match('%.slnx?$') end
+local function csproj_root(name) return name:match('%.csproj$') end
+local function fsproj_root(name) return name:match('%.fsproj$') end
 
 --- Roslyn starts empty: it is told which solution (or else which projects) to load, as the client of an editor does.
 local function open_projects(client)
@@ -54,10 +52,10 @@ local roslyn_handlers = {
 --- Each server: the file types it serves, how its folder is found, what the person's config may call it, and what it
 --- is started with (`init_options`, `on_init`).
 M.specs = {
-  csharp = { filetypes = { 'cs' }, root = { dotnet_root, '.git' }, aliases = { 'roslyn', 'roslyn_ls', 'omnisharp', 'csharp_ls' }, on_init = open_projects, handlers = roslyn_handlers },
+  csharp = { filetypes = { 'cs' }, root = { solution_root, csproj_root, '.git' }, aliases = { 'roslyn', 'roslyn_ls', 'omnisharp', 'csharp_ls' }, on_init = open_projects, handlers = roslyn_handlers },
   -- Without AutomaticWorkspaceInit fsautocomplete waits for the client to pick a workspace.
   fsautocomplete = {
-    filetypes = { 'fsharp' }, root = { fsharp_root, '.git' }, aliases = { 'fsautocomplete', 'ionide' },
+    filetypes = { 'fsharp' }, root = { solution_root, fsproj_root, '.git' }, aliases = { 'fsautocomplete', 'ionide' },
     init_options = { AutomaticWorkspaceInit = true },
   },
   rust_analyzer = { filetypes = { 'rust' }, root = { 'Cargo.toml', '.git' }, aliases = { 'rust_analyzer', 'rust-analyzer' } },
@@ -117,11 +115,11 @@ local function root_of(spec, buf)
   return found or vim.uv.cwd()
 end
 
-local function config(name, spec, buf, command)
+local function config_at(name, spec, root, command)
   return {
     name = 'frame_' .. name,
     cmd = command,
-    root_dir = root_of(spec, buf),
+    root_dir = root,
     init_options = spec.init_options,
     on_init = spec.on_init,
     handlers = spec.handlers,
@@ -130,6 +128,8 @@ local function config(name, spec, buf, command)
     end,
   }
 end
+
+local function config(name, spec, buf, command) return config_at(name, spec, root_of(spec, buf), command) end
 
 --- The diagnostics of every file, not only the open ones, when the server can give them (LSP's workspace diagnostics).
 function M.workspace_diagnostics(client)
@@ -167,8 +167,23 @@ function M.start(name, buf)
   if id and st.status ~= 'restarting' then set(name, 'ready') end
 end
 
+--- Folders a server was started for before any file of its kind was open (see `autostart`), by server.
+M.warm = {}
+
+--- Starts the server for a folder, attached to nothing (a file opened later finds it there).
+function M.start_warm(name, dir)
+  local spec, command = M.specs[name], M.commands[name]
+  if not spec or not command then return end
+  local st = state_of(name)
+  if st.status == 'failed' or st.status == 'stopped' then return end
+  if #vim.lsp.get_clients({ name = 'frame_' .. name }) == 0 and st.status ~= 'restarting' then set(name, 'starting') end
+  local id = vim.lsp.start(config_at(name, spec, dir, command), { attach = false })
+  if id and st.status ~= 'restarting' then set(name, 'ready') end
+end
+
 local function attach_all(name)
   local spec = M.specs[name]
+  for dir in pairs(M.warm[name] or {}) do M.start_warm(name, dir) end
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(buf) and vim.tbl_contains(spec.filetypes, vim.bo[buf].filetype) then
       M.start(name, buf)
@@ -237,6 +252,83 @@ function M.restart(name)
   end, 300)
 end
 
+local function ask(name)
+  asked[name] = true
+  set(name, 'starting')
+  notify('frame_lsp_ask', name, vim.uv.cwd())
+end
+
+--- Which project files say a server is wanted for a folder, by server (first match wins, in this order).
+local warm_patterns = {
+  csharp = { '%.slnx$', '%.sln$', '%.csproj$' },
+  fsautocomplete = { '%.fsproj$' },
+  rust_analyzer = { '^Cargo%.toml$' },
+  sourcekit = { '^Package%.swift$' },
+  typescript = { '^tsconfig%.json$', '^jsconfig%.json$', '^package%.json$' },
+}
+local not_projects = { node_modules = true, bin = true, obj = true, target = true, build = true, dist = true, vendor = true, Pods = true }
+
+--- The folders to look in for project files: the folder, what is directly in it, and what is directly in src.
+local function project_folders(root)
+  local function children(dir)
+    local out = {}
+    for name, kind in vim.fs.dir(dir) do
+      if kind == 'directory' and not name:match('^%.') and not not_projects[name] and #out < 200 then out[#out + 1] = dir .. '/' .. name end
+    end
+    return out
+  end
+  local folders = { root }
+  local first = children(root)
+  vim.list_extend(folders, first)
+  for _, dir in ipairs(first) do
+    if ({ src = true, source = true, sources = true })[vim.fs.basename(dir)] then vim.list_extend(folders, children(dir)) end
+  end
+  return folders
+end
+
+--- What a folder is, from its project files: { [server] = the file that says so }.
+function M.detect(root)
+  local found = {}
+  for _, dir in ipairs(project_folders(root)) do
+    for name, kind in vim.fs.dir(dir) do
+      if kind == 'file' then
+        for server, patterns in pairs(warm_patterns) do
+          if not found[server] then
+            for _, pattern in ipairs(patterns) do
+              if name:match(pattern) then
+                found[server] = dir .. '/' .. name
+                break
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  return found
+end
+
+--- Starts, at launch, the servers a folder's project files call for, without a file open: they begin on the project
+--- (Roslyn on the solution) and report what is wrong with it, to the problems list and the tree, in the background.
+--- `[lsp] autostart = false` in the settings leaves it to a file being opened.
+function M.autostart(root)
+  if ((vim.g.frame_settings or {}).lsp or {}).autostart == false then return end
+  for name, marker in pairs(M.detect(root)) do
+    local spec = M.specs[name]
+    local served = false
+    for _, alias in ipairs(spec and spec.aliases or {}) do
+      local ok, enabled = pcall(vim.lsp.is_enabled, alias)
+      if ok and enabled then served = true end
+    end
+    if spec and not served then
+      local dir = vim.fs.root(marker, spec.root) or vim.fs.dirname(marker)
+      M.warm[name] = M.warm[name] or {}
+      M.warm[name][dir] = true
+      if M.commands[name] then M.start_warm(name, dir) elseif not asked[name] then ask(name) end
+    end
+  end
+end
+
 --- A file of a served kind opened: ask Frame for the program the first time, start the server.
 local function opened(args)
   local buf = args.buf
@@ -246,9 +338,7 @@ local function opened(args)
       if M.commands[name] ~= nil then
         if M.commands[name] then M.start(name, buf) end
       elseif not asked[name] then
-        asked[name] = true
-        set(name, 'starting')
-        notify('frame_lsp_ask', name, vim.uv.cwd())
+        ask(name)
       end
     end
   end

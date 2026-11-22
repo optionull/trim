@@ -688,6 +688,10 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     require('frame.ui').setup()
     -- The tree's wavy lines: the worst diagnostic of each file.
     require('frame.diag').start()
+    -- The servers the folder's project files call for start now, without a file open, and report in the background.
+    local function autostart() vim.defer_fn(function() require('frame.lsp').autostart(vim.fn.getcwd()) end, 300) end
+    autostart()
+    vim.api.nvim_create_autocmd('DirChanged', { group = group, callback = autostart })
     -- Each mode on the leader, where the config has bound nothing: <leader>e, E, o, O (and fw, fo).
     require('frame.keys').apply()
     -- :FrameTree shows, hides or goes into the sidebar; <Plug> mappings to bind your own keys to.

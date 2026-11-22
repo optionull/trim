@@ -236,6 +236,37 @@ struct FrameBaseLuaTests {
         """)
     }
 
+    @Test("what a folder's project files call for: its own, src's and one level down; a solution before a project")
+    func detectsServers() throws {
+        try check(settings: "{}", #"""
+        local lsp = require('frame.lsp')
+        local root = vim.fn.tempname()
+        local function touch(path) vim.fn.mkdir(vim.fs.dirname(root .. '/' .. path), 'p') vim.fn.writefile({}, root .. '/' .. path) end
+        touch('App.slnx') touch('src/App/App.csproj') touch('src/Core/Core.fsproj')
+        touch('tools/Cargo.toml') touch('node_modules/x/package.json') touch('deep/er/Package.swift')
+        local found = lsp.detect(root)
+        assert(found.csharp == root .. '/App.slnx', 'a solution before a project: ' .. tostring(found.csharp))
+        assert(found.fsautocomplete == root .. '/src/Core/Core.fsproj', 'src is looked in: ' .. tostring(found.fsautocomplete))
+        assert(found.rust_analyzer == root .. '/tools/Cargo.toml', 'a folder one level down: ' .. tostring(found.rust_analyzer))
+        assert(found.sourcekit == nil, 'two levels down is too far: ' .. tostring(found.sourcekit))
+        assert(found.typescript == nil, 'node_modules is not a project')
+        -- A file in src belongs to the solution at the top: one server for the folder and every file in it.
+        assert(vim.fs.root(root .. '/src/App/Program.cs', lsp.specs.csharp.root) == root, 'the solution is the root')
+        assert(vim.fs.root(root .. '/src/Core/A.fs', lsp.specs.fsautocomplete.root) == root, 'F# too')
+        """#)
+    }
+
+    @Test("autostart: the settings can turn it off")
+    func autostartOff() throws {
+        try check(settings: #"{"lsp":{"autostart":false}}"#, #"""
+        local lsp = require('frame.lsp')
+        local root = vim.fn.tempname()
+        vim.fn.mkdir(root, 'p') vim.fn.writefile({}, root .. '/Cargo.toml')
+        lsp.autostart(root)
+        assert(next(lsp.warm) == nil, 'nothing was started: ' .. vim.inspect(lsp.warm))
+        """#)
+    }
+
     @Test("a scheme that does not exist falls back to the default instead of failing")
     func missing() throws {
         guard hasPlugins else { return }
