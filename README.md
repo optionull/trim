@@ -443,7 +443,9 @@ TypeScript, JavaScript, Rust, Swift, Python, Go, Java, Kotlin, Ruby, the web's a
 grammar at the revision nvim-treesitter pins, with nvim-treesitter's queries, built ahead of time, so nothing is
 compiled on your Mac. The sign column marks what changed since the branch left its
 base (committed or not, so an agent's commits stay marked) and tints the line number; `]h` and `[h` go to the next and
-previous change. Zen (⌥⌘Z, View ▸ Zen Mode, `<leader>uz`, `:FrameRun zen`) puts the sidebar, tabs, status bar, build pane and progress toast away and the text in the middle, a hundred columns wide; the same again brings everything back as it was.
+previous change. Razor: `.razor` and `.cshtml` files are served by the same Roslyn (it hosts Razor), as Sill does it: components, directives and the C# in a component's `@code` block answer from it, and Razor's questions about HTML go to the HTML server (found or provisioned like any other).
+
+Zen (⌥⌘Z, View ▸ Zen Mode, `<leader>uz`, `:FrameRun zen`) puts the sidebar, tabs, status bar, build pane and progress toast away and the text in the middle, a hundred columns wide; the same again brings everything back as it was.
 
 Links into Frame: `frame://open?path=/abs/file.cs&line=12&column=3` opens the file at its place (in the window that is on its folder, else in one on its repository), `frame://workspace?path=/abs/folder` a folder, and `open -a Frame file.cs` (or Finder's Open With) a file.
 

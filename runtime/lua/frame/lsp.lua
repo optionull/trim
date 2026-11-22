@@ -52,7 +52,7 @@ local roslyn_handlers = {
 --- Each server: the file types it serves, how its folder is found, what the person's config may call it, and what it
 --- is started with (`init_options`, `on_init`).
 M.specs = {
-  csharp = { filetypes = { 'cs' }, root = { solution_root, csproj_root, '.git' }, aliases = { 'roslyn', 'roslyn_ls', 'omnisharp', 'csharp_ls' }, on_init = open_projects, handlers = roslyn_handlers },
+  csharp = { filetypes = { 'cs', 'razor' }, root = { solution_root, csproj_root, '.git' }, aliases = { 'roslyn', 'roslyn_ls', 'omnisharp', 'csharp_ls' }, on_init = open_projects, handlers = roslyn_handlers, razor = true },
   -- Without AutomaticWorkspaceInit fsautocomplete waits for the client to pick a workspace.
   fsautocomplete = {
     filetypes = { 'fsharp' }, root = { solution_root, fsproj_root, '.git' }, aliases = { 'fsautocomplete', 'ionide' },
@@ -137,7 +137,8 @@ local function config_at(name, spec, root, command)
     root_dir = root,
     init_options = spec.init_options,
     on_init = spec.on_init,
-    handlers = vim.tbl_extend('force', spec.handlers or {}, {
+    get_language_id = spec.razor and require('sill.roslyn').language_id or nil,
+    handlers = vim.tbl_extend('force', spec.razor and require('sill.roslyn').razor_handlers() or {}, spec.handlers or {}, {
       ['textDocument/publishDiagnostics'] = function(...) return M.publish(...) end,
       ['workspace/diagnostic/refresh'] = function(_, _, ctx)
         M.refresh(ctx.client_id)
@@ -355,9 +356,26 @@ local function attach_all(name)
   end
 end
 
+--- Callbacks waiting for a server's program (what Razor's HTML bridge asks for: the HTML server).
+local wanted = {}
+
+--- The program of a server, when it is known: `fn(command)` now if it is, else once Frame has answered (nil: none).
+function M.want(name, fn)
+  if M.commands[name] ~= nil then return fn(M.commands[name] or nil) end
+  wanted[name] = wanted[name] or {}
+  table.insert(wanted[name], fn)
+  if not asked[name] then
+    asked[name] = true
+    set(name, 'starting')
+    notify('frame_lsp_ask', name, vim.uv.cwd())
+  end
+end
+
 --- Frame's answer to what was asked: the command, or nothing if there is none.
 function M.ready(name, command)
   M.commands[name] = command or false
+  for _, fn in ipairs(wanted[name] or {}) do fn(command or nil) end
+  wanted[name] = nil
   if not command then return set(name, 'failed') end
   state_of(name).status = 'idle'
   attach_all(name)
@@ -563,6 +581,9 @@ function M.report()
 end
 
 function M.setup()
+  vim.filetype.add({ extension = { razor = 'razor', cshtml = 'razor' } })
+  -- Razor's HTML bridge (sill.razor_html) asks `sill.servers` for the HTML server: here Frame's own way of having one.
+  package.loaded['sill.servers'] = package.loaded['sill.servers'] or { want = function(name, _, fn) M.want(name, fn) end }
   local group = vim.api.nvim_create_augroup('FrameLsp', { clear = true })
   vim.api.nvim_create_autocmd('FileType', { group = group, callback = opened })
   -- Keys for what a server offers, on the buffers it is attached to (not over one the config bound).

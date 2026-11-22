@@ -107,6 +107,7 @@ struct FrameCheck {
         await group("lsp") {
             await lspSteps()
             await dotnetSteps()
+            await razorSteps()
             await startupSteps()
         }
         await group("zen") { await zenSteps() }
@@ -2068,6 +2069,50 @@ struct FrameCheck {
         // The numbers are what this is for (a machine with every core busy varies a good deal): a build is not failed
         // over them.
         step("a real build with the server analysing was measured (see the line above)")
+    }
+
+    /// Razor: a component is served by the same Roslyn (it hosts Razor), and the error in its @code block comes back in
+    /// Problems at the component's own line. Needs the .NET SDK and a restore (the web SDK's packs).
+    private func razorSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        guard let dotnet = FrameServers.onPath("dotnet") else { return step("no dotnet here: Razor was not exercised") }
+        let folder = RealPath.of(NSTemporaryDirectory()) + "/frame-razor-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: folder + "/Components", withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        try? "<Project Sdk=\"Microsoft.NET.Sdk.Web\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>"
+            .write(toFile: folder + "/Web.csproj", atomically: true, encoding: .utf8)
+        try? "@page \"/counter\"\n<h1>Counter</h1>\n<p>@count</p>\n@code {\n    private int count = ;\n}\n"
+            .write(toFile: folder + "/Components/Counter.razor", atomically: true, encoding: .utf8)
+        try? "@using Microsoft.AspNetCore.Components\n".write(
+            toFile: folder + "/Components/_Imports.razor", atomically: true, encoding: .utf8
+        )
+        guard await (try? FrameServers.run(dotnet, ["restore", folder + "/Web.csproj"], in: folder))?.code == 0
+        else { return step("the web SDK could not be restored here: Razor was not exercised") }
+        _ = await lua("require('frame.lsp').state.csharp = nil")
+        _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(folder)/Components/Counter.razor'))")
+        guard await lua("return vim.bo.filetype")?.stringValue == "razor"
+        else { fail("a .razor file is not the razor file type") }
+        func problem() async -> Bool {
+            await lua("""
+            for _, d in ipairs(vim.diagnostic.get(0)) do if d.lnum == 4 then return true end end
+            return false
+            """)?.boolValue == true
+        }
+        for _ in 0 ..< 900 {
+            if await problem() { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard await problem() else {
+            let seen =
+                await lua(
+                    "return vim.inspect(vim.diagnostic.get(0)) .. ' / ' .. vim.inspect(vim.tbl_map(function(c) return c.name end, vim.lsp.get_clients()))"
+                )?
+                .stringValue ?? ""
+            fail("Roslyn did not report the error in the component's code: \(seen.prefix(400))")
+        }
+        step("a Razor component is served by Roslyn: the error in its @code block comes back at its own line")
+        _ = await lua("require('frame.lsp').stop('csharp'); vim.diagnostic.reset(); vim.cmd('silent! %bwipeout!')")
     }
 
     /// A folder's project files start the servers they call for at launch, without a file open: Roslyn begins on the
