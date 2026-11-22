@@ -384,6 +384,9 @@ final class ListPickerView: NSView {
         card.addSubview(rows)
         rows.onChoose = { [weak self] id in
             guard let self, let item = all.first(where: { $0.id == id }) else { return }
+            // The row clicked is the one the keyboard is on now (it does not jump back to the one it was on).
+            cursor = id
+            rows.cursor = id
             onChoose?(item)
         }
         apply()

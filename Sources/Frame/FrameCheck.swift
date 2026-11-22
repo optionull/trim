@@ -1287,8 +1287,16 @@ struct FrameCheck {
         shell.view.statusBar.onProblemsClick?()
         guard shell.runPane?.isHidden == false, shell.runPane?.tab == .problems, shell.modes.surface == .terminal
         else { fail("clicking the counts did not open the problems") }
-        shell.focusEditor()
-        step("clicking the counts in the status bar opens the problems")
+        await wait("the problem counts to be a clickable section with a pointer") {
+            shell.view.statusBar.displayIfNeeded()
+            return shell.view.statusBar.pointerRects().contains {
+                $0.width > 10 && $0.minX > shell.view.statusBar.bounds.width / 2
+            }
+        }
+        shell.view.statusBar.onProblemsClick?()
+        guard shell.runPane?.isHidden == true,
+              shell.modes.surface == .editor else { fail("a second click did not fold the pane away") }
+        step("the status bar's section for the pane has a pointer, opens the pane on a click and folds it on the next")
         shell.showProblems(nil)
         guard let pane = shell.runPane, pane.tab == .problems, shell.modes.label(editorMode: "normal") == "BUILD",
               shell.window.firstResponder === pane.problems else { fail("no problems tab with the keyboard in it") }
@@ -1351,6 +1359,23 @@ struct FrameCheck {
         guard shell.modes.surface == .editor,
               shell.runPane != nil else { fail("Alt+Enter did not leave the keyboard in the code") }
         step("Alt+Enter on a row goes to the problem (and asks for its code actions)")
+        // The list does not shuffle: problems that agree on what is shown keep their places, however they come, and the
+        // row that is clicked is the row the keyboard is on afterwards.
+        let sample = (0 ..< 8).map {
+            ProblemRow(path: "/x", line: 1, column: 1, level: .info, message: "m\($0)", code: "C", source: "s")
+        }
+        let order = ProblemRow.merged(nvim: sample, build: [])
+        for _ in 0 ..< 20 where ProblemRow.merged(nvim: sample.shuffled(), build: []) != order {
+            fail("the problems change places between listings")
+        }
+        shell.showProblems(nil)
+        let pick = list.all.count - 1
+        let picked = list.all[pick].id
+        list.rows.onChoose?(picked)
+        try? await Task.sleep(for: .milliseconds(700))
+        guard list.cursor == picked
+        else { fail("the list jumped away from the row that was clicked: \(String(describing: list.cursor))") }
+        step("problems keep their places between listings, and a click leaves the keyboard on the row clicked")
         // The list follows the diagnostics as they change, without being asked.
         _ = await lua("vim.diagnostic.reset()")
         await wait("the list to follow the diagnostics going") { list.all.isEmpty }

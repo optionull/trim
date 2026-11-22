@@ -489,7 +489,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         }
         statusBar.onWorkspaceClick = { [weak self] in self?.switchWorkspace(nil) }
         statusBar.onFileClick = { [weak self] in self?.showTabPicker() }
-        statusBar.onProblemsClick = { [weak self] in self?.showProblems(nil) }
+        statusBar.onProblemsClick = { [weak self] in self?.toggleBuildPane(on: .problems) }
         statusBar.onBuildClick = { [weak self] in self?.showBuildOutput() }
         tree.onChip = { [weak self] name, branch, isWorktree in
             self?.chip.show(name: name, branch: branch, isWorktree: isWorktree)

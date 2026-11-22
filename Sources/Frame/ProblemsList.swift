@@ -39,9 +39,19 @@ struct ProblemRow: Equatable {
     static func merged(nvim: [ProblemRow], build: [ProblemRow]) -> [ProblemRow] {
         let known = Set(nvim.map { "\($0.path):\($0.line):\($0.code)" })
         let extra = build.filter { $0.code.isEmpty || !known.contains("\($0.path):\($0.line):\($0.code)") }
-        return (nvim + extra).sorted {
-            ($0.level.rawValue, $0.path, $0.line, $0.column) < ($1.level.rawValue, $1.path, $1.line, $1.column)
-        }
+        return (nvim + extra).sorted(by: before)
+    }
+
+    /// A total order: two problems that agree on everything that is shown never swap places between one listing and
+    /// the next (the list does not shuffle under the pointer).
+    static func before(_ a: ProblemRow, _ b: ProblemRow) -> Bool {
+        if a.level != b.level { return a.level.rawValue < b.level.rawValue }
+        if a.path != b.path { return a.path < b.path }
+        if a.line != b.line { return a.line < b.line }
+        if a.column != b.column { return a.column < b.column }
+        if a.code != b.code { return a.code < b.code }
+        if a.message != b.message { return a.message < b.message }
+        return a.source < b.source
     }
 }
 
@@ -161,7 +171,7 @@ extension FrameWindowController {
                     count: totals[level] ?? 0, on: problemLevels.contains(level), key: ProblemRow.keys[level] ?? ""
                 )
             }
-            pane.problems.set(items, current: pane.problems.cursor)
+            if pane.problems.all != items { pane.problems.set(items, current: pane.problems.cursor) }
             pane.problemCount = (totals[.error] ?? 0) + (totals[.warning] ?? 0)
         }
     }
@@ -184,10 +194,15 @@ extension FrameWindowController {
         if wasFocused { focusEditor() }
     }
 
-    /// A click on the build in the status bar: its output.
-    func showBuildOutput() {
+    /// A click on the build in the status bar: its output; again, the pane folds away.
+    func showBuildOutput() { toggleBuildPane(on: .output) }
+
+    /// A click on the status bar's section for the pane: it opens on that tab, and the same click again puts it away.
+    func toggleBuildPane(on tab: BuildPane.Tab) {
+        if let pane = runPane, !pane.isHidden, pane.tab == tab { return hideBuildPane() }
         showBuildPane()
-        runPane?.select(.output)
+        runPane?.select(tab)
+        reloadProblems()
         focus(.terminal)
     }
 

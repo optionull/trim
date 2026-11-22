@@ -65,6 +65,8 @@ final class StatusBarView: NSView {
     }
 
     /// The loader while a build runs: a step of it every moment, only for as long as it runs.
+    /// Which clickable section the pointer is over (it has a ground of its own then).
+    private var hoveringTarget: Piece.Target?
     private var spinner: Timer?
     private var spinnerStep = 0
     private static let spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -128,11 +130,19 @@ final class StatusBarView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         setHoveringWorkspace(state.showsWorkspace && workspaceRect.contains(point))
         setHoveringFile(state.picker > 0 && fileRect.contains(point))
+        setHovering(problemsRect.contains(point) ? .problems : (buildRect.contains(point) ? .build : nil))
+    }
+
+    private func setHovering(_ target: Piece.Target?) {
+        guard target != hoveringTarget else { return }
+        hoveringTarget = target
+        needsDisplay = true
     }
 
     override func mouseExited(with _: NSEvent) {
         setHoveringWorkspace(false)
         setHoveringFile(false)
+        setHovering(nil)
     }
 
     func setHoveringFile(_ hovering: Bool) {
@@ -246,8 +256,12 @@ final class StatusBarView: NSView {
         var newProblemsRect = NSRect.zero, newBuildRect = NSRect.zero
         for piece in right {
             let size = piece.text.size()
-            piece.text.draw(at: NSPoint(x: edge - piece.width, y: midY - size.height / 2))
             let box = NSRect(x: edge - piece.width - 4, y: 0, width: piece.width + 8, height: bounds.height)
+            if let target = piece.target, target == hoveringTarget {
+                look.selection.setFill()
+                NSBezierPath(roundedRect: box.insetBy(dx: -2, dy: 5), xRadius: 6, yRadius: 6).fill()
+            }
+            piece.text.draw(at: NSPoint(x: edge - piece.width, y: midY - size.height / 2))
             if piece.target == .problems { newProblemsRect = box }
             if piece.target == .build { newBuildRect = box }
             edge -= piece.width + piece.gap
