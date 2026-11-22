@@ -1173,6 +1173,30 @@ struct FrameCheck {
                 )
             }
             step("a build that fails shows its output, and the status bar says so")
+            // The failed build in the status bar opens its output, wherever the pane is; the next click folds it.
+            if let failed = shell.runPane {
+                failed.onMinimize?()
+                shell.view.statusBar.onBuildClick?()
+                guard !failed.isHidden,
+                      failed.tab == .output
+                else { fail("the failed build did not open its output from the status bar") }
+                failed.select(.problems)
+                shell.view.statusBar.onBuildClick?()
+                guard !failed.isHidden,
+                      failed.tab == .output else { fail("the build did not switch the pane to its output") }
+                shell.view.statusBar.onBuildClick?()
+                guard failed.isHidden else { fail("a click on the build while its output shows did not fold the pane") }
+                step(
+                    "the failed build in the status bar opens its output (from folded, or from Problems), and folds the pane on the output"
+                )
+                // The button next to Output runs it again.
+                let first = failed.terminal
+                failed.onRebuild?()
+                guard failed.terminal !== first,
+                      failed.entry?.title == "broken" else { fail("the rebuild button did not run it again") }
+                await wait("the second run to end", seconds: 20) { shell.status.building.isEmpty }
+                step("the button next to Output runs the last thing again")
+            }
             shell.closeTerminal(nil)
             shell.view.layoutSubtreeIfNeeded()
         #else
@@ -1322,13 +1346,48 @@ struct FrameCheck {
         list.onChip?("2")
         await wait("a click on the chip to switch warnings back on") { list.all.count == 3 }
         step("each level is switched off and on by its key or by a click")
-        list.layoutSubtreeIfNeeded()
-        let frames = list.chipFrames
-        guard frames.count == 4, let last = frames.last, last.maxX >= list.bounds.width - 16,
-              frames[0].minX > list.bounds.width / 2,
-              list.chips.allSatisfy({ !$0.glyph.isEmpty })
-        else { fail("the toggles are not icons at the right: \(frames) in \(list.bounds.width)") }
-        step("the toggles are icons with their counts, at the right")
+        pane.layoutSubtreeIfNeeded()
+        pane.displayIfNeeded()
+        let chips = pane.chipsView
+        let frames = chips.chipFrames()
+        guard frames.count == 4, !chips.isHidden, let last = frames.last,
+              chips.frame.minX + last.rect.maxX >= pane.minimizeRect.minX - 24,
+              chips.frame.minX + last.rect.maxX <= pane.minimizeRect.minX,
+              chips.frame.minX >= pane.rebuildRect.maxX, list.chips.allSatisfy({ !$0.glyph.isEmpty }),
+              list.chipFrames.isEmpty || list.isHidden || list.frame.minY >= BuildPane.headerHeight(for: list.look)
+        else {
+            fail(
+                "the toggles are not icons at the right of the header, next to minimize: \(frames) \(pane.minimizeRect)"
+            )
+        }
+        step("the toggles are icons with their counts, in the header, right next to the minimize button")
+        // The controls of the header have a pointer and a hover, the rebuild button runs again, and Output opens with
+        // nothing run.
+        guard pane.pointerRects().count(where: { !$0.isEmpty }) == 4, !pane.minimizeRect.isEmpty,
+              !pane.rebuildRect.isEmpty
+        else { fail("the header's controls are not all pointers: \(pane.pointerRects())") }
+        func sample(_ rect: NSRect) -> NSColor? {
+            pane.layoutSubtreeIfNeeded()
+            guard let rep = pane.bitmapImageRepForCachingDisplay(in: pane.bounds) else { return nil }
+            pane.cacheDisplay(in: pane.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / pane.bounds.width
+            return rep.colorAt(x: Int((rect.minX + 3) * scale), y: Int(rect.midY * scale))
+        }
+        let resting = sample(pane.minimizeRect)
+        pane.hover(.minimize)
+        let hovering = sample(pane.minimizeRect)
+        pane.hover(nil)
+        guard let resting, let hovering, resting != hovering else { fail("minimize looks the same under the pointer") }
+        let restingRebuild = sample(pane.rebuildRect)
+        pane.hover(.rebuild)
+        guard sample(pane.rebuildRect) != restingRebuild
+        else { fail("the rebuild button looks the same under the pointer") }
+        pane.hover(nil)
+        step("minimize, rebuild and the tabs have a pointer, and a hover that shows")
+        pane.select(.output)
+        guard pane.tab == .output, pane.showsHint else { fail("Output with nothing run does not say what to do") }
+        pane.select(.problems)
+        step("Output opens even before anything has run, and says how to run something")
         // The row's quiet text (its place and code) is readable on the selection's fill.
         func luminance(_ color: NSColor) -> CGFloat {
             let c = color.usingColorSpace(.sRGB) ?? color

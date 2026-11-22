@@ -131,6 +131,9 @@ extension FrameWindowController {
             return true
         }
         pane.onMinimize = { [weak self] in self?.hideBuildPane() }
+        pane.onRebuild = { [weak self] in self?.rebuild() }
+        pane.onFocus = { [weak self] in self?.terminalFocused() }
+        pane.onEscape = { [weak self] in self?.focusEditor() }
         runPane = pane
         view.terminal = pane
         reloadProblems()
@@ -194,8 +197,20 @@ extension FrameWindowController {
         if wasFocused { focusEditor() }
     }
 
-    /// A click on the build in the status bar: its output; again, the pane folds away.
-    func showBuildOutput() { toggleBuildPane(on: .output) }
+    /// A click on the build in the status bar: its output (the pane opens, or switches to it); on the output already,
+    /// the
+    /// pane folds away.
+    func showBuildOutput() {
+        if let pane = runPane, !pane.isHidden, pane.tab == .output { return hideBuildPane() }
+        showBuildPane()
+        runPane?.select(.output)
+        focus(.terminal)
+    }
+
+    /// The rebuild button: what ran last runs again, else the build.
+    func rebuild() {
+        if let entry = runPane?.entry { run(entry) } else { buildDefault(nil) }
+    }
 
     /// A click on the status bar's section for the pane: it opens on that tab, and a click while it is open puts it
     /// away.

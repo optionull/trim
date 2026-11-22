@@ -323,9 +323,13 @@ final class ListPickerView: NSView {
     var chips: [ListChip] = [] {
         didSet {
             chipsView.chips = chips
+            onChipsChange?(chips)
             needsLayout = true
         }
     }
+
+    /// The toggles changed: a pane that draws them itself (in its header) takes them from here.
+    var onChipsChange: (([ListChip]) -> Void)?
 
     var onChip: ((String) -> Void)? {
         get { chipsView.onToggle }
@@ -482,10 +486,10 @@ final class ListPickerView: NSView {
         let hidesHeader = embedded && filter == nil
         let headerHeight = hidesHeader ? 0 : ceil(look.rowHeight) + 16
         header.isHidden = hidesHeader
-        let chipsHeight = chips.isEmpty ? 0 : (embedded ? ChipsView.height - 6 : ChipsView.height)
+        let chipsHeight = chips.isEmpty || embedded ? 0 : ChipsView.height
         let shown = CGFloat(min(max(visible.count, 1), wide ? 14 : Self.maxRows))
         let height = embedded ? bounds.height : headerHeight + chipsHeight + shown * ceil(rows.rowHeight) + 12
-        chipsView.isHidden = chips.isEmpty
+        chipsView.isHidden = chips.isEmpty || embedded
         chipsView.frame = NSRect(x: 0, y: headerHeight, width: width, height: chipsHeight)
         card.frame = embedded ? bounds : NSRect(
             x: (bounds.width - width) / 2,
