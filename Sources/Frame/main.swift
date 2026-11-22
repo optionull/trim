@@ -663,6 +663,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     })
     vim.api.nvim_create_user_command('FrameWorkspace', function() tell('frame_workspace', 'toggle') end,
       { desc = 'Switch workspace: a repository or worktree, in a window of its own' })
+    vim.keymap.set('n', '<Plug>(frame-packages)', function() tell('frame_packages', '') end, { desc = 'Packages' })
+    vim.api.nvim_create_user_command('FramePackages', function() tell('frame_packages', '') end, { desc = 'Browse, install and remove packages' })
     vim.keymap.set('n', '<Plug>(frame-find)', function() tell('frame_find', 'files') end, { desc = 'Find file' })
     vim.keymap.set('n', '<Plug>(frame-grep)', function() tell('frame_find', 'grep') end, { desc = 'Find in files' })
     vim.api.nvim_create_user_command('FrameFind', function() tell('frame_find', 'files') end, { desc = 'Find a file in the workspace' })
@@ -702,6 +704,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         switch method {
         case "frame_workspace": switchWorkspace(nil)
         case "frame_theme_pick": showThemePicker(nil)
+        case "frame_packages": showPackages(nil)
         case "frame_find": findFiles(grep: args.first?.stringValue == "grep")
         case "frame_theme_set":
             if let name = args.first?.stringValue, !name.isEmpty { FrameSettings.set(
@@ -916,7 +919,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// back).
     func showList(
         title: String, items: [PickerItem], current: String?, onMove: ((PickerItem) -> Void)? = nil,
-        onChoose: @escaping (PickerItem) -> Void, onCancel: (() -> Void)? = nil,
+        onChoose: @escaping (PickerItem) -> Void, onCancel: (() -> Void)? = nil, keepsOpen: Bool = false,
         configure: ((ListPickerView) -> Void)? = nil
     ) {
         guard listPicker == nil, view != nil else { return }
@@ -930,8 +933,10 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         picker.onFilterChange = { [weak self] open in self?.modes.listFilterChanged(open: open) }
         picker.onChoose = { [weak self] item in
             guard let self else { return }
-            listCancelled = nil
-            closeList()
+            if !keepsOpen {
+                listCancelled = nil
+                closeList()
+            }
             onChoose(item)
         }
         listCancelled = onCancel
@@ -964,6 +969,113 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     }
 
     @objc func showOpenFiles(_: Any?) { showTabPicker() }
+
+    // MARK: Packages
+
+    /// A row of the package browser as nvim's catalog gave it.
+    struct PackageRow {
+        var name: String, kind: String, description: String, version: String, status: String
+        var dir: String, repo: String, tag: String, commit: String
+    }
+
+    static func packageItem(_ row: PackageRow, busy: String?) -> PickerItem {
+        let state = busy ?? (row.status == "available" ? row.version : row.status)
+        return PickerItem(
+            id: row.name, title: row.name, detail: row.kind + " · " + state, subtitle: row.description,
+            isCurrent: ["bundled", "installed"].contains(row.status) && busy == nil
+        )
+    }
+
+    /// The packages as a mode: Return installs one, or switches a bundled one off or on (from the next start), `x`
+    /// removes an
+    /// installed one. The list stays up while it works.
+    @objc func showPackages(_: Any?) {
+        guard listPicker == nil else { return }
+        Task { [weak self] in
+            guard let self, listPicker == nil else { return }
+            var rows = await packageRows()
+            guard !rows.isEmpty else { return }
+            var busy: [String: String] = [:]
+            @MainActor func refresh(keep name: String?) {
+                listPicker?.set(rows.map { Self.packageItem($0, busy: busy[$0.name]) }, current: name)
+            }
+            func say(_ text: String) {
+                Task { _ = try? await self.session.channel.lua("vim.notify(...)", args: [.string(text)]) }
+            }
+            @MainActor func toggle(_ row: PackageRow) {
+                let nowDisabled = row.status != "disabled"
+                let names = rows.filter { $0.name == row.name ? nowDisabled : $0.status == "disabled" }.map(\.name)
+                FrameSettings.set(["plugins", "disabled"], to: .array(names.map { .string($0) }))
+                if let at = rows.firstIndex(where: { $0.name == row.name }) {
+                    rows[at].status = nowDisabled ? "disabled" : "bundled"
+                }
+                busy[row.name] = nowDisabled ? "off after a restart" : "on after a restart"
+                refresh(keep: row.name)
+            }
+            @MainActor func install(_ row: PackageRow) {
+                guard busy[row.name] == nil else { return }
+                busy[row.name] = "installing…"
+                refresh(keep: row.name)
+                Task { @MainActor in
+                    do {
+                        try await FramePackages.install(repo: row.repo, tag: row.tag, commit: row.commit, to: row.dir)
+                        _ = try? await self.session.channel.lua(
+                            "require('frame.catalog').loaded(...)", args: [.string(row.name)]
+                        )
+                        say("Installed \(row.name) \(row.tag)")
+                    } catch {
+                        say("Could not install \(row.name): \(error)")
+                    }
+                    busy[row.name] = nil
+                    rows = await self.packageRows()
+                    refresh(keep: row.name)
+                }
+            }
+            @MainActor func remove(_ row: PackageRow) {
+                do { try FramePackages.remove(row.dir) } catch { return say("Could not remove \(row.name): \(error)") }
+                Task { @MainActor in
+                    _ = try? await self.session.channel.lua(
+                        "require('frame.catalog').unloaded(...)", args: [.string(row.name)]
+                    )
+                    busy[row.name] = "gone after a restart"
+                    rows = await self.packageRows()
+                    refresh(keep: row.name)
+                }
+            }
+            showList(
+                title: "Packages", items: rows.map { Self.packageItem($0, busy: nil) }, current: nil,
+                onChoose: { item in
+                    guard let row = rows.first(where: { $0.name == item.id }) else { return }
+                    switch row.status {
+                    case "available": install(row)
+                    case "bundled", "disabled": toggle(row)
+                    default: say("\(row.name) is installed: x removes it")
+                    }
+                },
+                keepsOpen: true,
+                configure: { picker in
+                    picker.onKey = { key, item in
+                        guard key == "x", let row = rows.first(where: { $0.name == item.id }), row.status == "installed"
+                        else { return false }
+                        remove(row)
+                        return true
+                    }
+                }
+            )
+        }
+    }
+
+    func packageRows() async -> [PackageRow] {
+        let reply = await (try? session.channel.lua("return require('frame.catalog').list()"))?.arrayValue ?? []
+        return reply.compactMap { value in
+            guard let map = value.dictionaryValue else { return nil }
+            func text(_ key: String) -> String { map[.string(key)]?.stringValue ?? "" }
+            return PackageRow(
+                name: text("name"), kind: text("kind"), description: text("description"), version: text("version"),
+                status: text("status"), dir: text("dir"), repo: text("repo"), tag: text("tag"), commit: text("commit")
+            )
+        }
+    }
 
     // MARK: The finder
 

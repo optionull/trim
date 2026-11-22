@@ -11,6 +11,8 @@ struct PickerItem: Equatable {
     var detail = ""
     /// A Nerd Font glyph before the title, if any.
     var glyph = ""
+    /// Quiet text after the title (what a package is).
+    var subtitle = ""
     /// A file's name, to take the icon from (the tree's, in colour).
     var file: String?
     /// What is chosen now: marked with a dot.
@@ -119,6 +121,21 @@ final class PickerRowsView: NSView {
                 ),
                 options: [.truncatesLastVisibleLine, .usesLineFragmentOrigin]
             )
+            if !item.subtitle.isEmpty {
+                let after = x + ceil(title.size().width) + 12
+                if after < right - 30 {
+                    let quiet = NSAttributedString(
+                        string: item.subtitle, attributes: [.font: look.smallFont, .foregroundColor: look.faint]
+                    )
+                    quiet.draw(
+                        with: NSRect(
+                            x: after, y: rect.midY - quiet.size().height / 2, width: right - after,
+                            height: quiet.size().height
+                        ),
+                        options: [.truncatesLastVisibleLine, .usesLineFragmentOrigin]
+                    )
+                }
+            }
         }
     }
 
@@ -187,6 +204,8 @@ final class ListPickerView: NSView {
     }
 
     var onQuery: ((String) -> Void)?
+    /// A key the list does not use itself, pressed on the row the keyboard is on (not while typing): true when handled.
+    var onKey: ((String, PickerItem) -> Bool)?
     private let card = FlippedView()
     private let header = FlippedView()
     private let divider = FlippedView()
@@ -365,8 +384,11 @@ final class ListPickerView: NSView {
                 {
                     filter = (filter ?? "") + typed
                     refilter()
-                    if liveQuery { onQuery?(filter ?? "") }
-                    else if let item = visible.first(where: { $0.id == cursor }) { onMove?(item) }
+                    if liveQuery {
+                        onQuery?(filter ?? "")
+                    } else if let item = visible.first(where: { $0.id == cursor }) {
+                        onMove?(item)
+                    }
                 }
             }
             return
@@ -377,7 +399,8 @@ final class ListPickerView: NSView {
         case (36, _), (76, _), (_, " "): choose()
         case (53, _): onDismiss?()
         case (_, "/"): beginFilter()
-        default: break
+        default:
+            if let item = visible.first(where: { $0.id == cursor }), !control, !command { _ = onKey?(characters, item) }
         }
     }
 

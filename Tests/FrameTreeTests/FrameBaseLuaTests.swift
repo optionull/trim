@@ -23,6 +23,11 @@ struct FrameBaseLuaTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["nvim", "--headless", "-u", "NONE", "-l", file.path]
+        // Whatever a test installs goes to a data folder of its own.
+        var environment = ProcessInfo.processInfo.environment
+        environment["XDG_DATA_HOME"] = FileManager.default.temporaryDirectory.appendingPathComponent("frame-test-data")
+            .path
+        process.environment = environment
         let output = Pipe()
         process.standardOutput = output
         process.standardError = output
@@ -157,6 +162,36 @@ struct FrameBaseLuaTests {
         lsp.state.crashy.status = 'failed'
         assert(vim.tbl_contains(require('frame.status').snapshot().lsp, 'crashy ✗'))
         """)
+    }
+
+    @Test(
+        "the catalog: bundled ones, a bundled one left out, an installed one found in the data folder, the rest available"
+    )
+    func catalog() throws {
+        try check(settings: #"{"plugins":{"disabled":["rose-pine"]}}"#, #"""
+        local catalog = require('frame.catalog')
+        local by = {}
+        for _, row in ipairs(catalog.list()) do by[row.name] = row end
+        assert(by['tokyonight.nvim'].status == 'bundled', 'bundled: ' .. by['tokyonight.nvim'].status)
+        assert(by['rose-pine'].status == 'disabled', 'a bundled one left out')
+        assert(by['flash.nvim'].status == 'available' and by['flash.nvim'].tag ~= '', 'available, with its tag')
+        assert(#by['flash.nvim'].commit == 40, 'pinned to a full commit')
+        for _, p in ipairs(catalog.packages) do
+            if not p.bundled then assert(#p.commit == 40 and p.repo:find('/') and p.tag ~= '', p.name .. ' is pinned') end
+        end
+        assert(by['flash.nvim'].dir:find('/site/pack/frame/start/flash.nvim', 1, true), by['flash.nvim'].dir)
+        -- Installed: a folder in the data folder; its plugin runs, and its setup, without a restart.
+        local dir = catalog.dir('flash.nvim')
+        vim.fn.mkdir(dir .. '/lua/flash', 'p')
+        vim.fn.writefile({ 'vim.g.flash_setup_ran = true', 'return { setup = function() vim.g.flash_setup_ran = true end, jump = function() end, treesitter = function() end }' }, dir .. '/lua/flash/init.lua')
+        assert(catalog.status(catalog.packages[9]) == 'installed' or catalog.status({ name = 'flash.nvim' }) == 'installed', 'installed')
+        catalog.loaded('flash.nvim')
+        assert(vim.g.flash_setup_ran, 'its setup ran')
+        assert(vim.fn.maparg('s', 'n') ~= '', 'its keys were bound')
+        catalog.unloaded('flash.nvim')
+        vim.fn.delete(dir, 'rf')
+        assert(catalog.status({ name = 'flash.nvim' }) == 'available', 'gone again')
+        """#)
     }
 
     @Test("a scheme that does not exist falls back to the default instead of failing")

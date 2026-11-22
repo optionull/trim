@@ -317,6 +317,7 @@ final class FrameApp: NSObject, NSApplicationDelegate {
         }
         maxItem.submenu = maxMenu
         tabsItem.submenu = tabsMenu
+        viewMenu.addItem(withTitle: "Packages…", action: #selector(Window.showPackages(_:)), keyEquivalent: "")
         let themeItem = viewMenu.addItem(
             withTitle: "Colour Scheme…", action: #selector(Window.showThemePicker(_:)), keyEquivalent: "t"
         )

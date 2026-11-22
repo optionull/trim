@@ -33,8 +33,8 @@ struct FrameCheck {
         exit(1)
     }
 
-    private func wait(_ what: String, _ ready: () -> Bool) async {
-        for _ in 0 ..< 500 {
+    private func wait(_ what: String, seconds: Int = 10, _ ready: () -> Bool) async {
+        for _ in 0 ..< seconds * 50 {
             if ready() { return }
             try? await Task.sleep(for: .milliseconds(20))
         }
@@ -102,6 +102,7 @@ struct FrameCheck {
         await group("whichkey") { await whichKeySteps() }
         await group("lsp") { await lspSteps() }
         await group("finder") { await finderSteps() }
+        await group("packages") { await packagesSteps() }
         await group("windows") { await windowSteps() }
         await group("switcher") { await switcherSteps() }
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -1072,6 +1073,76 @@ struct FrameCheck {
         shell.escape()
         guard shell.listPicker == nil else { fail("Escape did not close") }
         step("Escape goes back at once; <leader>ff and :FrameGrep bring the lists up")
+    }
+
+    /// The packages as a mode: the catalog with what is bundled, left out or available; Return on a bundled one
+    /// switches it off
+    /// and on in the settings; Return on an available one downloads it from GitHub (its commit checked), loads it
+    /// without a
+    /// restart, and `x` removes it. The download is real; without the network it says so and is not counted.
+    private func packagesSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        let saved = NSTemporaryDirectory() + "frame-packages-\(UUID().uuidString).toml"
+        setenv("FRAME_SETTINGS", saved, 1)
+        defer { unsetenv("FRAME_SETTINGS") }
+        func savedText() -> String { (try? String(contentsOfFile: saved, encoding: .utf8)) ?? "" }
+        func type(_ text: String, into picker: ListPickerView) {
+            for letter in text {
+                picker.keyDown(with: key(String(letter), code: 0))
+            }
+        }
+        shell.focusEditor()
+        shell.showPackages(nil)
+        await wait("the packages as a list") { shell.listPicker != nil }
+        guard let picker = shell.listPicker, shell.modes.surface == .list,
+              shell.modes.label(editorMode: "normal") == "PACKAGES"
+        else { fail("the packages did not come up as a mode") }
+        guard picker.all.first(where: { $0.id == "tokyonight.nvim" })?.detail.hasSuffix("bundled") == true,
+              picker.all.first(where: { $0.id == "gruvbox.nvim" })?.detail.contains("2.0.0") == true,
+              picker.all.first(where: { $0.id == "gitsigns.nvim" })?.subtitle.isEmpty == false
+        else { fail("the rows do not say bundled and available: \(picker.all.map(\.detail))") }
+        step("the packages are a list: what is bundled, and what can be installed with its version, and what each is")
+        // Switch a bundled one off and on: the settings change, the list stays.
+        picker.keyDown(with: key("/", code: 44))
+        type("gitsigns", into: picker)
+        picker.keyDown(with: key("\r", code: 36))
+        await wait("the bundled package to be left out") { savedText().contains("disabled = [\"gitsigns.nvim\"]") }
+        guard shell.listPicker != nil else { fail("the list went away after a choice") }
+        picker.keyDown(with: key("\r", code: 36))
+        await wait("the bundled package to be back") { savedText().contains("disabled = []") }
+        step("Return on a bundled package leaves it out of the next start, and again brings it back; the list stays up")
+        // A real install, if the network is there and the package is not.
+        let dir = await lua("return require('frame.catalog').dir('indent-blankline.nvim')")?.stringValue ?? ""
+        guard !dir.isEmpty, !FileManager.default.fileExists(atPath: dir) else {
+            return step("indent-blankline.nvim is installed already: the install was not exercised")
+        }
+        guard await (try? URLSession.shared.data(from: URL(string: "https://codeload.github.com")!)) != nil else {
+            return step("no network: the install was not exercised")
+        }
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        picker.keyDown(with: key("\u{1B}", code: 53))
+        picker.keyDown(with: key("/", code: 44))
+        type("indent", into: picker)
+        picker.keyDown(with: key("\r", code: 36))
+        await wait("the install to be done", seconds: 90) {
+            picker.all.first(where: { $0.id == "indent-blankline.nvim" })?.detail.hasSuffix("installed") == true
+        }
+        guard FileManager.default.fileExists(atPath: dir + "/lua/ibl/init.lua")
+        else { fail("the package is not where it goes") }
+        guard await lua("return package.loaded['ibl'] ~= nil or pcall(require, 'ibl')")?.boolValue == true
+        else { fail("the package was not loaded without a restart") }
+        step(
+            "Return on an available package downloads it, checks its commit, unpacks it and loads it without a restart"
+        )
+        // Removed with x (the filter ends first: x is a letter while typing).
+        shell.escape()
+        guard shell.listPicker != nil, picker.filter == nil else { fail("Escape did not end the filter first") }
+        picker.keyDown(with: key("x", code: 7))
+        await wait("the package to be removed") { !FileManager.default.fileExists(atPath: dir) }
+        shell.escape()
+        guard shell.listPicker == nil else { fail("Escape did not close") }
+        step("x removes an installed package")
     }
 
     /// Smooth scrolling of the text: a scroll of nvim's slides, and a scroll that comes while one slides goes on from

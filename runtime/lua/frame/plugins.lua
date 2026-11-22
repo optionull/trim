@@ -67,6 +67,7 @@ function M.setup()
       if not ok then vim.notify('Frame: ' .. spec.name .. ' did not start: ' .. tostring(err), vim.log.levels.WARN) end
     end
   end
+  pcall(function() require('frame.catalog').setup_installed() end)
 end
 
 return M

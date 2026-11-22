@@ -604,6 +604,11 @@ The finder is a mode too: `<leader>ff` (⌘P, Go ▸ Find File…, `:FrameFind`)
 ignored left out) and ranks them as you type, the name counting above its folders; `<leader>fg` (⇧⌘F, `:FrameGrep`) finds lines
 containing the text (git grep, no ripgrep needed). Return opens the file (on the line), Escape goes back at once.
 
+Packages are a mode (`<leader>P`, View ▸ Packages…, `:FramePackages`): the ones Frame carries (colour schemes, which-key, mini.nvim,
+gitsigns) and ones it can install: Return installs one (a tarball of a pinned tag from GitHub, its commit checked against the one
+pinned, into `~/.local/share/frame/site/pack/frame/start`; loaded at once, no git needed) or leaves a bundled one out of the next start
+(`[plugins] disabled`), `x` removes an installed one. The catalog is `runtime/lua/frame/catalog.lua`.
+
 Language servers run on their own and come back when they crash. A server starts the first time a file of its kind opens
 (Rust, Swift, Markdown, HTML, CSS, JSON, TypeScript and JavaScript), unless your own config already runs one: Frame finds the
 program on your PATH (also rustup's, Xcode's and mise's), or else downloads it into its own cache at a pinned version with the
