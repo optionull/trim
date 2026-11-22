@@ -596,6 +596,10 @@ and colours, over the window; as the keyboard moves through it each scheme is tr
 bar follow), Return keeps one and saves it in `~/.config/frame/settings.toml`, Escape puts the one there was back exactly, `/`
 filters by typing (j and k move when not filtering, as in the list of open files). `:FrameTheme name` sets and saves one by name.
 
+Frame bundles which-key (the hints after the leader, `g`, `z`, `[` and `]`: `[whichkey] delay` in settings.toml, milliseconds),
+mini.nvim's pairs, surround (`sa` `sd` `sr`), more text objects and `[` `]` jumps, and gitsigns (`]h` `[h`, `<leader>gs` `gr` `gp`
+`gb` `gd`). A plugin is left out with `[plugins] disabled = ["gitsigns.nvim"]`.
+
 ### As git's merge and diff tool
 
 ```sh

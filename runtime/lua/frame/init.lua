@@ -35,6 +35,7 @@ function M.setup()
   syntax()
   theme()
   diagnostics()
+  require('frame.plugins').setup()
 end
 
 return M

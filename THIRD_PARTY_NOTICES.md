@@ -53,6 +53,9 @@ pins (fetched by `scripts/plugins.sh`, unmodified, only the folders nvim loads k
 - tokyonight.nvim, https://github.com/folke/tokyonight.nvim, v4.14.1, by Folke Lemaitre: Apache License 2.0 (`LICENSE`).
 - catppuccin, https://github.com/catppuccin/nvim, v2.0.0, by Catppuccin: MIT (`LICENSE.md`, Copyright (c) 2021 Catppuccin).
 - rose-pine, https://github.com/rose-pine/neovim, v3.0.2, by Rosé Pine: MIT (`license`, Copyright (c) 2023 Rosé Pine).
+- which-key.nvim, https://github.com/folke/which-key.nvim, v3.17.0, by Folke Lemaitre: Apache License 2.0 (`LICENSE`).
+- mini.nvim, https://github.com/nvim-mini/mini.nvim, v0.18.0, by Evgeni Chasnovski: MIT (`LICENSE`, Copyright (c) 2021 Evgeni Chasnovski).
+- gitsigns.nvim, https://github.com/lewis6991/gitsigns.nvim, v2.1.0, by Lewis Russell: MIT (`LICENSE`, Copyright (c) 2020 Lewis Russell).
 
 ## Passenger
 

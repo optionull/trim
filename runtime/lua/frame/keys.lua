@@ -16,6 +16,18 @@ M.defaults = {
   { '<leader>fo', '<Plug>(frame-tabs-list)', 'Open files' },
 }
 
+--- The groups which-key names: what follows each prefix of Frame's own keys (a spec for `which-key.add`).
+M.groups = {
+  { '<leader>f', group = 'files' },
+  { '<leader>g', group = 'git' },
+  { '<leader>l', group = 'language' },
+  { '<leader>u', group = 'ui' },
+  { 'g', group = 'goto' },
+  { 'z', group = 'folds and view' },
+  { '[', group = 'previous' },
+  { ']', group = 'next' },
+}
+
 --- Binds those the config has not bound, and returns the keys it bound.
 function M.apply()
   local bound = {}
@@ -24,6 +36,11 @@ function M.apply()
       vim.keymap.set('n', key[1], key[2], { remap = true, desc = key[3] })
       bound[#bound + 1] = key[1]
     end
+  end
+  -- which-key reads the mappings once it has loaded: keys bound after that (these, a config's) need it told.
+  if package.loaded['which-key.buf'] then
+    pcall(function() require('which-key.buf').clear() end)
+    pcall(function() require('which-key.state').setup() end)
   end
   return bound
 end

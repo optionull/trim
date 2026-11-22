@@ -98,6 +98,17 @@ struct FrameBaseLuaTests {
         """)
     }
 
+    @Test("the bundled plugins start, and one named in plugins.disabled does not")
+    func bundledPlugins() throws {
+        guard hasPlugins else { return }
+        try check(settings: #"{"plugins":{"disabled":["gitsigns.nvim"]}}"#, """
+        require('frame.init').setup()
+        assert(package.loaded['which-key'], 'which-key starts')
+        assert(package.loaded['mini.pairs'], 'mini starts')
+        assert(not package.loaded['gitsigns'], 'a disabled plugin stays off')
+        """)
+    }
+
     @Test("a scheme that does not exist falls back to the default instead of failing")
     func missing() throws {
         guard hasPlugins else { return }

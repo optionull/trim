@@ -99,6 +99,7 @@ struct FrameCheck {
         await group("tabs") { await tabsSteps() }
         await group("scroll") { await scrollSteps() }
         await group("theme") { await themeSteps() }
+        await group("whichkey") { await whichKeySteps() }
         await group("windows") { await windowSteps() }
         await group("switcher") { await switcherSteps() }
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -880,6 +881,48 @@ struct FrameCheck {
             "`:FrameTheme name` sets and saves a scheme, an unknown one changes nothing, and <leader>c brings up the list"
         )
         _ = await lua("vim.cmd.colorscheme('\(original)')")
+    }
+
+    /// Which-key: after the leader (or `g`) the hints of what can follow show in the grid, Frame's own keys among them,
+    /// and
+    /// Escape takes them away.
+    private func whichKeySteps() async {
+        let channel = shell.session.channel
+        let editor = shell.editor!
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        func hints() async -> Int {
+            await lua("""
+            local n = 0
+            for _, w in ipairs(vim.api.nvim_list_wins()) do
+              if vim.bo[vim.api.nvim_win_get_buf(w)].filetype == 'wk' then n = n + 1 end
+            end
+            return n
+            """)?.integerValue.map(Int.init) ?? 0
+        }
+        func onScreen(_ text: String) -> Bool {
+            editor.screen.grids.values.contains { grid in (0 ..< grid.rows).contains { grid.line($0).contains(text) } }
+        }
+        shell.focusEditor()
+        guard await lua("return package.loaded['which-key'] ~= nil")?.boolValue == true
+        else { fail("which-key did not load") }
+        let leader = await lua("return vim.g.mapleader or '\\\\'")?.stringValue ?? "\\"
+        channel.send(keys: leader)
+        await waitAsync("which-key to show what follows the leader") { await hints() >= 1 }
+        await wait("Frame's own keys in the hints") { onScreen("Colour scheme") && onScreen("Switch workspace") }
+        if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
+            do { try shot(editor: editor, to: path.replacingOccurrences(of: ".png", with: "-whichkey.png")) } catch {
+                fail("the which-key shot: \(error)")
+            }
+        }
+        channel.send(keys: "<Esc>")
+        await waitAsync("the hints to go with Escape") { await hints() == 0 }
+        step("the leader shows what follows it, Frame's keys among them, and Escape takes it away")
+        channel.send(keys: "g")
+        await waitAsync("which-key to show what follows g") { await hints() >= 1 }
+        channel.send(keys: "<Esc>")
+        await waitAsync("the hints to go") { await hints() == 0 }
+        guard await lua("return vim.fn.mode()")?.stringValue == "n" else { fail("nvim is not back in normal mode") }
+        step("vim's own sequences (g) show their hints too")
     }
 
     /// Smooth scrolling of the text: a scroll of nvim's slides, and a scroll that comes while one slides goes on from
