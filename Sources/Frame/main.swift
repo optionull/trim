@@ -382,6 +382,9 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     private(set) var switcher: SwitcherView?
     /// The status bar's list of open files while it is up.
     private(set) var tabPicker: TabPickerView?
+    /// A list of choices (the colour schemes) while it is up, and what to do if it is put away without one chosen.
+    private(set) var listPicker: ListPickerView?
+    private var listCancelled: (() -> Void)?
     /// Which surface has the keyboard, and what Escape does from each: the window's modes.
     private(set) var modes = Modes() {
         didSet { if modes != oldValue { refreshStatus() } }
@@ -513,6 +516,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     private func makeSurface() {
         closeSwitcher(restoring: false)
         closeTabPicker(restoring: false)
+        closeList(restoring: false)
         generation += 1
         let generation = generation
         session = EditorSession()
@@ -658,6 +662,19 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     })
     vim.api.nvim_create_user_command('FrameWorkspace', function() tell('frame_workspace', 'toggle') end,
       { desc = 'Switch workspace: a repository or worktree, in a window of its own' })
+    vim.keymap.set('n', '<Plug>(frame-theme)', function() tell('frame_theme_pick', '') end, { desc = 'Colour scheme' })
+    vim.api.nvim_create_user_command('FrameTheme', function(opts)
+      if opts.args == '' then return tell('frame_theme_pick', '') end
+      if pcall(vim.cmd.colorscheme, opts.args) then
+        tell('frame_theme_set', opts.args)
+      else
+        vim.notify('FrameTheme: no colour scheme named ' .. opts.args, vim.log.levels.ERROR)
+      end
+    end, {
+      nargs = '?',
+      complete = function() return vim.fn.getcompletion('', 'color') end,
+      desc = "Choose the colour scheme: a mode with a preview as you move, or by name (saved in Frame's settings)",
+    })
     vim.keymap.set('n', '<Plug>(frame-workspace)', function() tell('frame_workspace', 'toggle') end, { desc = 'Switch workspace' })
     vim.keymap.set('n', '<Plug>(frame-tree-toggle)', function() tell('frame_tree', 'toggle') end, { desc = 'Show or hide the file tree' })
     vim.keymap.set('n', '<Plug>(frame-tree-focus)', function() tell('frame_tree', 'focus') end, { desc = 'Go into the file tree' })
@@ -679,6 +696,12 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     private func nvimAsked(_ method: String, _ args: [MessagePackValue]) {
         switch method {
         case "frame_workspace": switchWorkspace(nil)
+        case "frame_theme_pick": showThemePicker(nil)
+        case "frame_theme_set":
+            if let name = args.first?.stringValue, !name.isEmpty { FrameSettings.set(
+                ["theme", "colorscheme"],
+                to: .string(name)
+            ) }
         case "frame_statusline": view?.statusVisible = args.first?.stringValue != "off"
         case "frame_statusbar": StatusPlacement(rawValue: args.first?.stringValue ?? "")
             .map { app.setStatusPlacement($0) }
@@ -763,6 +786,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case let .closeSwitcher(restoring): closeSwitcher(restoring: true, to: restoring)
         case let .closePicker(restoring): closeTabPicker(restoring: true, to: restoring)
         case .endPickerFilter: tabPicker?.endFilter()
+        case let .closeList(restoring): closeList(restoring: true, to: restoring)
+        case .endListFilter: listPicker?.endFilter()
         }
     }
 
@@ -774,6 +799,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case .tree, .editor: window.makeFirstResponder(editor)
         case .switcher: if let panel = switcher { window.makeFirstResponder(panel.field) }
         case .picker: if let picker = tabPicker { window.makeFirstResponder(picker) }
+        case .list: if let picker = listPicker { window.makeFirstResponder(picker) }
         }
     }
 
@@ -835,7 +861,9 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// Whether a card over the window is where the pointer is (a point of the window's, as an event gives it).
     func cardHasPointer(_ event: NSEvent) -> Bool {
         guard view != nil, let hit = view.hitTest(view.convert(event.locationInWindow, from: nil)) else { return false }
-        return [switcher, tabPicker].contains { card in card.map { hit === $0 || hit.isDescendant(of: $0) } ?? false }
+        return [switcher, tabPicker, listPicker].contains { card in
+            card.map { hit === $0 || hit.isDescendant(of: $0) } ?? false
+        }
     }
 
     /// The status bar's list of open files, up over the file's name, or put away if it is up.
@@ -868,6 +896,48 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         sidebarVisible: view.sidebarVisible
     ) }
 
+    /// A list of choices up over the window as a mode (`title` is its word in the status bar): moving the keyboard is
+    /// told
+    /// to `onMove`, a choice to `onChoose`; put away any other way, `onCancel` runs (a colour scheme tried is put
+    /// back).
+    func showList(
+        title: String, items: [PickerItem], current: String?, onMove: ((PickerItem) -> Void)? = nil,
+        onChoose: @escaping (PickerItem) -> Void, onCancel: (() -> Void)? = nil
+    ) {
+        guard listPicker == nil, view != nil else { return }
+        let picker = ListPickerView(title: title, look: tree.look)
+        picker.frame = view.bounds
+        picker.autoresizingMask = [.width, .height]
+        picker.set(items, current: current)
+        picker.onMove = onMove
+        picker.onDismiss = { [weak self] in self?.escape() }
+        picker.onFilterChange = { [weak self] open in self?.modes.listFilterChanged(open: open) }
+        picker.onChoose = { [weak self] item in
+            guard let self else { return }
+            listCancelled = nil
+            closeList()
+            onChoose(item)
+        }
+        listCancelled = onCancel
+        modes.openList(title: title)
+        view.addSubview(picker)
+        listPicker = picker
+        window.makeFirstResponder(picker)
+    }
+
+    /// The list of choices away, the keyboard back where it was; a list put away with nothing chosen runs its
+    /// `onCancel`.
+    func closeList(restoring: Bool = true, to surface: Surface? = nil) {
+        guard let picker = listPicker else { return }
+        listPicker = nil
+        picker.removeFromSuperview()
+        let back = modes.closeList()
+        let cancelled = listCancelled
+        listCancelled = nil
+        cancelled?()
+        if restoring { focus(surface ?? back) }
+    }
+
     /// The list away; the keyboard goes back to where it was.
     func closeTabPicker(restoring: Bool = true, to surface: Surface? = nil) {
         guard let picker = tabPicker else { return }
@@ -878,6 +948,62 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     }
 
     @objc func showOpenFiles(_: Any?) { showTabPicker() }
+
+    // MARK: The colour scheme
+
+    /// The colour schemes as choices: Frame's own first, then nvim's.
+    static func themeItems(_ names: [String], current: String) -> [PickerItem] {
+        let bundled = ["tokyonight", "catppuccin", "rose-pine"]
+        func isLight(_ name: String) -> Bool {
+            ["day", "latte", "dawn", "light", "morning", "shine", "peachpuff", "delek", "zellner"]
+                .contains { name.contains($0) }
+        }
+        func rank(_ name: String) -> Int { bundled.firstIndex { name.hasPrefix($0) } ?? bundled.count }
+        return names.sorted { (rank($0), $0) < (rank($1), $1) }.map { name in
+            let kind = rank(name) < bundled.count ? "Frame" : "nvim"
+            return PickerItem(
+                id: name,
+                title: name,
+                detail: kind + (isLight(name) ? " · light" : ""),
+                isCurrent: name == current
+            )
+        }
+    }
+
+    /// The colour schemes as a mode: moving through them tries each (the sidebar, tabs and bar follow), Return keeps
+    /// one
+    /// and saves it in the settings, Escape puts back the one there was.
+    @objc func showThemePicker(_: Any?) {
+        if listPicker != nil { return apply(escapeFromPicker()) }
+        Task { [weak self] in
+            guard let self, listPicker == nil else { return }
+            let reply = await (try? session.channel.lua(
+                "return { vim.g.colors_name or '', vim.fn.getcompletion('', 'color') }"
+            ))?.arrayValue
+            guard let reply, reply.count == 2, let names = reply[1].arrayValue?.compactMap(\.stringValue),
+                  !names.isEmpty
+            else { return }
+            let original = reply[0].stringValue ?? ""
+            // Every highlight as it is, to put back exactly if the list is put away with nothing chosen.
+            _ = try? await session.channel.lua("require('frame.theme').snapshot()")
+            func apply(_ name: String) {
+                Task {
+                    _ = try? await self.session.channel.lua("pcall(vim.cmd.colorscheme, ...)", args: [.string(name)])
+                }
+            }
+            showList(
+                title: "Colour scheme", items: Self.themeItems(names, current: original), current: original,
+                onMove: { apply($0.id) },
+                onChoose: { item in
+                    apply(item.id)
+                    FrameSettings.set(["theme", "colorscheme"], to: .string(item.id))
+                },
+                onCancel: {
+                    Task { _ = try? await self.session.channel.lua("require('frame.theme').restore()") }
+                }
+            )
+        }
+    }
 
     @objc func nextTab(_: Any?) { stepTab(1) }
     @objc func previousTab(_: Any?) { stepTab(-1) }

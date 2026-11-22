@@ -587,9 +587,14 @@ restarting at every line.
 Every mode has a key on the leader, bound only where your config has nothing there (yours are never replaced), each with a
 description for which-key, the common jumps lowercase: `<leader>e` the file tree (`<C-w>e` goes into it), `<leader>E` its
 filter, `<leader>w` the workspace switcher (also `<leader>fw`), `<leader>t` and `<leader>o` the list of open files (also
-`<leader>fo`). Each is a `<Plug>` mapping to bind to other keys: `<Plug>(frame-tree-toggle)`, `-tree-focus`, `-tree-filter`,
-`-workspace`, `-tabs-list`. In the list of open files `j` and `k` move; `/` starts a filter (type to narrow by name, ↑ ↓ or
+`<leader>fo`), `<leader>c` the colour scheme. Each is a `<Plug>` mapping to bind to other keys: `<Plug>(frame-tree-toggle)`, `-tree-focus`, `-tree-filter`,
+`-workspace`, `-tabs-list`, `-theme`. In the list of open files `j` and `k` move; `/` starts a filter (type to narrow by name, ↑ ↓ or
 Return to choose, Escape ends the filter and the next Escape closes the list).
+
+The colour scheme is a mode of its own (`<leader>c`, `:FrameTheme`, View ▸ Colour Scheme…, ⌥⌘T): a list in the tree's font
+and colours, over the window; as the keyboard moves through it each scheme is tried (the editor, the sidebar, the tabs and the
+bar follow), Return keeps one and saves it in `~/.config/frame/settings.toml`, Escape puts the one there was back exactly, `/`
+filters by typing (j and k move when not filtering, as in the list of open files). `:FrameTheme name` sets and saves one by name.
 
 ### As git's merge and diff tool
 

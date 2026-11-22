@@ -79,6 +79,25 @@ struct FrameBaseLuaTests {
         """)
     }
 
+    @Test("a scheme with variants is put back exactly: its name alone would not, as it remembers the last variant")
+    func restore() throws {
+        guard hasPlugins else { return }
+        try check(settings: #"{"theme":{"colorscheme":"rose-pine"}}"#, """
+        require('frame.init').setup()
+        local function normal() return vim.api.nvim_get_hl(0, { name = 'Normal' }).bg end
+        local original = normal()
+        local theme = require('frame.theme')
+        theme.snapshot()
+        vim.cmd.colorscheme('rose-pine-dawn')
+        assert(normal() ~= original, 'the variant looks different')
+        vim.cmd.colorscheme('rose-pine')
+        assert(normal() ~= original, 'the family name alone keeps the last variant (why a snapshot is needed)')
+        theme.restore()
+        assert(normal() == original, 'put back exactly')
+        assert(vim.g.colors_name == 'rose-pine' and vim.o.background == 'dark', 'name and background too')
+        """)
+    }
+
     @Test("a scheme that does not exist falls back to the default instead of failing")
     func missing() throws {
         guard hasPlugins else { return }

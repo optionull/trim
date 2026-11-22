@@ -11,9 +11,12 @@ public enum Surface: Equatable, Sendable {
     case switcher
     /// The list of open files the status bar opens, over everything.
     case picker
+    /// A list of choices over everything (the colour schemes, later the packages and the files): its own title says
+    /// which.
+    case list
 
     /// A panel over the window that takes the keyboard and gives it back: nothing else moves it meanwhile.
-    public var isOverlay: Bool { self == .switcher || self == .picker }
+    public var isOverlay: Bool { self == .switcher || self == .picker || self == .list }
 }
 
 /// What the tree is doing, as vim has modes. A new one (a diff, a context switch) is a case here, with its own way out
@@ -36,6 +39,10 @@ public enum ModeEffect: Equatable, Sendable {
     case closePicker(restoring: Surface)
     /// The open files' filter ends (the list stays, as it was).
     case endPickerFilter
+    /// A list of choices closes, nothing chosen, and the keyboard goes back to this surface.
+    case closeList(restoring: Surface)
+    /// A list of choices' filter ends.
+    case endListFilter
     /// The switcher closes and the keyboard goes back to this surface.
     case closeSwitcher(restoring: Surface)
 }
@@ -50,6 +57,9 @@ public struct Modes: Equatable, Sendable {
     public private(set) var editorEscape: Surface? = .tree
     /// Whether the open files' list is being filtered (typed into) and not browsed (j and k move).
     public private(set) var pickerFiltering = false
+    /// The list of choices up: what it is called (the mode's word), and whether it is being filtered.
+    public private(set) var listTitle = ""
+    public private(set) var listFiltering = false
     /// What had the keyboard when the switcher came up, to give it back.
     private var beneathSwitcher: Surface = .editor
 
@@ -83,6 +93,30 @@ public struct Modes: Equatable, Sendable {
 
     /// The status bar's list of open files came up.
     public mutating func openPicker() { openOverlay(.picker) }
+
+    /// A list of choices came up (`title` is its word in the status bar: THEME, PACKAGES...).
+    public mutating func openList(title: String) {
+        openOverlay(.list)
+        if surface == .list {
+            listTitle = title
+            listFiltering = false
+        }
+    }
+
+    /// The filter of a list of choices began or ended.
+    public mutating func listFilterChanged(open: Bool) {
+        if surface == .list { listFiltering = open }
+    }
+
+    /// A list of choices is done (one was chosen, say): the surface the keyboard goes back to.
+    @discardableResult
+    public mutating func closeList() -> Surface {
+        guard surface == .list else { return surface }
+        surface = beneathSwitcher
+        listFiltering = false
+        listTitle = ""
+        return surface
+    }
 
     private mutating func openOverlay(_ overlay: Surface) {
         guard !surface.isOverlay else { return }
@@ -125,6 +159,8 @@ public struct Modes: Equatable, Sendable {
         surface = .editor
         treeMode = .normal
         pickerFiltering = false
+        listFiltering = false
+        listTitle = ""
         editorEscape = .tree
         beneathSwitcher = .editor
     }
@@ -138,6 +174,12 @@ public struct Modes: Equatable, Sendable {
         switch surface {
         case .switcher:
             return .closeSwitcher(restoring: closeSwitcher())
+        case .list:
+            if listFiltering {
+                listFiltering = false
+                return .endListFilter
+            }
+            return .closeList(restoring: closeList())
         case .picker:
             if pickerFiltering {
                 pickerFiltering = false
@@ -167,6 +209,7 @@ public struct Modes: Equatable, Sendable {
         switch surface {
         case .switcher: "SWITCH"
         case .picker: pickerFiltering ? "FILTER" : "TABS"
+        case .list: listFiltering ? "FILTER" : listTitle.uppercased()
         case .tree: treeMode == .filter ? "FILTER" : "TREE"
         case .editor: Self.name(ofEditorMode: editorMode)
         }

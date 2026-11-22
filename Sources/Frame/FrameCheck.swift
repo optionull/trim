@@ -98,6 +98,7 @@ struct FrameCheck {
         await group("status") { await statusSteps() }
         await group("tabs") { await tabsSteps() }
         await group("scroll") { await scrollSteps() }
+        await group("theme") { await themeSteps() }
         await group("windows") { await windowSteps() }
         await group("switcher") { await switcherSteps() }
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -796,6 +797,89 @@ struct FrameCheck {
         )
         _ = await lua("vim.cmd('bwipeout!')")
         step(":FrameStatusline hides the bar and gives nvim's own back; the grid ends where the bar begins")
+    }
+
+    /// The colour scheme as a mode: a list in the tree's font whose rows are tried as the keyboard passes them (the
+    /// sidebar
+    /// and the bar follow), Return keeps one and saves it, Escape puts the old one back; `:FrameTheme` and `<leader>c`.
+    private func themeSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        func scheme() async -> String { await lua("return vim.g.colors_name or ''")?.stringValue ?? "" }
+        // The settings it saves go to a file of their own, not the config home the check was given.
+        let saved = NSTemporaryDirectory() + "frame-theme-\(UUID().uuidString).toml"
+        setenv("FRAME_SETTINGS", saved, 1)
+        defer { unsetenv("FRAME_SETTINGS") }
+        func savedText() -> String { (try? String(contentsOfFile: saved, encoding: .utf8)) ?? "" }
+        shell.focusEditor()
+        let original = await scheme()
+        guard !original.isEmpty else { fail("no colour scheme to begin with") }
+        // A variant (rose-pine-dawn) calls itself by its family's name, so what is compared is what is seen: the
+        // background.
+        let originalBackground = shell.editor.screen.defaultBackground
+        shell.showThemePicker(nil)
+        await wait("the colour schemes as a list") { shell.listPicker != nil }
+        guard let picker = shell.listPicker, shell.modes.surface == .list,
+              shell.modes.label(editorMode: "normal") == "COLOUR SCHEME", picker.all.count >= 10,
+              picker.cursor == original, picker.all.first(where: \.isCurrent)?.id == original
+        else { fail("the colour schemes did not come up as a mode on the current one: \(shell.modes.surface)") }
+        guard picker.all.contains(where: { $0.id == "tokyonight-night" && $0.detail.hasPrefix("Frame") }),
+              picker.all.contains(where: { $0.id.hasPrefix("catppuccin") })
+        else { fail("Frame's own schemes are not in the list") }
+        step("the colour schemes are a list, a mode of their own, on the scheme in use")
+        // Moving tries each: nvim takes it, and the sidebar and the bar follow its colours.
+        picker.keyDown(with: key("\u{F701}", code: 125))
+        guard let tried = picker.cursor, tried != original else { fail("the down arrow did not move") }
+        await wait("the editor's background to follow the keyboard") {
+            shell.editor.screen.defaultBackground != originalBackground
+        }
+        await wait("the sidebar to follow the scheme") {
+            shell.tree.look.palette.background == shell.editor.screen.defaultBackground
+        }
+        step("moving through the schemes tries each, and the sidebar follows")
+        picker.keyDown(with: key("\u{1B}", code: 53))
+        guard shell.listPicker == nil, shell.modes.surface == .editor else { fail("Escape did not put the list away") }
+        await wait("the old scheme back") { shell.editor.screen.defaultBackground == originalBackground }
+        guard savedText().isEmpty else { fail("a scheme only passed was saved: \(savedText())") }
+        step("Escape puts the old scheme back and saves nothing")
+        // Filter, choose: it stays and is saved.
+        shell.showThemePicker(nil)
+        await wait("the list again") { shell.listPicker != nil }
+        guard let again = shell.listPicker else { fail("no list") }
+        again.keyDown(with: key("/", code: 44))
+        guard shell.modes.listFiltering,
+              shell.modes.label(editorMode: "normal") == "FILTER" else { fail("`/` did not filter") }
+        for letter in "moon" {
+            again.keyDown(with: key(String(letter), code: 0))
+        }
+        guard !again.visible.isEmpty, again.visible.allSatisfy({ $0.title.contains("moon") }) else {
+            fail("the filter did not narrow to moon: \(again.visible.map(\.title))")
+        }
+        let chosen = again.visible[0].title
+        again.keyDown(with: key("\r", code: 36))
+        guard shell.listPicker == nil, shell.modes.surface == .editor else { fail("Return did not put the list away") }
+        await wait("the chosen scheme to stay") { shell.editor.screen.defaultBackground != originalBackground }
+        guard savedText().contains("colorscheme = \"\(chosen)\"")
+        else { fail("the choice was not saved: \(savedText())") }
+        step("`/` filters the schemes, Return keeps one and saves it in the settings")
+        // By name, and by the leader.
+        _ = await lua("vim.cmd('FrameTheme tokyonight-storm')")
+        await waitAsync(":FrameTheme to set it") { await scheme() == "tokyonight-storm" }
+        await wait("it to be saved") { savedText().contains("colorscheme = \"tokyonight-storm\"") }
+        _ = await lua("vim.cmd('FrameTheme no-such-scheme')")
+        try? await Task.sleep(for: .milliseconds(200))
+        guard await scheme() == "tokyonight-storm", !savedText().contains("no-such-scheme") else {
+            fail("an unknown scheme changed something")
+        }
+        let leader = await lua("return vim.g.mapleader or '\\\\'")?.stringValue ?? "\\"
+        channel.send(keys: leader + "c")
+        await wait("<leader>c to bring up the list") { shell.listPicker != nil }
+        shell.escape()
+        guard shell.listPicker == nil else { fail("Escape did not put the list away") }
+        step(
+            "`:FrameTheme name` sets and saves a scheme, an unknown one changes nothing, and <leader>c brings up the list"
+        )
+        _ = await lua("vim.cmd.colorscheme('\(original)')")
     }
 
     /// Smooth scrolling of the text: a scroll of nvim's slides, and a scroll that comes while one slides goes on from

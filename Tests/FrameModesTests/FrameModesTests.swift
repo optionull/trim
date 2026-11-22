@@ -300,3 +300,48 @@ import Testing
         #expect(!modes.pickerFiltering)
     }
 }
+
+@Suite struct ListModeTests {
+    @Test func `a list of choices is a mode with its own word, over everything, and Escape goes back`() {
+        for beneath in [Surface.editor, .tree] {
+            var modes = Modes()
+            modes.focused(beneath)
+            modes.openList(title: "Theme")
+            #expect(modes.surface == .list && modes.label(editorMode: "insert") == "THEME")
+            #expect(modes.escape(editorMode: "normal", sidebarVisible: true) == .closeList(restoring: beneath))
+            #expect(modes.surface == beneath && modes.label(editorMode: "normal") != "THEME")
+        }
+    }
+
+    @Test func `Escape ends the filter first, then closes`() {
+        var modes = Modes()
+        modes.openList(title: "Packages")
+        modes.listFilterChanged(open: true)
+        #expect(modes.label(editorMode: "normal") == "FILTER")
+        #expect(modes.escape(editorMode: "normal", sidebarVisible: true) == .endListFilter)
+        #expect(modes.surface == .list && modes.label(editorMode: "normal") == "PACKAGES")
+        #expect(modes.escape(editorMode: "normal", sidebarVisible: true) == .closeList(restoring: .editor))
+    }
+
+    @Test func `nothing else takes the keyboard, and one overlay does not open over another`() {
+        var modes = Modes()
+        modes.openList(title: "Theme")
+        modes.focused(.tree)
+        modes.handedToEditor()
+        modes.openSwitcher()
+        modes.openPicker()
+        #expect(modes.surface == .list)
+        #expect(modes.closeList() == .editor)
+    }
+
+    @Test func `a new list starts with no filter, and a filter outside a list is nothing`() {
+        var modes = Modes()
+        modes.listFilterChanged(open: true)
+        #expect(!modes.listFiltering)
+        modes.openList(title: "A")
+        modes.listFilterChanged(open: true)
+        _ = modes.closeList()
+        modes.openList(title: "B")
+        #expect(!modes.listFiltering && modes.label(editorMode: "normal") == "B")
+    }
+}

@@ -157,10 +157,10 @@ struct KeysLuaTests {
           assert(key[3] and key[3] ~= '', 'a description for ' .. key[1])
           what[key[2]] = true
         end
-        for _, plug in ipairs({ 'tree-toggle', 'tree-focus', 'tree-filter', 'workspace', 'tabs-list' }) do
+        for _, plug in ipairs({ 'tree-toggle', 'tree-focus', 'tree-filter', 'workspace', 'tabs-list', 'theme' }) do
           assert(what['<Plug>(frame-' .. plug .. ')'], 'a key for ' .. plug)
         end
-        for _, lhs in ipairs({ '<leader>e', '<leader>w', '<leader>t', '<leader>o' }) do
+        for _, lhs in ipairs({ '<leader>e', '<leader>w', '<leader>t', '<leader>o', '<leader>c' }) do
           local found = false
           for _, key in ipairs(keys.defaults) do if key[1] == lhs then found = true end end
           assert(found, 'one-letter key ' .. lhs)

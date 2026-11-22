@@ -312,6 +312,10 @@ final class FrameApp: NSObject, NSApplicationDelegate {
         }
         maxItem.submenu = maxMenu
         tabsItem.submenu = tabsMenu
+        let themeItem = viewMenu.addItem(
+            withTitle: "Colour Scheme…", action: #selector(Window.showThemePicker(_:)), keyEquivalent: "t"
+        )
+        themeItem.keyEquivalentModifierMask = [.command, .option]
         viewMenu.addItem(withTitle: "Filter Files", action: #selector(Window.filterTree(_:)), keyEquivalent: "f")
             .keyEquivalentModifierMask = [.command, .option]
         let ignoredItem = viewMenu.addItem(

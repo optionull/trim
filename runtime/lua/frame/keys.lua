@@ -10,6 +10,7 @@ M.defaults = {
   { '<leader>E', '<Plug>(frame-tree-filter)', 'Filter the file tree' },
   { '<leader>w', '<Plug>(frame-workspace)', 'Switch workspace' },
   { '<leader>t', '<Plug>(frame-tabs-list)', 'Open files (tabs)' },
+  { '<leader>c', '<Plug>(frame-theme)', 'Colour scheme' },
   { '<leader>o', '<Plug>(frame-tabs-list)', 'Open files (tabs)' },
   { '<leader>fw', '<Plug>(frame-workspace)', 'Switch workspace' },
   { '<leader>fo', '<Plug>(frame-tabs-list)', 'Open files' },

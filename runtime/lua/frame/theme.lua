@@ -14,6 +14,23 @@ function M.selection()
   return hl.bg
 end
 
+--- Every highlight group as it is, and the scheme's name and background, to put back exactly: a scheme with variants
+--- (rose-pine) remembers the last one, so applying its name again would not.
+function M.snapshot()
+  M.saved = { groups = vim.api.nvim_get_hl(0, {}), name = vim.g.colors_name, background = vim.o.background }
+end
+
+--- What `snapshot` took, put back.
+function M.restore()
+  local saved = M.saved
+  if not saved then return end
+  vim.cmd('highlight clear')
+  for name, attrs in pairs(saved.groups) do pcall(vim.api.nvim_set_hl, 0, name, attrs) end
+  vim.o.background = saved.background
+  vim.g.colors_name = saved.name
+  M.send()
+end
+
 function M.send()
   notify('frame_theme', { selection = M.selection() })
 end
