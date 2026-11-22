@@ -26,8 +26,6 @@ struct StatusState: Equatable {
     /// How the last build ended, as the bar says it ("✓ Build succeeded"); empty when there is nothing to say.
     var buildResult = ""
     var buildFailed = false
-    /// What the language servers are busy with now (indexing, loading projects, analysing), if anything.
-    var progress = ""
     var filetype = ""
     var line = 0, col = 0, lines = 0, top = 0, bottom = 0
     /// With the tabs in the status bar and more than one file open: how many, the file's name being the way to them.
@@ -44,12 +42,17 @@ final class StatusBarView: NSView {
         didSet { needsDisplay = true }
     }
 
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) { fatalError("not used") }
+
     var state = StatusState() {
         didSet {
             if state != oldValue { needsDisplay = true }
-            if state.building.isEmpty != oldValue.building.isEmpty {
-                if state.building.isEmpty { stopSpinner() } else { startSpinner() }
-            }
         }
     }
 
@@ -64,26 +67,25 @@ final class StatusBarView: NSView {
         didSet { if buildRect != oldValue { window?.invalidateCursorRects(for: self) } }
     }
 
-    /// The loader while a build runs: a step of it every moment, only for as long as it runs.
     /// Which clickable section the pointer is over (it has a ground of its own then).
     private var hoveringTarget: Piece.Target?
-    private var spinner: Timer?
-    private var spinnerStep = 0
-    private static let spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-    private func startSpinner() {
-        spinner?.invalidate()
-        spinner = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.spinnerStep += 1
-                self?.needsDisplay = true
-            }
+    /// The loader while a build runs: a turning arc that Core Animation moves, so the bar is not drawn again for it.
+    private let spinner = SpinnerLayer()
+    var spinnerFrame: NSRect { spinner.isHidden ? .zero : spinner.frame }
+    var isSpinning: Bool { !spinner.isHidden && spinner.animation(forKey: "turn") != nil }
+
+    private func placeSpinner(_ rect: NSRect?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let rect {
+            if spinner.superlayer == nil { layer?.addSublayer(spinner) }
+            spinner.place(in: rect, color: Design.accent)
+            spinner.isHidden = false
+        } else {
+            spinner.isHidden = true
         }
-    }
-
-    private func stopSpinner() {
-        spinner?.invalidate()
-        spinner = nil
+        CATransaction.commit()
     }
 
     /// A click on the workspace segment: the switcher.
@@ -194,13 +196,21 @@ final class StatusBarView: NSView {
         return NSColor(frameRGB: rgb)
     }
 
-    private struct Piece {
+    @MainActor private struct Piece {
         enum Target { case problems, build }
 
         var text: NSAttributedString
         var target: Target?
         var gap: CGFloat = 12
-        var width: CGFloat { ceil(text.size().width) }
+        /// Measured once (shaping text in a ligature font is the slow part of drawing the bar).
+        let width: CGFloat
+
+        init(text: NSAttributedString, target: Target? = nil, gap: CGFloat = 12) {
+            self.text = text
+            self.target = target
+            self.gap = gap
+            width = TextWidths.of(text)
+        }
     }
 
     private func attributed(
@@ -238,15 +248,10 @@ final class StatusBarView: NSView {
             diagnostics.append(attributed(" \(count)", color))
         }
         if diagnostics.length > 0 { right.append(Piece(text: diagnostics, target: .problems)) }
-        if !state.progress.isEmpty {
-            let text = NSMutableAttributedString(attributedString: icon("\u{F110}", look.muted))
-            text.append(attributed("  " + state.progress, look.faint))
-            right.append(Piece(text: text))
-        }
         // A build: a loader while it runs, then how it went for a while.
+        var spinnerAt: NSRect?
         if !state.building.isEmpty {
-            let frame = Self.spinnerFrames[spinnerStep % Self.spinnerFrames.count]
-            right.append(Piece(text: attributed(frame + " Building " + state.building, Design.accent), target: .build))
+            right.append(Piece(text: attributed("     Building " + state.building, Design.accent), target: .build))
         } else if !state.buildResult.isEmpty {
             let color: NSColor = state.buildFailed ? .systemRed : .systemGreen
             right.append(Piece(text: attributed(state.buildResult, color), target: .build))
@@ -263,11 +268,20 @@ final class StatusBarView: NSView {
             }
             piece.text.draw(at: NSPoint(x: edge - piece.width, y: midY - size.height / 2))
             if piece.target == .problems { newProblemsRect = box }
-            if piece.target == .build { newBuildRect = box }
+            if piece.target == .build {
+                newBuildRect = box
+                if !state.building.isEmpty { spinnerAt = NSRect(
+                    x: edge - piece.width,
+                    y: midY - 7,
+                    width: 14,
+                    height: 14
+                ) }
+            }
             edge -= piece.width + piece.gap
         }
         problemsRect = newProblemsRect
         buildRect = newBuildRect
+        placeSpinner(spinnerAt)
         // The left side: the mode, the branch, then the file, which gives way when there is no room.
         var x: CGFloat = 8
         workspaceRect = .zero
@@ -334,7 +348,7 @@ final class StatusBarView: NSView {
         let pathFont = look.font.withSize(look.smallFont.pointSize + 1)
         let room = max(0, edge - x - 96)
         let shownPath = StatusLine.fitted(state.path, width: room) { text in
-            ceil((text as NSString).size(withAttributes: [.font: pathFont]).width)
+            TextWidths.of(NSAttributedString(string: text, attributes: [.font: pathFont]))
         }
         file.append(attributed(shownPath, look.text, font: pathFont))
         if state.readonly { file.append(icon("  \u{F023}", look.muted)) }
@@ -360,5 +374,20 @@ final class StatusBarView: NSView {
             options: [.truncatesLastVisibleLine, .usesLineFragmentOrigin]
         )
         picker.draw(at: NSPoint(x: x + shown, y: midY - picker.size().height / 2))
+    }
+}
+
+/// How wide text is, remembered: the status bar draws again and again (a loader turns in it) and the same strings are
+/// measured each time.
+@MainActor
+enum TextWidths {
+    private static var known: [NSAttributedString: CGFloat] = [:]
+
+    static func of(_ text: NSAttributedString) -> CGFloat {
+        if let width = known[text] { return width }
+        if known.count > 400 { known.removeAll() }
+        let width = ceil(text.size().width)
+        known[text] = width
+        return width
     }
 }

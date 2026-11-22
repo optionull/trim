@@ -51,7 +51,6 @@ function M.snapshot()
     infos = counts[vim.diagnostic.severity.INFO] or 0,
     hints = counts[vim.diagnostic.severity.HINT] or 0,
     lsp = clients,
-    progress = ok and lsp.progress_text() or '',
     recording = vim.fn.reg_recording(),
   }
 end

@@ -279,6 +279,16 @@ struct FrameBaseLuaTests {
         """#)
     }
 
+    @Test("the client does not offer to watch files for the servers: nvim's own watcher holds it while a build runs")
+    func noWatching() throws {
+        try check(settings: "{}", #"""
+        local capabilities = require('frame.lsp').capabilities()
+        local watch = capabilities.workspace.didChangeWatchedFiles
+        assert(watch and watch.dynamicRegistration == false, 'watching is not offered: ' .. vim.inspect(watch))
+        assert(capabilities.textDocument.codeAction, 'the rest of what nvim offers is kept')
+        """#)
+    }
+
     @Test("autostart: the settings can turn it off")
     func autostartOff() throws {
         try check(settings: #"{"lsp":{"autostart":false}}"#, #"""

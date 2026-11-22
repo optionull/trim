@@ -142,6 +142,8 @@ final class FrameView: NSView {
     }
 
     let divider = DividerView()
+    /// What is going on (servers loading and analysing, a build): a toast at the bottom left of the code.
+    let progress = ProgressToastView()
     /// Whether the bar shows under the grid (a config can keep its own status line instead).
     var statusVisible = true {
         didSet { needsLayout = true }
@@ -208,6 +210,8 @@ final class FrameView: NSView {
         addSubview(chip)
         addSubview(tabStrip)
         addSubview(tabList)
+        progress.isHidden = true
+        addSubview(progress)
     }
 
     @available(*, unavailable)
@@ -285,6 +289,11 @@ final class FrameView: NSView {
         }
         editor.frame = column
         overlay.frame = editor.frame
+        let toastHeight = progress.contentHeight
+        progress.frame = NSRect(
+            x: column.minX + 12, y: column.maxY - toastHeight - 12, width: min(380, max(0, column.width - 24)),
+            height: toastHeight
+        )
         let barX = across || !chipShown ? frame.minX : x
         statusBar.frame = NSRect(x: barX, y: footY, width: frame.maxX - barX, height: barHeight)
     }
@@ -408,6 +417,12 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     private(set) var listPicker: ListPickerView?
     /// The worst level of each file nvim has diagnostics for, and of each file the last build complained of.
     var nvimDiagnostics: [String: DiagnosticLevel] = [:]
+    /// How many diagnostics nvim has of each level, in all files.
+    var nvimCounts: [DiagnosticLevel: Int] = [:]
+    /// What the language servers are busy with, as nvim last said.
+    var lspProgress: [ProgressItem] = []
+    var problemsReloading = false
+    var problemsDirty = false
     var buildDiagnostics: [String: DiagnosticLevel] = [:]
     /// What the last build printed, as problems.
     var buildProblems: [ProblemRow] = []
@@ -498,6 +513,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         tree.onPalette = { [weak self] palette in
             self?.styleWhichKey(palette)
             self?.statusBar.look = self?.tree.look ?? TreeLook()
+            self?.view.progress.look = self?.tree.look ?? TreeLook()
             self?.chip.look = self?.tree.look ?? TreeLook()
             for list in [self?.tabStrip, self?.tabList] {
                 list?.look = self?.tree.look ?? TreeLook()
@@ -774,17 +790,36 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case "frame_packages": showPackages(nil)
         case "frame_select": showSelect(args)
         case "frame_diag":
-            var files: [String: DiagnosticLevel] = [:]
-            for (key, value) in args.first?.dictionaryValue ?? [:] {
-                if let path = key.stringValue, let raw = value.integerValue,
-                   let level = DiagnosticLevel(rawValue: Int(raw))
-                {
-                    files[path] = level
+            // What changed since the last time (the first time, everything): a file's worst level, 0 for none left.
+            let map = args.first?.dictionaryValue ?? [:]
+            for (key, value) in map[.string("files")]?.dictionaryValue ?? [:] {
+                guard let path = key.stringValue, let raw = value.integerValue else { continue }
+                if let level = DiagnosticLevel(rawValue: Int(raw)) { nvimDiagnostics[path] = level } else {
+                    nvimDiagnostics[path] = nil
                 }
             }
-            nvimDiagnostics = files
+            if let counts = map[.string("counts")]?.arrayValue?.compactMap(\.integerValue), counts.count == 4 {
+                nvimCounts = [
+                    .error: Int(counts[0]),
+                    .warning: Int(counts[1]),
+                    .info: Int(counts[2]),
+                    .hint: Int(counts[3]),
+                ]
+            }
             sendDiagnosticsToTree()
             reloadProblems()
+        case "frame_progress":
+            lspProgress = (args.first?.arrayValue ?? []).compactMap { entry in
+                guard let map = entry.dictionaryValue, let id = map[.string("id")]?.stringValue else { return nil }
+                let percentage = map[.string("percentage")]?.integerValue.map(Int.init)
+                return ProgressItem(
+                    id: id, client: map[.string("client")]?.stringValue ?? "",
+                    title: map[.string("title")]?.stringValue ?? "",
+                    message: map[.string("message")]?.stringValue ?? "",
+                    percentage: percentage.flatMap { $0 >= 0 ? $0 : nil }
+                )
+            }
+            updateProgressToast()
         case "frame_run":
             switch args.first?.stringValue {
             case "build": buildDefault(nil)
@@ -908,9 +943,25 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         refreshStatus()
     }
 
+    /// The toast of what is going on: the servers' work, and the build.
+    func updateProgressToast() {
+        var items = lspProgress
+        if !status.building.isEmpty {
+            items.append(ProgressItem(
+                id: "build",
+                client: "Build",
+                title: status.building,
+                message: "",
+                percentage: nil
+            ))
+        }
+        view?.progress.items = items
+    }
+
     /// How the build in the status bar is going: running (its title), or how it ended, for a while.
     func setBuild(running title: String = "", result: String = "", failed: Bool = false) {
         status.building = title
+        updateProgressToast()
         status.buildResult = result
         status.buildFailed = failed
         refreshStatus()
@@ -1431,7 +1482,6 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             status.hints = totals[.hint] ?? 0
         }
         status.lsp = map[.string("lsp")]?.arrayValue?.compactMap(\.stringValue) ?? []
-        status.progress = text("progress")
         refreshStatus()
     }
 

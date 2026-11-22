@@ -73,9 +73,13 @@ extension FrameWindowController {
         reloadProblems()
     }
 
-    private func nvimProblems() async -> [ProblemRow] {
-        let reply = try? await session.channel.lua("return require('frame.diag').list()")
-        return (reply?.arrayValue ?? []).compactMap { entry -> ProblemRow? in
+    nonisolated static func relative(_ path: String, to root: String) -> String {
+        path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : path
+    }
+
+    /// Every problem nvim has, from its reply (off the main thread: there can be thousands).
+    nonisolated static func rows(from reply: MessagePackValue?) -> [ProblemRow] {
+        (reply?.arrayValue ?? []).compactMap { entry -> ProblemRow? in
             guard let map = entry.dictionaryValue, let path = map[.string("path")]?.stringValue,
                   let raw = map[.string("severity")]?.integerValue, let level = DiagnosticLevel(rawValue: Int(raw))
             else { return nil }
@@ -88,8 +92,36 @@ extension FrameWindowController {
         }
     }
 
-    nonisolated static func relative(_ path: String, to root: String) -> String {
-        path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : path
+    /// The list's rows for what nvim said and the build printed: merged, the levels shown, with the counts of each.
+    nonisolated static func listing(
+        _ reply: MessagePackValue?, build: [ProblemRow], levels: Set<DiagnosticLevel>, root: String
+    ) -> (items: [PickerItem], rows: [String: ProblemRow], counts: [DiagnosticLevel: Int]) {
+        let all = ProblemRow.merged(nvim: rows(from: reply), build: build)
+        var counts: [DiagnosticLevel: Int] = [:]
+        for row in all {
+            counts[row.level, default: 0] += 1
+        }
+        var byID: [String: ProblemRow] = [:]
+        let items = all.filter { levels.contains($0.level) }.map { row -> PickerItem in
+            let id = "\(row.path)\t\(row.line)\t\(row.column)\t\(row.code)\t\(row.message)"
+            byID[id] = row
+            return PickerItem(
+                id: id, title: row.message, detail: Self.relative(row.path, to: root) + ":\(row.line)",
+                glyph: ProblemRow.glyph(row.level), subtitle: row.code, file: (row.path as NSString).lastPathComponent
+            )
+        }
+        return (items, byID, counts)
+    }
+
+    /// The status bar's counts: nvim's own counts (kept by nvim as diagnostics arrive, so nothing is listed to count
+    /// them) and what the last build printed in files nvim has nothing for.
+    func recountProblems() {
+        var totals = nvimCounts
+        for row in buildProblems where nvimDiagnostics[row.path] == nil {
+            totals[row.level, default: 0] += 1
+        }
+        problemTotals = totals
+        applyProblemTotals()
     }
 
     /// Where a problem is, in the editor: the file, the line and the column.
@@ -131,6 +163,7 @@ extension FrameWindowController {
             return true
         }
         pane.onMinimize = { [weak self] in self?.hideBuildPane() }
+        pane.onTabChange = { [weak self] _ in self?.reloadProblems() }
         pane.onRebuild = { [weak self] in self?.rebuild() }
         pane.onFocus = { [weak self] in self?.terminalFocused() }
         pane.onEscape = { [weak self] in self?.focusEditor() }
@@ -140,42 +173,42 @@ extension FrameWindowController {
         return pane
     }
 
-    /// What there is to say about problems, from what nvim has now and what the last build printed: the counts for the
-    /// status bar always, and the pane's list (worst first, only the levels switched on) when there is a pane. Called
-    /// whenever either changes.
+    /// What there is to say about problems: the counts for the status bar always (cheap), and the pane's list only
+    /// while
+    /// it is open on Problems, and then at most every so often however fast diagnostics arrive, the work done off the
+    /// main thread. Called whenever either nvim's diagnostics or the build's change, or the pane opens.
     func reloadProblems() {
+        recountProblems()
+        guard let pane = runPane, !pane.isHidden, pane.tab == .problems else { return }
+        guard !problemsReloading else {
+            problemsDirty = true
+            return
+        }
+        problemsReloading = true
         Task { [weak self] in
             guard let self else { return }
-            let all = await ProblemRow.merged(nvim: nvimProblems(), build: buildProblems)
-            var totals: [DiagnosticLevel: Int] = [:]
-            for row in all {
-                totals[row.level, default: 0] += 1
+            let reply = try? await session.channel.lua("return require('frame.diag').list()")
+            let build = buildProblems, levels = problemLevels, root = workspace
+            let listing = await Task.detached { Self.listing(reply, build: build, levels: levels, root: root) }.value
+            if let pane = runPane {
+                problemRows = listing.rows
+                pane.problems.chips = DiagnosticLevel.allCases.sorted(by: >).map { level in
+                    ListChip(
+                        id: String(level.rawValue), title: ProblemRow.name(level), glyph: ProblemRow.glyph(level),
+                        color: SquiggleView.color(level), count: listing.counts[level] ?? 0,
+                        on: problemLevels.contains(level), key: ProblemRow.keys[level] ?? ""
+                    )
+                }
+                if pane.problems.all != listing
+                    .items { pane.problems.set(listing.items, current: pane.problems.cursor) }
+                pane.problemCount = (listing.counts[.error] ?? 0) + (listing.counts[.warning] ?? 0)
             }
-            problemTotals = totals
-            applyProblemTotals()
-            guard let pane = runPane else { return }
-            let root = workspace
-            let shown = all.filter { problemLevels.contains($0.level) }
-            var rows: [String: ProblemRow] = [:]
-            let items = shown.map { row -> PickerItem in
-                let id = "\(row.path)\t\(row.line)\t\(row.column)\t\(row.code)\t\(row.message)"
-                rows[id] = row
-                return PickerItem(
-                    id: id, title: row.message, detail: Self.relative(row.path, to: root) + ":\(row.line)",
-                    glyph: ProblemRow.glyph(row.level), subtitle: row.code,
-                    file: (row.path as NSString).lastPathComponent
-                )
+            try? await Task.sleep(for: .milliseconds(300))
+            problemsReloading = false
+            if problemsDirty {
+                problemsDirty = false
+                reloadProblems()
             }
-            problemRows = rows
-            pane.problems.chips = DiagnosticLevel.allCases.sorted(by: >).map { level in
-                ListChip(
-                    id: String(level.rawValue), title: ProblemRow.name(level), glyph: ProblemRow.glyph(level),
-                    color: SquiggleView.color(level),
-                    count: totals[level] ?? 0, on: problemLevels.contains(level), key: ProblemRow.keys[level] ?? ""
-                )
-            }
-            if pane.problems.all != items { pane.problems.set(items, current: pane.problems.cursor) }
-            pane.problemCount = (totals[.error] ?? 0) + (totals[.warning] ?? 0)
         }
     }
 
@@ -185,6 +218,7 @@ extension FrameWindowController {
         if pane.isHidden {
             pane.isHidden = false
             view.needsLayout = true
+            reloadProblems()
         }
     }
 

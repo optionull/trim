@@ -91,6 +91,8 @@ struct FrameCheck {
             print(String(format: "time  %-8@ %.1fs", name as NSString, Date().timeIntervalSince(began)))
             fflush(stdout)
         }
+        // Not in a plain run: it builds a real solution (a copy of a folder named by FRAME_LOAD_FOLDER) and measures.
+        if only?.contains("load") == true { await group("load") { await loadSteps() } }
         await group("tree") { await treeSteps() }
         await group("focus") { await focusSteps() }
         await group("forward") { await forwardSteps() }
@@ -1144,6 +1146,12 @@ struct FrameCheck {
             // A clean build runs unseen: a loader in the status bar, then a line; no pane.
             shell.run(RunEntry(title: "clean", source: "make", kind: .build, command: "echo fine", directory: folder))
             await wait("the loader in the status bar") { shell.status.building == "clean" }
+            guard shell.view.progress.items.contains(where: { $0.id == "build" && $0.title == "clean" })
+            else { fail("the build is not a row of the progress toast") }
+            shell.view.statusBar.displayIfNeeded()
+            guard shell.view.statusBar.isSpinning, shell.view.statusBar.spinnerFrame.width > 8,
+                  shell.view.statusBar.spinnerFrame.maxX < shell.view.statusBar.bounds.width
+            else { fail("the build's loader in the status bar is not turning: \(shell.view.statusBar.spinnerFrame)") }
             guard shell.runPane?.isHidden == true, shell.editor.frame == before
             else { fail("a build that has nothing to say took room from the code") }
             await wait("the build to end with a line in the status bar", seconds: 20) {
@@ -1501,18 +1509,56 @@ struct FrameCheck {
         await waitAsync("the fake server to attach") {
             await lua("return #vim.lsp.get_clients({ bufnr = 0, name = 'fake' })")?.integerValue == 1
         }
-        // What a server is busy with is in the status bar, and gone when it is done.
+        // What the servers are busy with is a row of the progress toast each, and gone when it is done.
         _ = await lua("""
         local id = vim.lsp.get_clients({ name = 'fake' })[1].id
-        vim.api.nvim_exec_autocmds('LspProgress', { data = { client_id = id, params = { token = 't', value = { kind = 'begin', title = 'Loading projects', percentage = 10 } } } })
+        local function event(token, value) vim.api.nvim_exec_autocmds('LspProgress', { data = { client_id = id, params = { token = token, value = value } } }) end
+        event('a', { kind = 'begin', title = 'Loading projects', percentage = 10 })
+        event('b', { kind = 'begin', title = 'Indexing', message = '12 of 40' })
         """)
-        await wait("the server's progress in the status bar") { shell.status.progress == "fake: Loading projects 10%" }
+        let toast = shell.view.progress
+        await wait("a row for each thing the server is busy with") {
+            toast.items.count == 2 && toast.items
+                .contains { $0.title == "Loading projects" && $0.percentage == 10 && $0.client == "fake" }
+                && toast.items.contains { $0.title == "Indexing" && $0.message == "12 of 40" && $0.percentage == nil }
+        }
+        guard !toast.isHidden, toast.frame.height > 0, toast.frame.maxX < shell.editor.frame.maxX
+        else { fail("the progress toast is not showing: \(toast.frame)") }
+        toast.layoutSubtreeIfNeeded()
+        guard toast.loaders == 2, toast.movingBars == 1
+        else {
+            fail(
+                "the toast's loaders are not going: \(toast.loaders) spinners, \(toast.movingBars) moving bars for two rows"
+            )
+        }
+        guard let top = toast.firstLoaderTop, top > 4, top < 24
+        else {
+            fail("the first loader is not in the first row: \(String(describing: toast.firstLoaderTop)) from the top")
+        }
         _ = await lua("""
         local id = vim.lsp.get_clients({ name = 'fake' })[1].id
-        vim.api.nvim_exec_autocmds('LspProgress', { data = { client_id = id, params = { token = 't', value = { kind = 'end' } } } })
+        vim.api.nvim_exec_autocmds('LspProgress', { data = { client_id = id, params = { token = 'a', value = { kind = 'end' } } } })
         """)
-        await wait("the progress to go when the server is done") { shell.status.progress.isEmpty }
-        step("what a language server is busy with shows in the status bar, and goes when it is done")
+        await wait("a row to go when its work is done") {
+            toast.items.count == 1 && toast.items.first?.title == "Indexing"
+        }
+        _ = await lua("""
+        local id = vim.lsp.get_clients({ name = 'fake' })[1].id
+        vim.api.nvim_exec_autocmds('LspProgress', { data = { client_id = id, params = { token = 'b', value = { kind = 'end' } } } })
+        """)
+        await wait("the toast to go when nothing is going on") { toast.items.isEmpty && toast.isHidden }
+        // A server that gives workspace diagnostics says nothing while it analyses: shown as busy until they stop
+        // arriving.
+        _ = await lua("""
+        local lsp = require('frame.lsp')
+        lsp.analysis_quiet = 400
+        lsp.track_analysis(vim.lsp.get_clients({ name = 'fake' })[1])
+        """)
+        await wait("the analysis as a row") { toast.items.contains { $0.title == "Analysing files" } }
+        await wait("the analysis to end once diagnostics have stopped arriving", seconds: 10) { toast.items.isEmpty }
+        step(
+            "what the servers are busy with, and the analysis of files, are rows of one progress toast that comes and goes"
+        )
         guard await lua("return vim.fn.maparg('<M-CR>', 'n')")?.stringValue != ""
         else { fail("no Alt+Enter on a buffer with a server") }
         shell.focusEditor()
@@ -1667,6 +1713,69 @@ struct FrameCheck {
         try? FileManager.default.removeItem(atPath: fsFolder)
     }
 
+    /// How the window behaves while a real solution builds with its language server analysing: how long the main thread
+    /// is held up, and how long nvim takes to answer a request. Opt in with SILL_FRAME_CHECK_ONLY=load and
+    /// FRAME_LOAD_FOLDER (a copy is built, never the folder itself).
+    private func loadSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        guard let source = ProcessInfo.processInfo.environment["FRAME_LOAD_FOLDER"]
+        else { return step("FRAME_LOAD_FOLDER is not set: the load was not measured") }
+        let copy = RealPath.of(NSTemporaryDirectory()) + "/frame-load-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: copy) }
+        guard let done = try? await FrameServers.run(
+            "/usr/bin/rsync", [
+                "-a",
+                "--exclude",
+                "bin",
+                "--exclude",
+                "obj",
+                "--exclude",
+                "node_modules",
+                source + "/",
+                copy + "/",
+            ]
+        ), done.code == 0 else { fail("could not copy \(source)") }
+        _ = await lua("vim.cmd.cd('\(copy)')")
+        for _ in 0 ..< 600 {
+            let n = await lua("return #vim.lsp.get_clients()")?.integerValue ?? 0
+            if n > 0 { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        // Give the server time to load its projects and begin analysing, as it does for a person who has just opened
+        // it.
+        try? await Task.sleep(for: .seconds(20))
+        let stalls = StallMonitor()
+        stalls.start()
+        var trips: [Double] = []
+        let build = RunEntry(
+            title: "Build proc.slnx", source: "dotnet", kind: .build,
+            command: "dotnet build \(ProcessInfo.processInfo.environment["FRAME_LOAD_SOLUTION"] ?? "proc.slnx")",
+            directory: copy
+        )
+        shell.run(build)
+        let began = Date()
+        while Date().timeIntervalSince(began) < 240 {
+            let t = Date()
+            _ = await lua("return 1")
+            trips.append(Date().timeIntervalSince(t))
+            if shell.status.building.isEmpty { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        let (worst, count) = stalls.stop()
+        trips.sort()
+        let p95 = trips.isEmpty ? 0 : trips[min(trips.count - 1, Int(Double(trips.count) * 0.95))]
+        print(String(
+            format: "load  build took %.1fs, main thread held up at most %.0fms (%d stalls over 100ms); nvim answered in at most %.0fms (p95 %.0fms) over %d requests",
+            Date().timeIntervalSince(began), worst * 1000, count, (trips.last ?? 0) * 1000, p95 * 1000, trips.count
+        ))
+        let problemsNow = await lua("return #vim.diagnostic.get()")?.integerValue ?? 0
+        print("load  diagnostics now: \(problemsNow), the window's totals: \(shell.problemTotals ?? [:])")
+        // The numbers are what this is for (a machine with every core busy varies a good deal): a build is not failed
+        // over them.
+        step("a real build with the server analysing was measured (see the line above)")
+    }
+
     /// A folder's project files start the servers they call for at launch, without a file open: Roslyn begins on the
     /// solution and the problems of files never opened reach the list; a file opened later finds the same server.
     private func startupSteps() async {
@@ -1715,6 +1824,11 @@ struct FrameCheck {
         }
         guard await found()
         else { fail("the problems of a file never opened did not arrive from the server started at launch") }
+        guard await lua("""
+        local c = vim.lsp.get_clients({ name = 'frame_csharp' })[1]
+        return c.capabilities.workspace.didChangeWatchedFiles.dynamicRegistration == false
+        """)?.boolValue == true
+        else { fail("the running server was told nvim watches files for it") }
         step(
             "the folder's solution starts Roslyn at launch, and the problems of files never opened arrive in the background"
         )
@@ -3051,4 +3165,53 @@ struct FrameCheck {
     }
 
     struct ShotFailure: Error {}
+}
+
+/// Watches how long the main thread is held up: a thread asks it to answer every 50ms and times the wait.
+final class StallMonitor: @unchecked Sendable {
+    private let lock = NSLock()
+    private var running = false
+    private var worst = 0.0
+    private var count = 0
+    private var captured = 0
+
+    func start() {
+        lock.lock()
+        running = true
+        lock.unlock()
+        Thread.detachNewThread { [self] in
+            while true {
+                lock.lock()
+                let go = running
+                lock.unlock()
+                if !go { return }
+                let asked = Date()
+                let semaphore = DispatchSemaphore(value: 0)
+                DispatchQueue.main.async { semaphore.signal() }
+                semaphore.wait()
+                let waited = Date().timeIntervalSince(asked)
+                lock.lock()
+                worst = max(worst, waited)
+                if waited > 0.1 { count += 1 }
+                let capture = waited > 0.4 && captured < 4
+                if capture { captured += 1 }
+                lock.unlock()
+                // A long stall is looked at: where the main thread is, a moment after it is seen to be stuck.
+                if capture, let path = ProcessInfo.processInfo.environment["FRAME_LOAD_SAMPLES"] {
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
+                    process.arguments = ["\(getpid())", "1", "1", "-file", "\(path)/stall-\(captured).txt"]
+                    try? process.run()
+                }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+        }
+    }
+
+    func stop() -> (Double, Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        running = false
+        return (worst, count)
+    }
 }

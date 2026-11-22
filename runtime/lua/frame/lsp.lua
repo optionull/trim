@@ -115,8 +115,20 @@ local function root_of(spec, buf)
   return found or vim.uv.cwd()
 end
 
+--- What the client says it can do. It does not watch files for the server: nvim does that in Lua, matching every change
+--- the file system reports against every pattern the server registered, and a build touches thousands of files in bin
+--- and obj, which holds nvim for tens of seconds. Told it does not, a server watches for itself (Roslyn, rust-analyzer
+--- and the others all do).
+function M.capabilities()
+  local capabilities = vim.lsp.protocol.make_client_capabilities()
+  capabilities.workspace = capabilities.workspace or {}
+  capabilities.workspace.didChangeWatchedFiles = { dynamicRegistration = false, relativePatternSupport = false }
+  return capabilities
+end
+
 local function config_at(name, spec, root, command)
   return {
+    capabilities = M.capabilities(),
     name = 'frame_' .. name,
     cmd = command,
     root_dir = root,
@@ -136,6 +148,7 @@ function M.workspace_diagnostics(client)
   local provider = client.server_capabilities and client.server_capabilities.diagnosticProvider
   if provider and provider.workspaceDiagnostics then
     pcall(vim.lsp.buf.workspace_diagnostics, { client_id = client.id })
+    M.track_analysis(client)
   end
 end
 
@@ -143,17 +156,60 @@ end
 M.progress = {}
 local progress_stamp = 0
 
---- One line for the status bar: the newest of what is going on, or nothing.
-function M.progress_text()
-  local newest
-  for _, entry in pairs(M.progress) do
-    if not newest or entry.stamp > newest.stamp then newest = entry end
+local function push_progress()
+  if M.progress_timer then return end
+  M.progress_timer = vim.defer_fn(function()
+    M.progress_timer = nil
+    notify('frame_progress', M.progress_items())
+  end, 80)
+end
+
+--- Everything the servers are busy with, oldest first, for the window's progress toast: { id, client, title, message,
+--- percentage (-1 when it has none) }.
+function M.progress_items()
+  local items = {}
+  for key, entry in pairs(M.progress) do
+    items[#items + 1] = {
+      id = key, client = entry.client, title = entry.title or '', message = entry.message or '',
+      percentage = entry.percentage or -1, stamp = entry.stamp,
+    }
   end
-  if not newest then return '' end
-  local text = newest.client .. ': ' .. (newest.title or '')
-  if newest.message and newest.message ~= '' then text = text .. ' ' .. newest.message end
-  if newest.percentage then text = text .. (' %d%%'):format(newest.percentage) end
-  return text
+  table.sort(items, function(a, b) return a.stamp < b.stamp end)
+  return items
+end
+
+--- Analysing files: a server that gives workspace diagnostics says nothing while it works through them, so it is shown
+--- as busy from the request until diagnostics have stopped arriving for a while (`analysis_quiet`), counting the files
+--- with problems found so far.
+M.analysis_quiet = 3000
+local analysis_timers = {}
+
+local function analysis_quiet_timer(key)
+  if analysis_timers[key] then analysis_timers[key]:stop() end
+  analysis_timers[key] = analysis_timers[key] or vim.uv.new_timer()
+  analysis_timers[key]:start(M.analysis_quiet, 0, vim.schedule_wrap(function()
+    M.progress[key] = nil
+    push_progress()
+  end))
+end
+
+function M.track_analysis(client)
+  local key = 'analysis:' .. client.id
+  progress_stamp = progress_stamp + 1
+  M.progress[key] = { client = (client.name:gsub('^frame_', '')), title = 'Analysing files', stamp = progress_stamp }
+  push_progress()
+  analysis_quiet_timer(key)
+end
+
+--- Diagnostics arrived (told by `frame.diag`): an analysis going on has found more.
+function M.diagnostics_changed()
+  for key, entry in pairs(M.progress) do
+    if key:match('^analysis:') then
+      entry.message = ('%d files with problems'):format(require('frame.diag').files_with_problems())
+      analysis_quiet_timer(key)
+      push_progress()
+    end
+  end
 end
 
 --- Starts the server for a buffer (attaches it, if already running).
@@ -201,6 +257,10 @@ end
 
 --- A server's process ended. Told it was stopped on purpose, that is the end; else it crashed.
 function M.exited(name, code, signal)
+  for key, entry in pairs(M.progress) do
+    if entry.client == name then M.progress[key] = nil end
+  end
+  push_progress()
   if (stopping[name] or 0) > 0 then
     stopping[name] = stopping[name] - 1
     return
@@ -385,7 +445,7 @@ function M.setup()
           percentage = value.percentage, stamp = progress_stamp,
         }
       end
-      pcall(function() require('frame.status').poke() end)
+      push_progress()
     end,
   })
   vim.api.nvim_create_autocmd('LspAttach', {

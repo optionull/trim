@@ -82,7 +82,10 @@ public final class FileEvents: @unchecked Sendable {
         }
         // Real paths (/tmp is /private/tmp: realpath, not URL's resolving, which takes /private off again), files
         // only, not in skipped folders, then not ignored by git.
-        let candidates = Set(paths.map { realPath($0) }).filter { path in
+        // The skipped folders are named in the path as the system reports it, so those are left out before any path is
+        // resolved (a build reports thousands of files in bin and obj, and each resolving is a call to the disk).
+        let reported = paths.filter { path in !Self.skipped.contains { path.contains($0) } }
+        let candidates = Set(reported.map { realPath($0) }).filter { path in
             !Self.skipped.contains { path.contains($0) } && !path.hasSuffix("/.git") && !Self.temporary(path) &&
                 !((try? URL(fileURLWithPath: path).resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false)
         }
