@@ -1111,6 +1111,36 @@ struct FrameCheck {
             fail("Escape did not give the keyboard back to the tree: \(shell.modes.surface)")
         }
         shell.focusEditor()
+        shell.focusEditor()
+        // By keyboard: Option-Command-E, `:FrameTabs list`, and a mapping for it; the same key puts it away.
+        guard chord("´", "e", [.command, .option]) else { fail("no menu item takes Option-Command-E") }
+        guard shell.tabPicker != nil,
+              shell.modes.surface == .picker else { fail("Option-Command-E did not bring up the list") }
+        guard chord("´", "e", [.command, .option]) else { fail("no menu item takes Option-Command-E") }
+        guard shell.tabPicker == nil,
+              shell.modes.surface == .editor else { fail("Option-Command-E did not put the list away") }
+        _ = await lua("vim.cmd('FrameTabs list')")
+        await wait(":FrameTabs list to bring up the list") { shell.tabPicker != nil }
+        // The pointer over the list is not the editor's I-beam; over the grid it is.
+        func moveEditor(to point: NSPoint, in view: NSView) {
+            editor.mouseMoved(with: NSEvent.mouseEvent(
+                with: .mouseMoved, location: view.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                windowNumber: shell.window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0
+            )!)
+        }
+        guard let listed = shell.tabPicker else { fail("no list") }
+        NSCursor.arrow.set()
+        moveEditor(to: NSPoint(x: 30, y: 10), in: listed.list)
+        guard NSCursor.current == NSCursor.arrow else { fail("the editor's I-beam is over the list's rows") }
+        listed.keyDown(with: key("\u{1B}", code: 53))
+        NSCursor.arrow.set()
+        moveEditor(to: NSPoint(x: 400, y: 200), in: editor)
+        guard NSCursor.current == NSCursor.iBeam else { fail("the editor lost its I-beam over the grid") }
+        let mapped = await lua("return vim.fn.maparg('<leader>fo', 'n')")?.stringValue ?? ""
+        guard !mapped.isEmpty else { fail("<leader>fo is not bound to the list of open files") }
+        step(
+            "Command-E, `:FrameTabs list` and <leader>fo bring up the list; over it the pointer is not the editor's I-beam"
+        )
         shell.app.setTabs(placement: .right)
         await wait("the bar to stop offering the list") { bar.state.picker == 0 }
         step(

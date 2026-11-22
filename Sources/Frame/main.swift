@@ -542,6 +542,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         // A scroll while another still slides goes on from where the window is drawn, not back to where the first
         // began.
         editor.chainsScrolls = true
+        // A card over the grid (the switcher, the list of open files) has the pointer: no I-beam over its rows.
+        editor.isCovered = { [weak self] event in self?.cardHasPointer(event) ?? false }
         externalUI = ExternalUI(editor: editor)
         view = FrameView(
             editor: editor, overlay: externalUI.overlay, sidebar: sidebar, statusBar: statusBar, chip: chip,
@@ -900,17 +902,25 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         }
     }
 
-    /// `:FrameTabs top|bottom|right|statusbar|hide|show|toggle|autoclose [on|off]|max N`: what nvim cannot do itself.
+    /// `:FrameTabs top|bottom|right|statusbar|list|hide|show|toggle|autoclose [on|off]|max N`: what nvim cannot do
+    /// itself.
     private func tabsOption(_ word: String, _ argument: String) {
         switch word {
         case "top", "bottom", "right", "statusbar": TabsPlacement(rawValue: word).map { app.setTabs(placement: $0) }
         case "hide", "hidden": app.setTabs(placement: .hidden)
+        case "list": showTabPicker()
         case "show": app.setTabs(placement: app.tabsLastShown)
         case "toggle": app.setTabs(placement: view?.tabsPlacement == .hidden ? app.tabsLastShown : .hidden)
         case "autoclose": app.setTabsAutoclose(argument.isEmpty ? !app.tabsAutoclose : argument == "on")
         case "max": Int(argument).map { app.setTabsMax(max($0, 0)) }
         default: break
         }
+    }
+
+    /// Whether a card over the window is where the pointer is (a point of the window's, as an event gives it).
+    func cardHasPointer(_ event: NSEvent) -> Bool {
+        guard view != nil, let hit = view.hitTest(view.convert(event.locationInWindow, from: nil)) else { return false }
+        return [switcher, tabPicker].contains { card in card.map { hit === $0 || hit.isDescendant(of: $0) } ?? false }
     }
 
     /// The status bar's list of open files, up over the file's name, or put away if it is up.
@@ -921,8 +931,9 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         picker.frame = view.bounds
         picker.autoresizingMask = [.width, .height]
         picker.set(tabs)
-        let button = statusBar.convert(statusBar.fileButton, to: view)
-        picker.anchor = NSPoint(x: button.minX, y: statusBar.frame.minY)
+        // Over the file's name when it is the button; else at the bar's left.
+        let button = statusBar.fileButton.isEmpty ? nil : statusBar.convert(statusBar.fileButton, to: view)
+        picker.anchor = NSPoint(x: button?.minX ?? statusBar.frame.minX + 12, y: statusBar.frame.minY)
         picker.onDismiss = { [weak self] in self?.escape() }
         picker.onChoose = { [weak self] id in
             guard let self else { return }
@@ -949,6 +960,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         let back = modes.closePicker()
         if restoring { focus(surface ?? back) }
     }
+
+    @objc func showOpenFiles(_: Any?) { showTabPicker() }
 
     @objc func nextTab(_: Any?) { stepTab(1) }
     @objc func previousTab(_: Any?) { stepTab(-1) }
@@ -1218,6 +1231,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case #selector(chooseTabsMax(_:)): item.state = (item.representedObject as? Int) == app.tabsMax ? .on : .off
         case #selector(toggleTabsAutoclose(_:)): item.state = app.tabsAutoclose ? .on : .off
         case #selector(nextTab(_:)), #selector(previousTab(_:)), #selector(closeCurrentTab(_:)): return !tabs.isEmpty
+        case #selector(showOpenFiles(_:)): return tabs.count > 1 || tabPicker != nil
         default: break
         }
         return true

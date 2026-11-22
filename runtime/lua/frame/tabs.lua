@@ -176,10 +176,15 @@ function M.start()
   end, {
     nargs = '*',
     complete = function()
-      return { 'next', 'prev', 'close', 'top', 'bottom', 'right', 'statusbar', 'hide', 'show', 'toggle', 'autoclose', 'max' }
+      return { 'next', 'prev', 'close', 'list', 'top', 'bottom', 'right', 'statusbar', 'hide', 'show', 'toggle', 'autoclose', 'max' }
     end,
-    desc = 'Tabs: next, prev, close, N; top|bottom|right|statusbar|hide|show|toggle; autoclose on|off; max N',
+    desc = 'Tabs: next, prev, close, list, N; top|bottom|right|statusbar|hide|show|toggle; autoclose on|off; max N',
   })
+  -- The list of open files: a <Plug> to bind, and <leader>fo where the config has nothing there.
+  vim.keymap.set('n', '<Plug>(frame-tabs-list)', function() notify('frame_tabs_option', 'list', '') end, { desc = 'Open files' })
+  if vim.fn.maparg('<leader>fo', 'n') == '' then
+    vim.keymap.set('n', '<leader>fo', '<Plug>(frame-tabs-list)', { remap = true, desc = 'Open files' })
+  end
   soon()
 end
 

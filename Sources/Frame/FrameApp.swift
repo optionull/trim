@@ -267,6 +267,12 @@ final class FrameApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
         .keyEquivalentModifierMask = [.command, .shift]
         goMenu.addItem(.separator())
+        let openFiles = goMenu.addItem(
+            withTitle: "Open Files…",
+            action: #selector(Window.showOpenFiles(_:)),
+            keyEquivalent: "e"
+        )
+        openFiles.keyEquivalentModifierMask = [.command, .option]
         // Control-Tab, as browsers and editors have it; the macOS pair too.
         goMenu.addItem(withTitle: "Next Tab", action: #selector(Window.nextTab(_:)), keyEquivalent: "\t")
             .keyEquivalentModifierMask = [.control]

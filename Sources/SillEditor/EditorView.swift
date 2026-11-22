@@ -355,7 +355,12 @@ package final class EditorView: NSView {
         ))
     }
 
+    /// Whether something drawn over the editor (a card) has the pointer: the editor then leaves the cursor, and what
+    /// the pointer rests on, to it.
+    package var isCovered: ((NSEvent) -> Bool)?
+
     override package func mouseMoved(with event: NSEvent) {
+        if isCovered?(event) == true { return }
         separatorCursor(event)?.set() ?? NSCursor.iBeam.set()
         hover(event)
     }
