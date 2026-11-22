@@ -47,8 +47,8 @@ services and sidecars at the bottom. **Proposed** is my suggestion; **Why** says
 | A3 | **Zen** (hide chrome, centre the text) and islands | in `ChromeViews`, `Workspace` | none | **Port, small** | Frame's panes are islands already; zen is a toggle of the sidebar, bar and a centred grid |
 | A4 | **Context menu** (right-click: LSP actions, compare with a branch, blame, history) | `ContextMenu` 111 | LSP via nvim | **Park** | Wants the review and git panes first |
 | A5 | **Links in**: `sill://open?...`, `open -a Sill file` | in `AppDelegate` | none | **Port** with terminal panes | Tiny, and `frame://` can share the code |
-| A6 | **Own nvim setup** (`colors/sill.lua`, 25 tree-sitter parsers, change signs, `]h`/`[h`) | `runtime/`, `Vendor/treesitter` | the runtime Lua | **Park, decide** | Frame brings your config. A built-in "Frame default config" (for someone with none) is a product decision, not a port |
-| A7 | **Language server provisioning** (Roslyn, rust-analyzer, sourcekit-lsp, marksman, web servers) | `LanguageServers` 248 | the own nvim setup | **Drop for now** | Your config runs your servers; revisit with A6 |
+| A6 | **Own nvim setup** (`colors/sill.lua`, 25 tree-sitter parsers, change signs, `]h`/`[h`) | `runtime/`, `Vendor/treesitter` | the runtime Lua | **Decided: Frame runs its own isolated config** | Frame is an out of the box editor; the shim is the bare nvim app. What it needs: `docs/frame-config-audit.md` |
+| A7 | **Language server provisioning** (Roslyn, rust-analyzer, sourcekit-lsp, marksman, web servers) | `LanguageServers` 248 | the own nvim setup | **Required (was: drop)** | With an isolated config nothing else starts servers: today none run in Frame. Port or rewrite it in Lua (audit, step 3) |
 
 ### B. Keys and panes (the framework the rest needs)
 
