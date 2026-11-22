@@ -552,7 +552,8 @@ status line (lualine and the like) as it is.
 
 The open files are tabs (nvim's buffers; tab pages, which are layouts of windows, are not shown), and show only when
 more than one file is open. View ▸ Tabs puts them over the grid (the default), under it, as a list at its right, in the status bar (the
-file's name there, with `▾ 3`, lists the open files when clicked; no strip at all), or hides them;
+file's name there, with `▾ 3`, brings up a list of the open files in the tree's font and colours when clicked: ↑ ↓ or j k
+move, Return shows a file, x or ⌫ closes it, Escape goes back; no strip at all), or hides them;
 `:FrameTabs top|bottom|right|statusbar|hide|show|toggle` does the same, and the choice is remembered. They sit on nvim's own
 background, each with the file's icon in its colour as in the tree, the shown one on the colour scheme's selection colour
 (nvim's `Visual` background, or the group `vim.g.frame_selection_group` names), the same one the tree's selected row

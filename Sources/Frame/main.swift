@@ -392,6 +392,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     private(set) var tree: TreeController!
     /// The workspace switcher while it is up, and where the keyboard was.
     private(set) var switcher: SwitcherView?
+    /// The status bar's list of open files while it is up.
+    private(set) var tabPicker: TabPickerView?
     /// Which surface has the keyboard, and what Escape does from each: the window's modes.
     private(set) var modes = Modes() {
         didSet { if modes != oldValue { refreshStatus() } }
@@ -411,6 +413,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             }
             view?.needsLayout = true
             refreshStatus()
+            // The list of open files shows what is open now, and goes when there is nothing to choose between.
+            if tabs.count > 1 { tabPicker?.set(tabs) } else if tabPicker != nil { apply(escapeFromPicker()) }
         }
     }
 
@@ -458,7 +462,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             list.onClose = { [weak self] id in self?.closeTab(id) }
         }
         statusBar.onWorkspaceClick = { [weak self] in self?.switchWorkspace(nil) }
-        statusBar.onFileClick = { [weak self] in self?.showTabMenu() }
+        statusBar.onFileClick = { [weak self] in self?.showTabPicker() }
         tree.onChip = { [weak self] name, branch, isWorktree in
             self?.chip.show(name: name, branch: branch, isWorktree: isWorktree)
             self?.refreshStatus()
@@ -528,6 +532,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// A session, an editor on it and the view that holds them, in the window: what a switch of config makes anew.
     private func makeSurface() {
         closeSwitcher(restoring: false)
+        closeTabPicker(restoring: false)
         generation += 1
         let generation = generation
         session = EditorSession()
@@ -840,6 +845,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case let .focus(surface): focus(surface)
         case .closeFilter: tree.closeFilter()
         case let .closeSwitcher(restoring): closeSwitcher(restoring: true, to: restoring)
+        case let .closePicker(restoring): closeTabPicker(restoring: true, to: restoring)
         }
     }
 
@@ -850,6 +856,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             if modes.treeMode == .filter { tree.focusFilter() } else { tree.focus() }
         case .tree, .editor: window.makeFirstResponder(editor)
         case .switcher: if let panel = switcher { window.makeFirstResponder(panel.field) }
+        case .picker: if let picker = tabPicker { window.makeFirstResponder(picker) }
         }
     }
 
@@ -906,58 +913,41 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         }
     }
 
-    /// The open files as a menu, the shown one ticked, one with changes marked: what a click on the file's name in the
-    /// status bar lists (with the tabs there).
-    func makeTabMenu() -> NSMenu {
-        let menu = NSMenu(title: "Open Files")
-        let look = tree.look
-        let labels = Tabs.labels(tabs)
-        for tab in tabs {
-            let item = NSMenuItem(
-                title: labels[tab.id] ?? tab.name,
-                action: #selector(chooseTab(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = tab.id
-            item.state = tab.current ? .on : .off
-            let title = NSMutableAttributedString()
-            let glyph = String(FileIcons.icon(name: tab.name, isDirectory: false).glyph)
-            title.append(NSAttributedString(string: glyph + "  ", attributes: [
-                .font: NerdFont.font(size: 13) ?? NSFont.menuFont(ofSize: 13),
-                .foregroundColor: TabsView.iconColor(tab, look: look),
-            ]))
-            title.append(NSAttributedString(string: labels[tab.id] ?? tab.name, attributes: [
-                .font: NSFont.menuFont(ofSize: 13),
-            ]))
-            if tab.modified {
-                title.append(NSAttributedString(
-                    string: "  ●",
-                    attributes: [.foregroundColor: NSColor(frameRGB: 0xE5C07B)]
-                ))
-            }
-            item.attributedTitle = title
-            menu.addItem(item)
+    /// The status bar's list of open files, up over the file's name, or put away if it is up.
+    func showTabPicker() {
+        if tabPicker != nil { return apply(escapeFromPicker()) }
+        guard tabs.count > 1, view != nil else { return }
+        let picker = TabPickerView(look: tree.look)
+        picker.frame = view.bounds
+        picker.autoresizingMask = [.width, .height]
+        picker.set(tabs)
+        let button = statusBar.convert(statusBar.fileButton, to: view)
+        picker.anchor = NSPoint(x: button.minX, y: statusBar.frame.minY)
+        picker.onDismiss = { [weak self] in self?.escape() }
+        picker.onChoose = { [weak self] id in
+            guard let self else { return }
+            closeTabPicker()
+            selectTab(id)
         }
-        menu.addItem(.separator())
-        let close = menu.addItem(withTitle: "Close Tab", action: #selector(closeCurrentTab(_:)), keyEquivalent: "w")
-        close.target = self
-        return menu
+        picker.onClose = { [weak self] id in self?.closeTab(id) }
+        modes.openPicker()
+        view.addSubview(picker)
+        tabPicker = picker
+        window.makeFirstResponder(picker)
     }
 
-    /// How the menu is put up (the self-check puts it somewhere else: a menu being tracked holds everything).
-    var presentTabMenu: ((NSMenu) -> Void)?
+    private func escapeFromPicker() -> ModeEffect { modes.escape(
+        editorMode: editor.screen.mode,
+        sidebarVisible: view.sidebarVisible
+    ) }
 
-    func showTabMenu() {
-        guard tabs.count > 1 else { return }
-        let menu = makeTabMenu()
-        if let presentTabMenu { return presentTabMenu(menu) }
-        // Above the file's name, where the bar is at the foot of the window.
-        menu.popUp(positioning: nil, at: NSPoint(x: statusBar.frame.minX + 12, y: statusBar.frame.minY), in: view)
-    }
-
-    @objc func chooseTab(_ sender: NSMenuItem) {
-        if let id = sender.representedObject as? Int { selectTab(id) }
+    /// The list away; the keyboard goes back to where it was.
+    func closeTabPicker(restoring: Bool = true, to surface: Surface? = nil) {
+        guard let picker = tabPicker else { return }
+        tabPicker = nil
+        picker.removeFromSuperview()
+        let back = modes.closePicker()
+        if restoring { focus(surface ?? back) }
     }
 
     @objc func nextTab(_: Any?) { stepTab(1) }

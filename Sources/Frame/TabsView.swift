@@ -25,6 +25,18 @@ final class TabsView: NSView {
         }
     }
 
+    /// The tab the keyboard is on, when it is not the shown one (the open files' list); the fill goes to it.
+    var highlightedID: Int? {
+        didSet { needsDisplay = true }
+    }
+
+    /// The names in the editor's own size, as the tree has them, not the quieter size of a strip's.
+    var largeText = false {
+        didSet { needsDisplay = true }
+    }
+
+    /// The line along a list's edge that tells it from the grid beside it.
+    var drawsHairline = true
     var onSelect: ((Int) -> Void)?
     var onClose: ((Int) -> Void)?
 
@@ -52,7 +64,7 @@ final class TabsView: NSView {
     /// A strip is a line of the grid with room around it.
     static func stripHeight(for look: TreeLook) -> CGFloat { look.rowHeight + 12 }
 
-    private var rowHeight: CGFloat { max(look.rowHeight + 4, 24) }
+    var rowHeight: CGFloat { max(look.rowHeight + 4, 24) }
     /// What a list needs to show every tab.
     var contentHeight: CGFloat { CGFloat(tabs.count) * rowHeight }
 
@@ -63,7 +75,7 @@ final class TabsView: NSView {
     }
 
     private func font(for tab: FrameTab) -> NSFont {
-        let base = look.smallFont.withSize(look.smallFont.pointSize + 1)
+        let base = largeText ? look.font : look.smallFont.withSize(look.smallFont.pointSize + 1)
         guard tab.isPreview else { return base }
         return NSFontManager.shared.convert(base, toHaveTrait: .italicFontMask)
     }
@@ -129,7 +141,7 @@ final class TabsView: NSView {
     override func draw(_: NSRect) {
         // No ground of its own: the tabs sit on the editor's background, and a list has a hairline to tell it from the
         // grid.
-        if axis == .vertical {
+        if axis == .vertical, drawsHairline {
             look.faint.withAlphaComponent(0.35).setFill()
             NSRect(x: 0, y: 0, width: 1, height: bounds.height).fill()
         }
@@ -160,14 +172,15 @@ final class TabsView: NSView {
     }
 
     private func draw(_ tab: FrameTab, in rect: NSRect, hovering: Bool) {
-        if tab.current {
+        let selected = tab.id == (highlightedID ?? tabs.first(where: \.current)?.id)
+        if selected {
             look.focusedSelection.setFill()
             NSBezierPath(roundedRect: rect.insetBy(dx: axis == .vertical ? 6 : 0, dy: 0), xRadius: 6, yRadius: 6).fill()
         } else if hovering {
             look.selection.setFill()
             NSBezierPath(roundedRect: rect.insetBy(dx: axis == .vertical ? 6 : 0, dy: 0), xRadius: 6, yRadius: 6).fill()
         }
-        let color = tab.current ? look.text : look.muted
+        let color = tab.current || selected ? look.text : look.muted
         let glyph = String(FileIcons.icon(name: tab.name, isDirectory: false).glyph)
         let iconFont = NerdFont.font(size: look.iconSize - 1) ?? look.smallFont
         let iconSize = (glyph as NSString).size(withAttributes: [.font: iconFont])
@@ -275,6 +288,16 @@ final class TabsView: NSView {
 
     override func resetCursorRects() {
         pointerRects().forEach { addCursorRect($0, cursor: .pointingHand) }
+    }
+
+    /// Scrolls a list so the tab shows.
+    func reveal(_ id: Int) {
+        guard axis == .vertical, let item = frames().first(where: { $0.tab.id == id }) else { return }
+        if item.frame.minY - offset < 0 { offset = item.frame.minY }
+        if item.frame.maxY - offset > bounds.height { offset = item.frame.maxY - bounds.height }
+        offset = max(0, offset)
+        window?.invalidateCursorRects(for: self)
+        needsDisplay = true
     }
 
     /// The tab at a point, for the self-check (a click without a window server).

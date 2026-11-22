@@ -9,6 +9,11 @@ public enum Surface: Equatable, Sendable {
     case tree
     /// The workspace switcher, over everything.
     case switcher
+    /// The list of open files the status bar opens, over everything.
+    case picker
+
+    /// A panel over the window that takes the keyboard and gives it back: nothing else moves it meanwhile.
+    public var isOverlay: Bool { self == .switcher || self == .picker }
 }
 
 /// What the tree is doing, as vim has modes. A new one (a diff, a context switch) is a case here, with its own way out
@@ -27,6 +32,8 @@ public enum ModeEffect: Equatable, Sendable {
     case focus(Surface)
     /// The tree's filter closes (the keyboard stays in the tree).
     case closeFilter
+    /// The open files' list closes and the keyboard goes back to this surface.
+    case closePicker(restoring: Surface)
     /// The switcher closes and the keyboard goes back to this surface.
     case closeSwitcher(restoring: Surface)
 }
@@ -49,7 +56,7 @@ public struct Modes: Equatable, Sendable {
     /// The keyboard went to `surface`. A click into the editor means the person is in it for its own sake: Escape
     /// there is nvim's. Anything else leaves where Escape goes as it was.
     public mutating func focused(_ surface: Surface, byClick: Bool = false) {
-        guard self.surface != .switcher || surface == .switcher else { return }
+        guard !self.surface.isOverlay || surface == self.surface else { return }
         self.surface = surface
         if surface == .editor, byClick { editorEscape = nil }
     }
@@ -57,7 +64,7 @@ public struct Modes: Equatable, Sendable {
     /// The tree gave the keyboard to the editor (Return on a file, Tab, Escape): Escape in the editor's normal mode
     /// takes it back.
     public mutating func handedToEditor() {
-        guard surface != .switcher else { return }
+        guard !surface.isOverlay else { return }
         surface = .editor
         editorEscape = .tree
     }
@@ -65,13 +72,18 @@ public struct Modes: Equatable, Sendable {
     /// The filter opened (the keyboard is in its input) or closed.
     public mutating func filterChanged(open: Bool) {
         treeMode = open ? .filter : .normal
-        if open, surface != .switcher { surface = .tree }
+        if open, !surface.isOverlay { surface = .tree }
     }
 
-    public mutating func openSwitcher() {
-        guard surface != .switcher else { return }
+    public mutating func openSwitcher() { openOverlay(.switcher) }
+
+    /// The status bar's list of open files came up.
+    public mutating func openPicker() { openOverlay(.picker) }
+
+    private mutating func openOverlay(_ overlay: Surface) {
+        guard !surface.isOverlay else { return }
         beneathSwitcher = surface
-        surface = .switcher
+        surface = overlay
     }
 
     /// The switcher is done (a workspace was chosen, say): the surface the keyboard goes back to.
@@ -82,10 +94,18 @@ public struct Modes: Equatable, Sendable {
         return surface
     }
 
+    /// The list of open files is done: the surface the keyboard goes back to.
+    @discardableResult
+    public mutating func closePicker() -> Surface {
+        guard surface == .picker else { return surface }
+        surface = beneathSwitcher
+        return surface
+    }
+
     /// The sidebar went away: the keyboard cannot be in it.
     public mutating func sidebarHidden() {
         if surface == .tree { surface = .editor }
-        if surface == .switcher, beneathSwitcher == .tree { beneathSwitcher = .editor }
+        if surface.isOverlay, beneathSwitcher == .tree { beneathSwitcher = .editor }
         treeMode = .normal
     }
 
@@ -106,6 +126,8 @@ public struct Modes: Equatable, Sendable {
         switch surface {
         case .switcher:
             return .closeSwitcher(restoring: closeSwitcher())
+        case .picker:
+            return .closePicker(restoring: closePicker())
         case .tree:
             if treeMode != .normal {
                 treeMode = .normal
@@ -128,6 +150,7 @@ public struct Modes: Equatable, Sendable {
     public func label(editorMode: String) -> String {
         switch surface {
         case .switcher: "SWITCH"
+        case .picker: "TABS"
         case .tree: treeMode == .filter ? "FILTER" : "TREE"
         case .editor: Self.name(ofEditorMode: editorMode)
         }

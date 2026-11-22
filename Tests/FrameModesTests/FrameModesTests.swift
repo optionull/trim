@@ -236,3 +236,42 @@ import Testing
         #expect(StatusLine.fitted("/Users/me/proj/src/a.swift", width: 14, measure: width) == "…/src/a.swift")
     }
 }
+
+@Suite struct PickerModeTests {
+    @Test func `Escape in the open files' list goes back to where the keyboard was`() {
+        for beneath in [Surface.editor, .tree] {
+            var modes = Modes()
+            modes.focused(beneath)
+            modes.openPicker()
+            #expect(modes.surface == .picker && modes.label(editorMode: "normal") == "TABS")
+            #expect(modes.escape(editorMode: "normal", sidebarVisible: true) == .closePicker(restoring: beneath))
+            #expect(modes.surface == beneath)
+        }
+    }
+
+    @Test func `nothing takes the keyboard from the list but itself`() {
+        var modes = Modes()
+        modes.openPicker()
+        modes.focused(.tree)
+        modes.handedToEditor()
+        modes.filterChanged(open: true)
+        #expect(modes.surface == .picker && modes.treeMode == .filter)
+    }
+
+    @Test func `choosing gives the keyboard back too, and one overlay does not open over another`() {
+        var modes = Modes()
+        modes.focused(.tree)
+        modes.openPicker()
+        modes.openSwitcher()
+        #expect(modes.surface == .picker)
+        #expect(modes.closePicker() == .tree)
+        #expect(modes.surface == .tree)
+    }
+
+    @Test func `closing the list that is not up changes nothing`() {
+        var modes = Modes()
+        modes.openSwitcher()
+        #expect(modes.closePicker() == .switcher)
+        #expect(modes.surface == .switcher)
+    }
+}

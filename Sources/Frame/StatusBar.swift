@@ -56,6 +56,9 @@ final class StatusBarView: NSView {
 
     private(set) var hoveringFile = false
 
+    /// The file's name as a button, in this view's coordinates (empty when it is not one).
+    var fileButton: NSRect { state.picker > 0 ? fileRect : .zero }
+
     /// Where the pointer is a hand: the workspace segment, when it is there.
     func pointerRects() -> [NSRect] {
         var rects: [NSRect] = []

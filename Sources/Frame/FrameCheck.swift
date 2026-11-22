@@ -1028,23 +1028,37 @@ struct FrameCheck {
         guard strip.isHidden, list.isHidden, editor.frame.minY == shell.view.sidebar.frame.minY,
               let fileRect = bar.pointerRects().last
         else { fail("with the tabs in the status bar there is still a strip or list, or the name is no button") }
-        var menu: NSMenu?
-        shell.presentTabMenu = { menu = $0 }
-        bar.mouseDown(with: NSEvent.mouseEvent(
-            with: .leftMouseDown, location: bar.convert(NSPoint(x: fileRect.midX, y: fileRect.midY), to: nil),
-            modifierFlags: [], timestamp: 0, windowNumber: shell.window.windowNumber, context: nil, eventNumber: 0,
-            clickCount: 1, pressure: 1
-        )!)
-        guard let menu, menu.items.count(where: { $0.representedObject is Int }) == names().count,
-              menu.items.first(where: { $0.state == .on })?.representedObject as? Int == shell.tabs
-              .first(where: \.current)?.id
-        else { fail("a click on the file's name does not list the open files, the shown one ticked") }
-        guard let other = menu.items.first(where: { $0.representedObject is Int && $0.state != .on })
-        else { fail("no other tab") }
-        let before = current()
-        shell.chooseTab(other)
-        await wait("a choice in the menu to show that file") { current() != before }
-        shell.presentTabMenu = nil
+        func clickFile() {
+            bar.mouseDown(with: NSEvent.mouseEvent(
+                with: .leftMouseDown, location: bar.convert(NSPoint(x: fileRect.midX, y: fileRect.midY), to: nil),
+                modifierFlags: [], timestamp: 0, windowNumber: shell.window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: 1
+            )!)
+        }
+        let shownBefore = shell.tabs.first(where: \.current)?.id
+        clickFile()
+        guard let picker = shell.tabPicker, shell.modes.surface == .picker,
+              shell.modes.label(editorMode: "normal") == "TABS", shell.window.firstResponder === picker
+        else { fail("a click on the file's name did not bring up the list: \(shell.modes.surface)") }
+        guard picker.tabs.count == names().count, picker.cursor == shownBefore, picker.list.highlightedID == shownBefore
+        else { fail("the list does not show the open files with the keyboard on the shown one") }
+        // Styled as the tree is: the editor's font and the scheme's colours, in the same palette.
+        guard picker.list.largeText, picker.list.look.palette == shell.tree.look.palette,
+              picker.list.look.font == shell.tree.look.font
+        else { fail("the list is not in the tree's font and colours") }
+        step(
+            "a click on the file's name brings up a list in the tree's font and colours, the keyboard on the shown file"
+        )
+        // Keys: down moves the keyboard, Return shows that file and puts the list away.
+        func press(_ code: UInt16, _ characters: String) {
+            picker.keyDown(with: key(characters, code: code))
+        }
+        press(125, "\u{F701}")
+        guard let movedTo = picker.cursor,
+              movedTo != shownBefore else { fail("the down arrow did not move the keyboard") }
+        press(126, "\u{F700}")
+        guard picker.cursor == shownBefore else { fail("the up arrow did not move it back") }
+        press(125, "\u{F701}")
         bar.setHoveringFile(true)
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             try? await Task.sleep(for: .milliseconds(200))
@@ -1053,9 +1067,51 @@ struct FrameCheck {
             }
         }
         bar.setHoveringFile(false)
+        let target = shell.tabs.first { $0.id == movedTo }?.name
+        press(36, "\r")
+        await wait("Return to show the file the keyboard was on") { current() == target }
+        guard shell.tabPicker == nil, shell.modes.surface == .editor, shell.window.firstResponder === editor else {
+            fail("the list stayed, or the keyboard is not the editor's: \(shell.modes.surface)")
+        }
+        // Escape puts it away and the keyboard goes back to where it was.
+        shell.showTabPicker()
+        guard let again = shell.tabPicker else { fail("the list did not come up again") }
+        again.keyDown(with: key("\u{1B}", code: 53))
+        guard shell.tabPicker == nil, shell.modes.surface == .editor else { fail("Escape did not put the list away") }
+        // x closes the tab the keyboard is on, and the list stays with what is left.
+        shell.showTabPicker()
+        guard let third = shell.tabPicker else { fail("the list did not come up a third time") }
+        let openBefore = names().count
+        third.keyDown(with: key("x", code: 7))
+        await wait("x to close that tab") { names().count == openBefore - 1 }
+        guard shell.tabPicker != nil,
+              third.tabs.count == names().count else { fail("the list did not follow the tabs") }
+        // A click on a row shows it; Escape from the list in the tree goes back to the tree.
+        guard let row = third.list.frame(ofTab: third.tabs[0].id) else { fail("no row") }
+        let before = current()
+        third.list.mouseDown(with: NSEvent.mouseEvent(
+            with: .leftMouseDown, location: third.list.convert(NSPoint(x: row.minX + 40, y: row.midY), to: nil),
+            modifierFlags: [], timestamp: 0, windowNumber: shell.window.windowNumber, context: nil, eventNumber: 0,
+            clickCount: 1, pressure: 1
+        )!)
+        await wait("a click on a row to show that file") { current() == third.tabs[0].name }
+        _ = before
+        shell.tree.focus()
+        await wait("the keyboard in the tree") { shell.modes.surface == .tree }
+        shell.showTabPicker()
+        guard let fourth = shell.tabPicker else { fail("the list did not come up from the tree") }
+        fourth.keyDown(with: key("\u{1B}", code: 53))
+        guard shell.tabPicker == nil, shell.modes.surface == .tree,
+              shell.window.firstResponder === shell.tree.outline
+        else {
+            fail("Escape did not give the keyboard back to the tree: \(shell.modes.surface)")
+        }
+        shell.focusEditor()
         shell.app.setTabs(placement: .right)
         await wait("the bar to stop offering the list") { bar.state.picker == 0 }
-        step("with the tabs in the status bar the file's name lists the open files, and a choice shows one")
+        step(
+            "the list: arrows move, Return shows, Escape goes back (to the tree if it came from there), x closes, a click shows a row"
+        )
         shell.app.setTabs(placement: .hidden)
         view.layoutSubtreeIfNeeded()
         guard strip.isHidden, list.isHidden else { fail("hidden tabs are showing") }
@@ -1571,6 +1627,10 @@ struct FrameCheck {
                 x: pad + bar.frame.minX, y: pad + size.height - bar.frame.maxY, width: bar.frame.width,
                 height: bar.frame.height
             ))
+        }
+        if let panel = shell.tabPicker, let pane = panel.bitmapImageRepForCachingDisplay(in: panel.bounds) {
+            panel.cacheDisplay(in: panel.bounds, to: pane)
+            pane.draw(in: NSRect(x: pad, y: pad, width: panel.bounds.width, height: panel.bounds.height))
         }
         if let panel = shell.switcher, let pane = panel.bitmapImageRepForCachingDisplay(in: panel.bounds) {
             panel.cacheDisplay(in: panel.bounds, to: pane)
