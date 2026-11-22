@@ -527,9 +527,14 @@ in a folder. `mise run fonts` downloads the icon font (`scripts/bundle.sh` does 
 
 Frame runs its **own isolated nvim config**, never yours: it starts nvim under the name `frame`, so its config, data, state
 and cache folders are Frame's (`~/.config/frame`, `~/.local/share/frame`...) and nothing of `~/.config/nvim` (nor any other
-config) is read, so a config of yours, LazyVim included, cannot clash with it. Frame's base settings come first (sill's, then
-`runtime/lua/frame/base.lua`); `~/.config/frame/init.lua`, if there is one, is the place for your additions (nvim loads it as it
-loads any init.lua: a leader, options, a plugin of your own), and wins. The shim stays what it was: nvim alone in a native window,
+config) is read, so a config of yours, LazyVim included, cannot clash with it. Frame's base settings come first (`runtime/lua/frame/base.lua`: spaces for indent, four wide, the system clipboard,
+`smoothscroll`, no line wrapping, quiet whitespace markers, folds from the syntax tree, a 400 ms key timeout, `\` as the
+leader); `~/.config/frame/settings.toml` changes some of them (`[editor] leader`, `[theme] colorscheme`, `[plugins]
+disabled`; a value commented out is at its default; the file is made the first time Frame changes a setting itself), and
+`~/.config/frame/init.lua`, if there is one, is the place for your additions (nvim loads it as it loads any init.lua: options,
+a plugin of your own), and wins over both. Frame carries the colour schemes tokyonight (the default, "night"), catppuccin and
+rose-pine as pinned plugins (`mise run plugins` fetches them, `scripts/plugins.txt` pins each to a commit) and the 25
+tree-sitter parsers Sill has; Sill's agent commands and keys are not loaded. The shim stays what it was: nvim alone in a native window,
 with your own config and the Config menu, for doing everything the nvim way.
 
 A workspace is a repository or a worktree. ⌘⇧O, `:FrameWorkspace`, `<leader>fw` (where your config has nothing there) and

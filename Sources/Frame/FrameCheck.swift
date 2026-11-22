@@ -65,7 +65,7 @@ struct FrameCheck {
               shell.view.sidebarVisible else { fail("no editor, or no tree, at the start") }
         editor.keyDown(with: key("\u{1B}", code: 53))
         await wait("Escape on the landing page to go to the tree") { window.firstResponder === shell.tree.outline }
-        window.makeFirstResponder(editor)
+        shell.focusEditor()
         step("Escape in normal mode from a fresh editor goes to the tree")
         let hidden = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
             .allSatisfy { window.standardWindowButton($0)?.isHidden ?? true }
@@ -657,6 +657,29 @@ struct FrameCheck {
             guard state[2].stringValue == "" else { fail("the config in ~/.config/nvim was read") }
         }
         step("the additions in ~/.config/frame load, and nothing of ~/.config/nvim does")
+        // Frame's own config: its defaults, the scheme the settings file chose, tree-sitter parsers, and none of Sill's
+        // agent
+        // commands.
+        let config = await lua("""
+        local parsers = 0
+        for _ in ipairs(vim.api.nvim_get_runtime_file('parser/*', true)) do parsers = parsers + 1 end
+        return { vim.g.colors_name or '', vim.o.expandtab, vim.o.clipboard, vim.o.smoothscroll, vim.o.shiftwidth,
+                 vim.fn.exists(':SillReview'), vim.fn.exists(':SillAgent'), parsers, vim.o.timeoutlen }
+        """)?.arrayValue
+        guard let config, config.count == 9 else { fail("no word of Frame's config") }
+        if FileManager.default.fileExists(atPath: (home ?? "") + "/frame/settings.toml") {
+            guard config[0].stringValue == "rose-pine"
+            else { fail("the colour scheme in the settings did not apply: \(config[0])") }
+        }
+        guard config[1].boolValue == true, config[2].stringValue == "unnamedplus", config[3].boolValue == true,
+              config[4].integerValue == 4, config[8].integerValue == 400
+        else { fail("Frame's defaults are not set: \(config)") }
+        guard config[5].integerValue == 0,
+              config[6].integerValue == 0 else { fail("Sill's agent commands are loaded in Frame") }
+        guard (config[7].integerValue ?? 0) >= 25 else { fail("the tree-sitter parsers are not there: \(config[7])") }
+        step(
+            "Frame's own defaults, the settings file's colour scheme and the tree-sitter parsers are in; Sill's agent commands are not"
+        )
     }
 
     /// The window as it shows: its background, the grid at its margin, corners rounded by the window's radius.

@@ -748,7 +748,8 @@ function M.chrome()
 end
 
 function M.setup()
-  if vim.g.loaded_sill then
+  -- Frame has its own (frame.init): nothing of sill's agent commands and keys loads there.
+  if vim.g.frame or vim.g.loaded_sill then
     return
   end
   vim.g.loaded_sill = true

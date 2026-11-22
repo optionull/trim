@@ -9,8 +9,16 @@ import SillCore
 enum FrameNvim {
     static let appName = "frame"
 
-    /// Sill's base settings, then Frame's own, ahead of anything of the person's.
-    static let arguments = ["--cmd", "lua require('sill.base')", "--cmd", "lua require('frame.base')"]
+    /// What nvim is started with, before any config: Frame's settings (`vim.g.frame_settings`), sill's base settings,
+    /// then
+    /// Frame's own; all of it ahead of anything of the person's (`~/.config/frame/init.lua`), which wins.
+    static var arguments: [String] {
+        [
+            "--cmd", "lua vim.g.frame_settings = vim.json.decode([==[\(FrameSettings.json())]==])",
+            "--cmd", "lua require('sill.base')",
+            "--cmd", "lua require('frame.base')",
+        ]
+    }
 
     static var startup: EditorSession.Startup {
         EditorSession.Startup(appName: appName, arguments: arguments, userConfig: false)

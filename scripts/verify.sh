@@ -131,6 +131,7 @@ echo "sill check (shim): passed"
 rm -rf /tmp/sill-frame-configs && mkdir -p /tmp/sill-frame-configs/frame /tmp/sill-frame-configs/nvim
 printf 'vim.g.frame_user = "user"\nvim.g.mapleader = ","\n' >/tmp/sill-frame-configs/frame/init.lua
 printf 'vim.g.nvim_config_leaked = "yes"\n' >/tmp/sill-frame-configs/nvim/init.lua
+printf '[theme]\ncolorscheme = "rose-pine"\n' >/tmp/sill-frame-configs/frame/settings.toml
 out=$(cd /tmp && perl -e 'alarm 120; exec @ARGV or die' env SILL_FRAME_CHECK=1 XDG_CONFIG_HOME=/tmp/sill-frame-configs "$REPO/build/Frame.app/Contents/MacOS/Frame" 2>&1 | grep -E "^frame check" || true)
 echo "$out" | grep -q "^frame check: passed$" || { echo "$out"; echo "CHECK frame FAILED"; exit 1; }
 echo "sill check (frame): passed"

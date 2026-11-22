@@ -26,6 +26,10 @@ outputs = ["Vendor/GhosttyKit.xcframework/Info.plist"]
 description = "Download Vendor/fonts: the Nerd Fonts symbols-only font Frame draws its icons with (pinned, checksummed)"
 run = "scripts/fonts.sh"
 
+[tasks.plugins]
+description = "Fetch Vendor/plugins: the nvim plugins Frame bundles, at the commits scripts/plugins.txt pins"
+run = "scripts/plugins.sh"
+
 [tasks.treesitter]
 description = "Build Vendor/treesitter: the parsers and queries sill ships, from nvim-treesitter at $TREESITTER_COMMIT"
 run = "nvim -l scripts/treesitter.lua Vendor/treesitter"

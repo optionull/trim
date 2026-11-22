@@ -45,6 +45,15 @@ Material Design (Apache 2.0), Pomicons and Weather Icons (SIL OFL 1.1), and Font
 upstream). Attribution for the CC BY 4.0 sets: Codicons by Microsoft (https://github.com/microsoft/vscode-codicons),
 Font Awesome by Fonticons, Inc. (https://fontawesome.com). The font is not modified.
 
+## nvim plugins Frame bundles
+
+Frame.app carries these (`Contents/Resources/runtime/pack/frame/start/<name>`), each at the tag and commit `scripts/plugins.txt`
+pins (fetched by `scripts/plugins.sh`, unmodified, only the folders nvim loads kept) with its licence file beside it:
+
+- tokyonight.nvim, https://github.com/folke/tokyonight.nvim, v4.14.1, by Folke Lemaitre: Apache License 2.0 (`LICENSE`).
+- catppuccin, https://github.com/catppuccin/nvim, v2.0.0, by Catppuccin: MIT (`LICENSE.md`, Copyright (c) 2021 Catppuccin).
+- rose-pine, https://github.com/rose-pine/neovim, v3.0.2, by Rosé Pine: MIT (`license`, Copyright (c) 2023 Rosé Pine).
+
 ## Passenger
 
 https://github.com/Zaneris/passenger at 7686138. The sidecar's protocol and server (`sidecar/Sill.Sidecar/Protocol.cs`,

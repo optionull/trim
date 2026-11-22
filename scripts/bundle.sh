@@ -70,11 +70,19 @@ cp -R "$root/runtime" "$frame/Contents/Resources/runtime"
 rm -rf "$frame/Contents/Resources/fonts"
 mkdir -p "$frame/Contents/Resources/fonts"
 cp "$root"/Vendor/fonts/* "$frame/Contents/Resources/fonts/"
+# The plugins Frame carries (scripts/plugins.txt, pinned), where its runtime finds them; and the tree-sitter parsers, as
+# Sill has them (built once into Vendor/treesitter by the step above), signed one by one.
+"$root/scripts/plugins.sh" >/dev/null
+mkdir -p "$frame/Contents/Resources/runtime/pack/frame/start"
+cp -R "$root"/Vendor/plugins/* "$frame/Contents/Resources/runtime/pack/frame/start/"
+rm -rf "$frame/Contents/Resources/treesitter"
+cp -R "$root/Vendor/treesitter" "$frame/Contents/Resources/treesitter"
+codesign --force --sign - "$frame"/Contents/Resources/treesitter/parser/*.so
 sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
   "$root/Resources/Frame-Info.plist" >"$frame/Contents/Info.plist"
 codesign --force --sign - "$frame"
 echo "bundle: $frame"
-for wanted in fonts/SymbolsNerdFontMono-Regular.ttf fonts/LICENSE runtime/plugin/sill.lua; do
+for wanted in fonts/SymbolsNerdFontMono-Regular.ttf fonts/LICENSE runtime/plugin/frame.lua runtime/pack/frame/start/tokyonight.nvim/colors/tokyonight-night.lua treesitter/parser/c_sharp.so; do
   if [ ! -f "$frame/Contents/Resources/$wanted" ]; then
     echo "bundle: $wanted is missing from Frame" >&2
     exit 1
