@@ -42,7 +42,10 @@ enum RunPlacement: Equatable {
             let marker = isBuild ? NSTemporaryDirectory() + "frame-build-\(UUID().uuidString).exit" : nil
             var script = "printf '\\033[2m❯ %s\\033[0m\\n' " + Runnables.quoted(entry.command) + "; "
             if let marker {
-                script += "(" + entry.command + "); c=$?; echo $c > " + Runnables.quoted(marker) + "; exit $c"
+                // A build yields to the editor: at a lower priority (it and what it starts take every core they are
+                // given).
+                script += "(/usr/bin/nice -n 10 /bin/sh -c " + Runnables.quoted(entry.command) + "); c=$?; echo $c > "
+                    + Runnables.quoted(marker) + "; exit $c"
             } else {
                 script += entry.command
             }

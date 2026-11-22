@@ -377,6 +377,31 @@ struct FrameCheck {
             fail("a folder that was open closed when the rows were read again")
         }
         step("a new file appears, git marks M and U and a dot on the folder, and open folders stay open")
+        // A file that is only written again changes no folder: nothing is read again however often (a build does it by
+        // the thousand), and a name that is gone is.
+        try? "gone soon\n".write(toFile: folder + "/src/Gone.cs", atomically: true, encoding: .utf8)
+        await wait("a throwaway file to show") { names().contains("Gone.cs") }
+        try? await Task.sleep(for: .milliseconds(1200))
+        let reads = tree.reloadsDone
+        for round in 0 ..< 6 {
+            try? "again \(round)\n".write(toFile: folder + "/src/New.cs", atomically: false, encoding: .utf8)
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        try? await Task.sleep(for: .milliseconds(1200))
+        guard tree.reloadsDone == reads
+        else { fail("a file written again made the tree read its folder again (\(tree.reloadsDone - reads) times)") }
+        try? FileManager.default.removeItem(atPath: folder + "/src/Gone.cs")
+        await wait("a removed file to go from the tree") { !names().contains("Gone.cs") }
+        guard tree.reloadsDone > reads else { fail("the folder was not read again when a name left it") }
+        step("a file written again does not make the tree read its folder; a name that goes does")
+        // A new folder with files in it shows in the open folder it is in (only its files are reported).
+        try? FileManager.default.createDirectory(
+            atPath: folder + "/src/fresh/deeper",
+            withIntermediateDirectories: true
+        )
+        try? "x\n".write(toFile: folder + "/src/fresh/deeper/a.cs", atomically: true, encoding: .utf8)
+        await wait("a new folder to appear in the open one") { names().contains("fresh") }
+        step("a new folder, reported only by the files in it, appears in the open folder it is in")
         guard let order = tree.tree?.node(at: folder + "/src/Order.cs") else { fail("no Order.cs") }
         tree.focus()
         tree.activate(order)
@@ -1001,6 +1026,18 @@ struct FrameCheck {
             .output ?? ""
         let pids = children.split(separator: "\n").compactMap { pid_t($0.trimmingCharacters(in: .whitespaces)) }
         guard !pids.isEmpty else { fail("no server process under nvim (\(nvimPid))") }
+        let niceness = await (try? FrameServers.run("/bin/ps", ["-o", "nice=", "-p", "\(pids[0])"]))?.output
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Relative to nvim's own (the editor may itself have been started niced).
+        let editorNiceness = await (try? FrameServers.run("/bin/ps", ["-o", "nice=", "-p", "\(nvimPid)"]))?.output
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let own = editorNiceness.flatMap({ Int($0) }), niceness == String(own + 6)
+        else {
+            fail(
+                "the language server is not at a lower priority than the editor: nice \(niceness ?? "?") (editor \(editorNiceness ?? "?"))"
+            )
+        }
+        step("a language server runs at a lower priority than the editor, so it yields while it works")
         pids.forEach { kill($0, SIGKILL) }
         await wait("the bar to say it is starting again") { shell.status.lsp.contains("sourcekit ↻") }
         guard await lua("return vim.fn.mode()")?.stringValue == "n" else { fail("nvim did not carry on") }
@@ -1144,6 +1181,19 @@ struct FrameCheck {
             guard shell.editor.frame == before
             else { fail("the code did not take its room back: \(shell.editor.frame) \(before)") }
             step("closing the pane gives the code its room back")
+            // A build yields to the editor: it and what it starts run at a lower priority.
+            shell.run(RunEntry(
+                title: "nice", source: "make", kind: .build, command: "echo level-$(ps -o nice= -p $$ | tr -d ' ')-end",
+                directory: folder
+            ))
+            let ownText = await (try? FrameServers.run("/bin/ps", ["-o", "nice=", "-p", "\(getpid())"]))?.output
+            let own = Int(ownText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? 0
+            await wait("the build to say how nice it is") {
+                shell.runPane?.screenText()?.contains("level-\(own + 10)-end") == true
+            }
+            await wait("that build to end", seconds: 20) { shell.status.building.isEmpty }
+            step("a build runs at a lower priority than the editor")
+            shell.closeTerminal(nil)
             // A clean build runs unseen: a loader in the status bar, then a line; no pane.
             shell.run(RunEntry(title: "clean", source: "make", kind: .build, command: "echo fine", directory: folder))
             await wait("the loader in the status bar") { shell.status.building == "clean" }
@@ -1785,6 +1835,36 @@ struct FrameCheck {
             if n > 0 { break }
             try? await Task.sleep(for: .milliseconds(100))
         }
+        // Clicks: files of the solution opened one after another, each timed from the request to nvim showing it.
+        let sources = (FileManager.default.enumerator(atPath: copy)?.allObjects as? [String] ?? [])
+            .filter { $0.hasSuffix(".cs") && !$0.contains("/obj/") && !$0.contains("/bin/") }.sorted()
+        var clicks: [Double] = []
+        var nextClick = 0
+        func click() async {
+            guard !sources.isEmpty else { return }
+            let path = RealPath.of(copy + "/" + sources[(nextClick * 37) % sources.count])
+            nextClick += 1
+            // Each click is profiled on its own, and the profile kept when it was slow.
+            let slowProfile = ProcessInfo.processInfo.environment["FRAME_LOAD_SLOW_CLICKS"]
+            let temp = NSTemporaryDirectory() + "frame-click-profile.txt"
+            if slowProfile != nil { _ = await lua("require('frame.profile').start('\(temp)')") }
+            let began = Date()
+            shell.open(file: path, toEditor: true)
+            for _ in 0 ..< 400 {
+                if await lua("return vim.api.nvim_buf_get_name(0)")?.stringValue == path { break }
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            let took = Date().timeIntervalSince(began)
+            clicks.append(took)
+            if let slowProfile {
+                _ = await lua("require('frame.profile').stop()")
+                if took > 0.5, let text = try? String(contentsOfFile: temp, encoding: .utf8) {
+                    let header = "=== a click on \(sources[(nextClick - 1) * 0 + ((nextClick - 1) * 37) % sources.count]) took \(Int(took * 1000))ms\n"
+                    let old = (try? String(contentsOfFile: slowProfile, encoding: .utf8)) ?? ""
+                    try? (old + header + text + "\n").write(toFile: slowProfile, atomically: true, encoding: .utf8)
+                }
+            }
+        }
         // Give the server time to load its projects and analyse, as it does for a person who has just opened the
         // folder:
         // nvim is asked for something every 50ms all the while (a click on a file is such a request), and its Lua
@@ -1797,9 +1877,22 @@ struct FrameCheck {
             let t = Date()
             _ = await lua("return 1")
             warm.append(Date().timeIntervalSince(t))
+            if warm.count % 20 == 0 { await click() }
             try? await Task.sleep(for: .milliseconds(50))
         }
         if profile != nil { _ = await lua("require('frame.profile').stop()") }
+        let clients = await lua("""
+        local out = {}
+        for _, c in ipairs(vim.lsp.get_clients()) do out[#out + 1] = c.name .. ' @ ' .. tostring(c.root_dir) end
+        return table.concat(out, ' | ')
+        """)?.stringValue ?? ""
+        print("load  servers after the clicks: \(clients)")
+        clicks.sort()
+        print(String(
+            format: "load  clicking a file while the server analyses (no build): shown after at most %.0fms (median %.0fms) over %d clicks",
+            (clicks.last ?? 0) * 1000, (clicks.isEmpty ? 0 : clicks[clicks.count / 2]) * 1000, clicks.count
+        ))
+        clicks = []
         warm.sort()
         print(String(
             format: "load  while the server analysed (no build): nvim answered in at most %.0fms (p95 %.0fms, %d over 100ms) over %d requests",
@@ -1808,23 +1901,6 @@ struct FrameCheck {
             warm.count(where: { $0 > 0.1 }), warm.count
         ))
         if ProcessInfo.processInfo.environment["FRAME_LOAD_NO_BUILD"] != nil { return }
-        // Clicks: files of the solution opened one after another, each timed from the request to nvim showing it.
-        let sources = (FileManager.default.enumerator(atPath: copy)?.allObjects as? [String] ?? [])
-            .filter { $0.hasSuffix(".cs") && !$0.contains("/obj/") && !$0.contains("/bin/") }.sorted()
-        var clicks: [Double] = []
-        var nextClick = 0
-        func click() async {
-            guard !sources.isEmpty else { return }
-            let path = RealPath.of(copy + "/" + sources[(nextClick * 37) % sources.count])
-            nextClick += 1
-            let began = Date()
-            shell.open(file: path, toEditor: true)
-            for _ in 0 ..< 400 {
-                if await lua("return vim.api.nvim_buf_get_name(0)")?.stringValue == path { break }
-                try? await Task.sleep(for: .milliseconds(10))
-            }
-            clicks.append(Date().timeIntervalSince(began))
-        }
         let stalls = StallMonitor()
         stalls.start()
         var trips: [Double] = []
@@ -2992,6 +3068,7 @@ struct FrameCheck {
         step("Escape closes it and the keyboard goes back to where it was")
 
         // The chip at the sidebar's foot: the repository's name and its branch; it opens the switcher.
+        await wait("the chip to name the repository's branch") { shell.chip.branch == "main" }
         let chip = shell.chip
         guard chip.name == ((shell.tree.rootPath ?? "") as NSString).lastPathComponent, chip.branch == "main",
               !chip.isWorktree

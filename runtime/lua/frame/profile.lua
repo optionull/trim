@@ -4,7 +4,7 @@ local M = {}
 
 function M.start(path)
   local ok, p = pcall(require, 'jit.p')
-  if ok then p.start('li1', path) end
+  if ok then p.start(vim.env.FRAME_PROFILE_MODE or 'li1', path) end
   return ok
 end
 

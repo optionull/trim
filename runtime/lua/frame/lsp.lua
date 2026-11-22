@@ -131,7 +131,9 @@ local function config_at(name, spec, root, command)
   return {
     capabilities = M.capabilities(),
     name = 'frame_' .. name,
-    cmd = command,
+    -- At a lower priority than the editor: a server analysing a solution (and what it starts) takes every core it is
+    -- given, and the window and nvim must still answer at once.
+    cmd = vim.list_extend({ '/usr/bin/nice', '-n', '6' }, command),
     root_dir = root,
     init_options = spec.init_options,
     on_init = spec.on_init,

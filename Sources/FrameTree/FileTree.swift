@@ -14,6 +14,8 @@ public final class TreeNode: Hashable {
     public internal(set) var changedBelow = false
     /// The worst diagnostic of the file, or of anything below the folder.
     public internal(set) var diagnostic: DiagnosticLevel?
+    /// The names the folder had on disk when its entries were last read (hidden ones too), to tell whether it changed.
+    public internal(set) var diskNames: Set<String>?
     /// A folder's entries once read; nil until then.
     public internal(set) var children: [TreeNode]?
     public internal(set) weak var parent: TreeNode?
@@ -96,7 +98,15 @@ public final class FileTree {
             forget(old)
         }
         folder.children = entries
+        folder.diskNames = Set(names)
         return entries
+    }
+
+    /// The names a folder has on disk now (git's own folder left out), read without touching the tree: safe off the
+    /// main
+    /// thread.
+    public nonisolated static func namesOnDisk(_ path: String) -> Set<String> {
+        Set(((try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []).filter { $0 != ".git" })
     }
 
     /// Forgets a node and everything below it.
@@ -149,6 +159,7 @@ public final class FileTree {
     /// shown, dropped from the folders read so far). The folders whose entries changed, to be shown again.
     @discardableResult
     public func apply(_ state: GitState) -> [TreeNode] {
+        let ignoredChanged = state.ignored != git.ignored
         git = state
         changedFolders = []
         for path in state.status.keys {
@@ -163,8 +174,10 @@ public final class FileTree {
         for node in nodes.values {
             style(node)
         }
-        // A folder read earlier may now hold (or no longer hold) ignored entries.
-        affected = reloadLoaded()
+        // A folder read earlier may now hold (or no longer hold) ignored entries: only if what is ignored changed (a
+        // build
+        // changes the status of files all the time, and reading every open folder each time is not free).
+        if ignoredChanged { affected = reloadLoaded() }
         return affected
     }
 

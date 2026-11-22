@@ -647,6 +647,10 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
     private var events: FileEvents?
     private var gitTask: Task<Void, Never>?
     private var diagnosticTask: Task<Void, Never>?
+    /// Folders waiting to be looked at, the task that will, and how many were read again (for the self-check).
+    private var changedFolders: Set<String> = []
+    private var changeTask: Task<Void, Never>?
+    private(set) var reloadsDone = 0
     private var fileDiagnostics: [String: DiagnosticLevel] = [:]
     private var pending: DispatchWorkItem?
     /// The editor's colours and font as they are now.
@@ -1022,23 +1026,62 @@ final class TreeController: NSObject, NSOutlineViewDataSource, NSOutlineViewDele
 
     // MARK: Following the files
 
-    /// Files changed on disk: the folders showing them are read again, and git is asked afresh.
+    /// Files changed on disk: the folders showing them are looked at a moment after the last change (a build reports
+    /// thousands in a second), their names compared off the main thread, and only those that gained or lost a name are
+    /// read
+    /// again and shown; git is asked afresh (it says what changed in the files themselves).
     private func changed(_ paths: [String]) {
         guard let tree else { return }
-        var folders: Set<String> = []
         for path in paths {
-            let folder = (path as NSString).deletingLastPathComponent
-            if let node = tree.node(at: folder), node.children != nil { folders.insert(folder) }
+            // The nearest folder that is read: the file's own, or (a new folder, with files in it) the one it is in.
+            var folder = (path as NSString).deletingLastPathComponent
+            while folder.hasPrefix(tree.root.path) {
+                if let node = tree.node(at: folder), node.children != nil {
+                    changedFolders.insert(folder)
+                    break
+                }
+                if folder == tree.root.path { break }
+                folder = (folder as NSString).deletingLastPathComponent
+            }
             // The path itself, when it was a folder that is now gone.
-            if let node = tree.node(at: path), node.isDirectory, node.children != nil { folders.insert(path) }
+            if let node = tree.node(at: path), node.isDirectory, node.children != nil { changedFolders.insert(path) }
         }
-        for folder in folders.sorted(by: { $0.count < $1.count }) {
-            guard let node = tree.node(at: folder) else { continue }
-            tree.reload(node)
-            show(node)
-        }
-        if !filterText.isEmpty { applyFilter(filterText) }
         refreshGit()
+        guard changeTask == nil else { return }
+        changeTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            self?.flushChanges()
+        }
+    }
+
+    /// The folders that may have changed, now: those whose names are not what they were are read again.
+    private func flushChanges() {
+        changeTask = nil
+        guard let tree, !changedFolders.isEmpty else { return }
+        let before: [String: Set<String>?] = changedFolders.reduce(into: [:]) { known, folder in
+            known[folder] = tree.node(at: folder)?.diskNames
+        }
+        changedFolders = []
+        changeTask = Task { [weak self] in
+            let different = await Task.detached(priority: .utility) {
+                before.filter { folder, names in names.map { $0 != FileTree.namesOnDisk(folder) } ?? true }.map(\.key)
+            }.value
+            guard let self, let tree = self.tree else { return }
+            changeTask = nil
+            for folder in different.sorted(by: { $0.count < $1.count }) {
+                guard let node = tree.node(at: folder) else { continue }
+                tree.reload(node)
+                reloadsDone += 1
+                show(node)
+            }
+            if !filterText.isEmpty { applyFilter(filterText) }
+            if !changedFolders.isEmpty {
+                changeTask = Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    self?.flushChanges()
+                }
+            }
+        }
     }
 
     private func show(_ node: TreeNode) {
