@@ -79,8 +79,11 @@ extension FrameWindowController {
     /// ⌘J: show the pane (or take the keyboard to it); from the pane, back to the code.
     @objc func toggleTerminal(_: Any?) {
         guard let pane = runPane else { return showRunPicker(nil) }
+        if pane.isHidden {
+            showBuildPane()
+            return focus(.terminal)
+        }
         if modes.surface == .terminal { return focusEditor() }
-        _ = pane
         focus(.terminal)
     }
 

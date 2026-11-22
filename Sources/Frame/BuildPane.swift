@@ -29,6 +29,9 @@ final class BuildPane: NSView {
     }
 
     var onTabChange: ((Tab) -> Void)?
+    /// The minimize button: the pane goes away and what runs in it goes on.
+    var onMinimize: (() -> Void)?
+    private(set) var minimizeRect = NSRect.zero
     /// As tall as the file tabs' strip.
     static func headerHeight(for look: TreeLook) -> CGFloat { look.rowHeight + 12 }
     private var tabFrames: [(Tab, NSRect)] = []
@@ -113,17 +116,23 @@ final class BuildPane: NSView {
             tabFrames.append((which, rect))
             x += width + 4
         }
+        // At the right: what ran, once and quietly, and the button that puts the pane away (it goes on running).
+        let button = NSRect(x: bounds.width - header + 2, y: 4, width: header - 8, height: header - 8)
+        minimizeRect = button
+        let glyph = NSAttributedString(string: "\u{f068}", attributes: [.font: iconFont, .foregroundColor: look.muted])
+        glyph.draw(at: NSPoint(x: button.midX - glyph.size().width / 2, y: button.midY - glyph.size().height / 2))
         if let entry {
-            let detail = NSAttributedString(string: entry.title + "  " + entry.command, attributes: [
+            let detail = NSAttributedString(string: entry.command, attributes: [
                 .font: look.smallFont, .foregroundColor: look.faint,
             ])
-            let room = bounds.width - x - 14
+            let room = button.minX - x - 12
             if room > 40 {
+                let width = min(ceil(detail.size().width), room)
                 detail.draw(
                     with: NSRect(
-                        x: x + 8,
+                        x: button.minX - 8 - width,
                         y: (header - detail.size().height) / 2,
-                        width: room,
+                        width: width,
                         height: detail.size().height
                     ),
                     options: [.truncatesLastVisibleLine, .usesLineFragmentOrigin]
@@ -134,6 +143,7 @@ final class BuildPane: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if minimizeRect.contains(point) { return onMinimize?() ?? () }
         if let hit = tabFrames.first(where: { $0.1.contains(point) }) { select(hit.0) }
     }
 }

@@ -1111,6 +1111,15 @@ struct FrameCheck {
             guard buildPane.tab == .output, buildPane.terminal?.isHidden == false, list.isHidden else {
                 fail("the Output tab does not show the terminal")
             }
+            // The minimize button puts the pane away, and the code has its room; ⌘J brings it back.
+            buildPane.onMinimize?()
+            shell.view.layoutSubtreeIfNeeded()
+            guard buildPane.isHidden, shell.editor.frame == before, shell.modes.surface == .editor
+            else { fail("minimize did not put the pane away: \(shell.editor.frame) \(before)") }
+            shell.toggleTerminal(nil)
+            guard !buildPane.isHidden,
+                  shell.modes.surface == .terminal else { fail("⌘J did not bring the minimized pane back") }
+            step("the minimize button puts the pane away, the code gets its room, and ⌘J brings it back")
             buildPane.select(.problems)
             shell.focus(.terminal)
             guard shell.window.firstResponder === list, shell.modes.label(editorMode: "normal") == "BUILD"
@@ -1295,6 +1304,35 @@ struct FrameCheck {
         list.onChip?("2")
         await wait("a click on the chip to switch warnings back on") { list.all.count == 3 }
         step("each level is switched off and on by its key or by a click")
+        list.layoutSubtreeIfNeeded()
+        let frames = list.chipFrames
+        guard frames.count == 4, let last = frames.last, last.maxX >= list.bounds.width - 16,
+              frames[0].minX > list.bounds.width / 2,
+              list.chips.allSatisfy({ !$0.glyph.isEmpty })
+        else { fail("the toggles are not icons at the right: \(frames) in \(list.bounds.width)") }
+        step("the toggles are icons with their counts, at the right")
+        // The row's quiet text (its place and code) is readable on the selection's fill.
+        func luminance(_ color: NSColor) -> CGFloat {
+            let c = color.usingColorSpace(.sRGB) ?? color
+            func channel(_ v: CGFloat) -> CGFloat { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+            return 0.2126 * channel(c.redComponent) + 0.7152 * channel(c.greenComponent) + 0.0722 *
+                channel(c.blueComponent)
+        }
+        let look = list.look
+        let fill = look.focusedSelection.usingColorSpace(.sRGB) ?? look.focusedSelection
+        let quiet = RowColors.quiet(look, selected: true).usingColorSpace(.sRGB) ?? look.text
+        let blended = NSColor(
+            srgbRed: quiet.redComponent * quiet.alphaComponent + fill.redComponent * (1 - quiet.alphaComponent),
+            green: quiet.greenComponent * quiet.alphaComponent + fill.greenComponent * (1 - quiet.alphaComponent),
+            blue: quiet.blueComponent * quiet.alphaComponent + fill.blueComponent * (1 - quiet.alphaComponent), alpha: 1
+        )
+        let (lighter, darker) = (max(luminance(blended), luminance(fill)), min(luminance(blended), luminance(fill)))
+        let ratio = (lighter + 0.05) / (darker + 0.05)
+        guard ratio >= 4.0
+        else { fail("the selected row's quiet text is not readable on the selection: contrast \(ratio)") }
+        step(
+            "the selected row's place and code are readable on the selection (contrast \(String(format: "%.1f", ratio)))"
+        )
         // Alt+Enter on the warning: the list goes, the cursor is at the problem.
         _ =
             await lua(

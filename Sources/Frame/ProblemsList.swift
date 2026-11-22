@@ -120,6 +120,7 @@ extension FrameWindowController {
             self?.go(to: row, then: "vim.defer_fn(function() vim.lsp.buf.code_action() end, 200)")
             return true
         }
+        pane.onMinimize = { [weak self] in self?.hideBuildPane() }
         runPane = pane
         view.terminal = pane
         reloadProblems()
@@ -155,7 +156,8 @@ extension FrameWindowController {
             problemRows = rows
             pane.problems.chips = DiagnosticLevel.allCases.sorted(by: >).map { level in
                 ListChip(
-                    id: String(level.rawValue), title: ProblemRow.name(level), color: SquiggleView.color(level),
+                    id: String(level.rawValue), title: ProblemRow.name(level), glyph: ProblemRow.glyph(level),
+                    color: SquiggleView.color(level),
                     count: totals[level] ?? 0, on: problemLevels.contains(level), key: ProblemRow.keys[level] ?? ""
                 )
             }
@@ -171,6 +173,15 @@ extension FrameWindowController {
             pane.isHidden = false
             view.needsLayout = true
         }
+    }
+
+    /// The minimize button: the pane goes out of the way (a build in it goes on), the keyboard back in the code.
+    func hideBuildPane() {
+        guard let pane = runPane, !pane.isHidden else { return }
+        let wasFocused = modes.surface == .terminal
+        pane.isHidden = true
+        view.needsLayout = true
+        if wasFocused { focusEditor() }
     }
 
     /// A click on the build in the status bar: its output.

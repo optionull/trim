@@ -19,63 +19,108 @@ struct PickerItem: Equatable {
     var isCurrent = false
 }
 
-/// A toggle shown under a list's heading: a coloured dot, a count, a word and the key that flips it.
+/// A toggle under a list's heading: a coloured glyph and a count; its name and key are its tooltip.
 struct ListChip: Equatable {
     var id: String
     var title: String
+    var glyph: String
     var color: NSColor
     var count: Int
     var on: Bool
     var key: String
 }
 
-/// The row of `ListChip`s: clicking one flips it.
+/// The row of `ListChip`s, at the right: clicking one flips it.
 final class ChipsView: NSView {
     var look = TreeLook() {
         didSet { needsDisplay = true }
     }
 
     var chips: [ListChip] = [] {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            needsLayout = true
+        }
     }
 
     var onToggle: ((String) -> Void)?
-    private var frames: [(String, NSRect)] = []
-
     static let height: CGFloat = 36
 
     override var isFlipped: Bool { true }
 
+    /// Where each chip is, from the right edge in.
+    func chipFrames() -> [(id: String, rect: NSRect)] {
+        var right = bounds.width - 12
+        var found: [(String, NSRect)] = []
+        for chip in chips.reversed() {
+            let count = NSAttributedString(string: "\(chip.count)", attributes: [.font: look.smallFont])
+            let width = 10 + max(look.iconSize, 14) + 6 + ceil(count.size().width) + 10
+            let rect = NSRect(x: right - width, y: 5, width: width, height: bounds.height - 10)
+            found.append((chip.id, rect))
+            right -= width + 6
+        }
+        return found.reversed().map { (id: $0.0, rect: $0.1) }
+    }
+
+    override func layout() {
+        super.layout()
+        removeAllToolTips()
+        for (index, frame) in chipFrames().enumerated() {
+            addToolTip(
+                frame.rect,
+                owner: self,
+                userData: UnsafeMutableRawPointer(bitPattern: index + 1)
+            )
+        }
+    }
+
+    @objc func view(
+        _: NSView,
+        stringForToolTip _: NSView.ToolTipTag,
+        point _: NSPoint,
+        userData: UnsafeMutableRawPointer?
+    ) -> String {
+        guard let raw = userData, case let index = Int(bitPattern: raw) - 1,
+              chips.indices.contains(index) else { return "" }
+        let chip = chips[index]
+        return "\(chip.title) (\(chip.key)): \(chip.on ? "shown" : "hidden")"
+    }
+
     override func draw(_: NSRect) {
-        frames = []
-        var x: CGFloat = 18
-        for chip in chips {
-            let text = NSAttributedString(string: "\(chip.count) \(chip.title)", attributes: [
-                .font: look.smallFont, .foregroundColor: chip.on ? look.text : look.faint,
-            ])
-            let key = NSAttributedString(string: chip.key, attributes: [
-                .font: look.smallFont, .foregroundColor: look.faint,
-            ])
-            let width = 12 + 14 + text.size().width + 8 + key.size().width + 12
-            let rect = NSRect(x: x, y: 5, width: width, height: bounds.height - 10)
+        let iconFont = NerdFont.font(size: look.iconSize - 1) ?? look.smallFont
+        for (frame, chip) in zip(chipFrames(), chips) {
+            let rect = frame.rect
+            let tint = chip.on ? chip.color : look.faint
             (chip.on ? chip.color.withAlphaComponent(0.16) : NSColor.clear).setFill()
             let pill = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
             pill.fill()
             (chip.on ? chip.color.withAlphaComponent(0.5) : look.faint.withAlphaComponent(0.4)).setStroke()
             pill.lineWidth = 1
             pill.stroke()
-            (chip.on ? chip.color : look.faint).setFill()
-            NSBezierPath(ovalIn: NSRect(x: rect.minX + 12, y: rect.midY - 3.5, width: 7, height: 7)).fill()
-            text.draw(at: NSPoint(x: rect.minX + 26, y: rect.midY - text.size().height / 2))
-            key.draw(at: NSPoint(x: rect.minX + 26 + text.size().width + 8, y: rect.midY - key.size().height / 2))
-            frames.append((chip.id, rect))
-            x += width + 8
+            let icon = NSAttributedString(string: chip.glyph, attributes: [.font: iconFont, .foregroundColor: tint])
+            let count = NSAttributedString(string: "\(chip.count)", attributes: [
+                .font: look.smallFont, .foregroundColor: chip.on ? look.text : look.faint,
+            ])
+            icon.draw(at: NSPoint(x: rect.minX + 10, y: rect.midY - icon.size().height / 2))
+            count.draw(at: NSPoint(
+                x: rect.minX + 10 + max(look.iconSize, 14) + 6,
+                y: rect.midY - count.size().height / 2
+            ))
         }
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if let hit = frames.first(where: { $0.1.contains(point) }) { onToggle?(hit.0) }
+        if let hit = chipFrames().first(where: { $0.rect.contains(point) }) { onToggle?(hit.id) }
+    }
+}
+
+/// The colours of a row's quieter text (its place, its code): readable on the row's own ground, which is the
+/// selection's fill when the keyboard is on it.
+@MainActor
+enum RowColors {
+    static func quiet(_ look: TreeLook, selected: Bool) -> NSColor {
+        selected ? look.text.withAlphaComponent(0.78) : look.faint
     }
 }
 
@@ -156,7 +201,11 @@ final class PickerRowsView: NSView {
             var right = bounds.width - 18
             if !item.detail.isEmpty {
                 let detail = NSAttributedString(
-                    string: item.detail, attributes: [.font: look.smallFont, .foregroundColor: look.faint]
+                    string: item.detail,
+                    attributes: [
+                        .font: look.smallFont,
+                        .foregroundColor: RowColors.quiet(look, selected: item.id == cursor),
+                    ]
                 )
                 right -= ceil(detail.size().width)
                 detail.draw(at: NSPoint(x: right, y: rect.midY - detail.size().height / 2))
@@ -185,7 +234,11 @@ final class PickerRowsView: NSView {
                 let after = x + ceil(title.size().width) + 12
                 if after < right - 30 {
                     let quiet = NSAttributedString(
-                        string: item.subtitle, attributes: [.font: look.smallFont, .foregroundColor: look.faint]
+                        string: item.subtitle,
+                        attributes: [
+                            .font: look.smallFont,
+                            .foregroundColor: RowColors.quiet(look, selected: item.id == cursor),
+                        ]
                     )
                     quiet.draw(
                         with: NSRect(
@@ -278,6 +331,9 @@ final class ListPickerView: NSView {
         get { chipsView.onToggle }
         set { chipsView.onToggle = newValue }
     }
+
+    /// Where the toggles are (for the self-check).
+    var chipFrames: [NSRect] { chipsView.chipFrames().map(\.rect) }
 
     /// Room for long rows (a problem's message and its place).
     var wide = false
