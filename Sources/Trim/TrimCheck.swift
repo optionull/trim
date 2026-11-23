@@ -108,6 +108,7 @@ struct TrimCheck {
         await group("whichkey") { await whichKeySteps() }
         await group("lsp") {
             await lspSteps()
+            await goSteps()
             await dotnetSteps()
             await razorSteps()
             await startupSteps()
@@ -971,6 +972,56 @@ struct TrimCheck {
         await waitAsync("the hints to go") { await hints() == 0 }
         guard await lua("return vim.fn.mode()")?.stringValue == "n" else { fail("nvim is not back in normal mode") }
         step("vim's own sequences (g) show their hints too")
+    }
+
+    /// Go: gopls is found (or installed into the cache with `go install`) and started for a Go file, rooted at its
+    /// module, and answers go to definition. Without Go on the machine it is skipped, and says so.
+    private func goSteps() async {
+        guard TrimServers.onPath("go") != nil else { return step("no go here: the Go server was not exercised") }
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        let folder = RealPath.of(NSTemporaryDirectory()) + "/trim-go-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        try? "module example.com/app\n\ngo 1.21\n".write(toFile: folder + "/go.mod", atomically: true, encoding: .utf8)
+        let source = "package main\n\n// Add sums two numbers.\nfunc Add(a, b int) int { return a + b }\n\nfunc main() {\n\t_ = Add(1, 2)\n}\n"
+        try? source.write(toFile: folder + "/main.go", atomically: true, encoding: .utf8)
+        shell.focusEditor()
+        _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(folder)/main.go'))")
+        // The first time, gopls is installed with `go install`: minutes at worst.
+        var ready = false
+        for _ in 0 ..< 3000 {
+            let ids = await lua("""
+            local n = 0
+            for _, c in ipairs(vim.lsp.get_clients({ name = 'trim_gopls' })) do if c.root_dir == '\(
+                folder
+            )' then n = n + 1 end end
+            return n
+            """)?.integerValue ?? 0
+            if ids > 0 { ready = true; break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard ready else { fail("gopls did not start for a Go file: \(shell.status.lsp)") }
+        step("gopls is found or installed, and started for a Go file, rooted at its module")
+        _ = await lua("vim.api.nvim_win_set_cursor(0, { 7, 7 })")
+        var answer = ""
+        for _ in 0 ..< 100 {
+            answer = await lua("""
+            local params = vim.lsp.util.make_position_params(0, 'utf-16')
+            local result = vim.lsp.buf_request_sync(0, 'textDocument/definition', params, 3000)
+            for _, r in pairs(result or {}) do
+              local loc = r.result and (r.result[1] or r.result)
+              if loc then return (loc.uri or loc.targetUri or ''):match('[^/]*$') .. ':' .. ((loc.range or loc.targetRange).start.line + 1) end
+            end
+            return ''
+            """)?.stringValue ?? ""
+            if !answer.isEmpty { break }
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        guard answer == "main.go:4" else { fail("go to definition on Add answered \"\(answer)\", not main.go:4") }
+        step("gopls answers go to definition (Add, main.go:4)")
+        _ = await lua("vim.cmd('silent! %bwipeout!')")
+        _ = await lua("require('trim.lsp').stop('gopls')")
+        try? FileManager.default.removeItem(atPath: folder)
     }
 
     /// Language servers, supervised: a real server (sourcekit-lsp, from Xcode) starts for a Swift file, and when it is

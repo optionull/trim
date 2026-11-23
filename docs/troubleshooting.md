@@ -16,7 +16,7 @@ then in `/opt/homebrew/bin`, `/usr/local/bin` and `/opt/local/bin`, then in its 
 `name ✗` in the status bar means a server was given up on after dying five times in a minute. `:TrimLsp status`
 says what each is doing and `:TrimLsp restart name` tries again.
 
-C# and F# servers are .NET tools, so the **.NET SDK must be installed**. The web servers need **Node**. Trim says
+C# and F# servers are .NET tools, so the **.NET SDK must be installed**. gopls is installed with `go install`, so **Go must be installed**. The web servers need **Node**. Trim says
 so when one is missing.
 
 ## Files open without colours or completion

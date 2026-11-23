@@ -21,6 +21,9 @@ enum TrimServers {
     /// HTML, CSS and JSON's servers, and TypeScript, whose compiler is its own server.
     static let roslynVersion = "5.12.0-1.26475.2"
     static let fsautocompleteVersion = "0.86.0"
+    /// gopls, installed with `go install` into the cache when it is not on the PATH (the Go proxy publishes
+    /// checksums, and `go` checks them).
+    static let goplsVersion = "v0.24.0"
     static let webPackages = ["vscode-langservers-extracted@4.10.0", "typescript@7.0.2"]
 
     static var cache: URL {
@@ -32,6 +35,7 @@ enum TrimServers {
         [
             "rust_analyzer": "rust-analyzer",
             "sourcekit": "sourcekit-lsp",
+            "gopls": "Go (gopls)",
             "cssls": "CSS",
             "jsonls": "JSON",
             "html": "HTML",
@@ -50,6 +54,7 @@ enum TrimServers {
             "/opt/homebrew/bin",
             "/usr/local/bin",
             home + "/.cargo/bin",
+            home + "/go/bin",
             home + "/.local/share/mise/shims",
             home + "/.local/bin",
             home + "/.dotnet/tools",
@@ -118,6 +123,9 @@ enum TrimServers {
                 return [found.output.trimmingCharacters(in: .whitespacesAndNewlines)]
             }
             throw Failure(description: "sourcekit-lsp comes with Xcode or a Swift toolchain")
+        case "gopls":
+            if let path = onPath("gopls"), await answers(path, "version") { return [path] }
+            return try await [gopls()]
         case "marksman":
             if let path = onPath("marksman"), await answers(path, "--version") { return [path, "server"] }
             return try await [marksman(), "server"]
@@ -217,6 +225,26 @@ enum TrimServers {
         )
         guard installed.code == 0, FileManager.default.isExecutableFile(atPath: binary)
         else { throw Failure(description: "dotnet tool install \(name) failed: \(installed.output.suffix(300))") }
+        return binary
+    }
+
+    /// gopls, installed once into the cache with `go install` at a pinned version. Without Go the failure says so.
+    static func gopls() async throws -> String {
+        let folder = cache.appendingPathComponent("gopls-\(goplsVersion)")
+        let binary = folder.appendingPathComponent("gopls").path
+        if FileManager.default.isExecutableFile(atPath: binary) { return binary }
+        guard let go = onPath("go") else {
+            throw Failure(
+                description: "Go is not installed (no go on the PATH): the Go server, gopls, needs it to be installed"
+            )
+        }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let installed = try await run(
+            "/usr/bin/env", ["GOBIN=" + folder.path, go, "install", "golang.org/x/tools/gopls@\(goplsVersion)"],
+            in: cache.path
+        )
+        guard installed.code == 0, FileManager.default.isExecutableFile(atPath: binary)
+        else { throw Failure(description: "go install gopls failed: \(installed.output.suffix(300))") }
         return binary
     }
 
