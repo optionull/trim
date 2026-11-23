@@ -1849,10 +1849,30 @@ struct FrameCheck {
         _ = try? await channel.lua("vim.cmd('stopinsert')")
         await wait("the menu and its documentation to go") { ui.popupView.isHidden && ui.completionDocPanel.isHidden }
         step("completion: the icons for the kinds, and the menu and its documentation go together")
+        // The markdown a server sends is cleaned, and code is coloured in the language its fence names (any with a
+        // parser).
+        let cleaned = await (try? channel
+            .lua("return require('frame.docs').clean('allow\\\\-listed into&nbsp;**raw**\\\\. (a \\\\(b\\\\))')"))?
+                    .stringValue ?? ""
+        guard cleaned == "allow-listed into raw. (a (b))" else { fail("the markdown is not cleaned: \(cleaned)") }
+        for language in ["lua", "json", "c"] {
+            let coloured = await (try? channel.lua("""
+            local blocks = require('frame.docs').blocks('```\(
+                language
+            )\\n' .. ({ lua = 'local x = 1 -- n', json = '{"a": [1, true]}', c = 'int main() { return 0; }' })['\(
+                language
+            )'] .. '\\n```')
+            return #blocks == 1 and #blocks[1].h or -1
+            """))?.integerValue ?? -1
+            guard coloured > 0 else { fail("code in \(language) is not coloured: \(coloured)") }
+        }
+        step(
+            "documentation is cleaned of markdown escapes and entities, and code is coloured whatever language its fence names"
+        )
         // K and Ctrl-S: what the server says is a panel of ours at the cursor, not a window of nvim's.
         _ = try? await channel
             .lua(
-                "vim.rpcnotify(vim.g.sill_channel, 'frame_hover', '```csharp\\nint Count { get; }\\n```\\nHow many there are.')"
+                "vim.rpcnotify(vim.g.sill_channel, 'frame_hover', require('frame.docs').encode('```lua\\nlocal function count(items) return #items end\\n```\\nHow many **there** are, per `items`\\\\-list&nbsp;given.\\n\\n---\\n\\nSecond server: more.', 'lua'))"
             )
         await wait("the hover panel") { !ui.hoverPanel.isHidden }
         shell.view.layoutSubtreeIfNeeded()
@@ -1871,6 +1891,8 @@ struct FrameCheck {
         guard await (try? channel.lua("return vim.lsp.buf.hover == require('frame.lsp').hover"))?.boolValue == true
         else { fail("K and anything asking for a hover do not get the panel") }
         step("hover (K, Ctrl-S) is a panel of the window's at the cursor, inside it, and nvim's own is not used")
+        // Nothing of it left behind: a buffer with changes would be asked about by whatever moves the window next.
+        _ = try? await channel.lua("vim.cmd('stopinsert'); vim.cmd('silent! %bwipeout!')")
     }
 
     private func zenSteps() async {
@@ -2195,6 +2217,71 @@ struct FrameCheck {
         }
         guard await other() > 0 else { fail("Roslyn did not report the file that was never opened") }
         step("the server's workspace diagnostics reach files that were never opened")
+        // Completion with the real server: the item chosen has its documentation in the panel.
+        _ = await lua("""
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, {
+          'class Program {',
+          '  /// <summary>Does the work.</summary>',
+          '  static void DoWork(int n) { }',
+          '  static void Main() { DoW } }',
+        })
+        vim.api.nvim_win_set_cursor(0, { 4, 24 })
+        vim.cmd('startinsert')
+        """)
+        let ui = shell.externalUI!
+        // The first completion waits for the server to load what it needs: asked again until it answers.
+        for round in 0 ..< 150 where ui.popupView.isHidden {
+            if round % 4 == 0 { _ = await lua("vim.lsp.completion.get()") }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        let state =
+            await lua(
+                "return vim.inspect({ mode = vim.fn.mode(), pum = vim.fn.pumvisible(), line = vim.api.nvim_get_current_line(), cursor = vim.api.nvim_win_get_cursor(0), clients = #vim.lsp.get_clients({ bufnr = 0 }) })"
+            )?
+            .stringValue ?? ""
+        guard !ui.popupView.isHidden else { fail("Roslyn's completion did not come up: \(state)") }
+        // Down to a method that has documentation (a keyword has none).
+        let presses = await lua("""
+        for i, item in ipairs(vim.fn.complete_info({ 'items' }).items) do
+          if item.word == 'DoWork' then return i end
+        end
+        return 0
+        """)?.integerValue ?? 0
+        let words =
+            await lua(
+                "return table.concat(vim.tbl_map(function(i) return i.word end, vim.fn.complete_info({ 'items' }).items), ' ')"
+            )?
+            .stringValue ?? ""
+        guard presses > 0 else { fail("DoWork is not among Roslyn's completions: \(words.prefix(300))") }
+        _ = await lua("vim.api.nvim_feedkeys(string.rep(vim.keycode('<C-n>'), \(presses)), 'n', false)")
+        for _ in 0 ..< 150 where ui.completionDoc.isEmpty {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard ui.completionDoc.contains("Does the work")
+        else { fail("no documentation for the item chosen with the real server: \(ui.completionDoc)") }
+        step("completion with a real server: the item chosen has its documentation in the window's panel")
+        // Overloads: signature help has them all, and Alt-Down steps to the next.
+        _ = await lua("""
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, {
+          'class Program {',
+          '  static void Work(int n) { }',
+          '  static void Work(string s, int n) { }',
+          '  static void Main() { Work( } }',
+        })
+        vim.api.nvim_win_set_cursor(0, { 4, 28 })
+        """)
+        for round in 0 ..< 100 where !ui.hoverText.contains("of 2") {
+            if round % 5 == 0 { _ = await lua("require('frame.lsp').signature()") }
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        guard ui.hoverText.contains("1 of 2") || ui.hoverText.contains("2 of 2")
+        else { fail("no overloads in the signature: \(ui.hoverText)") }
+        let first = ui.hoverText
+        _ = await lua("require('frame.lsp').signature_step(1)")
+        await wait("the next overload") { ui.hoverText != first }
+        guard ui.hoverText.contains("of 2") else { fail("the next overload is not one of the two: \(ui.hoverText)") }
+        step("signature help shows the overloads, and Alt-Down steps through them")
+        _ = await lua("vim.cmd('stopinsert')")
         _ = await lua("require('frame.lsp').stop('csharp'); vim.diagnostic.reset(); vim.cmd('silent! %bwipeout!')")
         try? FileManager.default.removeItem(atPath: folder)
         // F#: fsautocomplete, told to load the project by itself.

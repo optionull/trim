@@ -470,36 +470,13 @@ package final class CompletionDocView: PanelView {
 
     override package func hitTest(_: NSPoint) -> NSView? { nil }
 
-    /// Lays `markdown` out in at most `maxWidth` by `maxHeight`; the size it needs. Fences and backticks mark code, the
-    /// rest is text; links keep their words.
-    package func show(_ markdown: String, maxWidth: CGFloat, maxHeight: CGFloat) -> NSSize {
-        let result = NSMutableAttributedString()
-        var inCode = false
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byWordWrapping
-        for line in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inCode.toggle()
-                continue
-            }
-            var content = String(line)
-            if !inCode {
-                content = content.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
-                content = content.replacingOccurrences(
-                    of: "\\[([^\\]]*)\\]\\([^)]*\\)", with: "$1", options: .regularExpression
-                )
-                while content.hasPrefix("#") {
-                    content.removeFirst()
-                }
-                content = content.trimmingCharacters(in: .whitespaces)
-            }
-            result.append(NSAttributedString(string: content + "\n", attributes: [
-                .font: metrics.regular, .paragraphStyle: paragraph,
-                .foregroundColor: inCode || bright ? Design.text : Design.textMuted,
-            ]))
-        }
-        if result.string
-            .hasSuffix("\n") { result.deleteCharacters(in: NSRange(location: result.length - 1, length: 1)) }
+    /// Lays `content` out in at most `maxWidth` by `maxHeight`; the size it needs. The host sends blocks of text and of
+    /// code (coloured by it) as JSON; anything else is taken as plain text.
+    package func show(_ content: String, maxWidth: CGFloat, maxHeight: CGFloat) -> NSSize {
+        let result = DocContent.attributed(
+            content, regular: metrics.regular, text: bright ? Design.text : Design.textMuted, code: Design.text,
+            faint: Design.textFaint, rule: Design.border
+        )
         text = result
         let inner = maxWidth - 24
         let box = result.boundingRect(

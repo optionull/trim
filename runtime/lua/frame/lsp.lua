@@ -237,62 +237,136 @@ end
 
 --- What the language server says of the word under the cursor, shown by the window in a panel at the cursor (nvim's own
 --- floating window is not used). It goes when the cursor moves or insert mode is entered.
-local function show_hover(text)
-  notify('frame_hover', text or '')
+local function show_hover(markdown)
+  notify('frame_hover', markdown and markdown ~= '' and require('frame.docs').encode(markdown, vim.bo.filetype) or '')
 end
 
-local function dismiss_hover_on_move()
-  vim.api.nvim_create_autocmd({ 'CursorMoved', 'InsertEnter', 'BufLeave' }, {
+local function dismiss_hover(events)
+  vim.api.nvim_create_autocmd(events, {
     group = vim.api.nvim_create_augroup('frame.hover', { clear = true }),
     once = true,
-    callback = function() show_hover('') end,
+    callback = function()
+      M.signatures = nil
+      show_hover('')
+    end,
   })
 end
 
-local function request_text(method, make_text, empty)
+local function request(method, handle)
   local buf = vim.api.nvim_get_current_buf()
   vim.lsp.buf_request_all(buf, method, function(client)
     return vim.lsp.util.make_position_params(0, client.offset_encoding)
   end, function(results)
-    local parts = {}
     for _, response in pairs(results or {}) do
-      local text = response.result and make_text(response.result)
-      if text and text ~= '' then parts[#parts + 1] = text end
+      if response.result and handle(response.result) then return end
     end
-    if #parts == 0 then
-      if empty then vim.notify(empty, vim.log.levels.INFO) end
-      return show_hover('')
-    end
-    show_hover(table.concat(parts, '\n\n---\n\n'))
-    -- Armed after this has been shown, so the key that asked does not dismiss it.
-    vim.schedule(dismiss_hover_on_move)
+    M.signatures = nil
+    show_hover('')
   end)
 end
 
 --- `K`: the server's hover (type, signature and documentation of the word under the cursor).
 function M.hover()
-  request_text('textDocument/hover', function(result)
+  local shown = false
+  request('textDocument/hover', function(result)
     local lines = vim.lsp.util.convert_input_to_markdown_lines(result.contents)
-    return table.concat(lines, '\n')
-  end, 'No information available')
+    local text = table.concat(lines, '\n')
+    if text:match('^%s*$') then return false end
+    show_hover(text)
+    shown = true
+    -- Armed after this has been shown, so the key that asked does not dismiss it.
+    vim.schedule(function() dismiss_hover({ 'CursorMoved', 'InsertEnter', 'BufLeave' }) end)
+    return true
+  end)
+  vim.defer_fn(function()
+    if not shown then vim.notify('No information available', vim.log.levels.INFO) end
+  end, 1500)
 end
 
---- Ctrl-S: the signature of the call being typed, the parameter in turn named.
+--- The signature in turn (of the overloads there are), the parameter being typed marked, and which of how many.
+local function show_signature()
+  local state = M.signatures
+  if not state then return end
+  local signature = state.list[state.index]
+  local label = signature.label
+  local markdown = '```\n' .. label .. '\n```'
+  local parameter = signature.parameters and signature.parameters[(signature.activeParameter or state.parameter or 0) + 1]
+  local spans
+  if parameter then
+    local first, last
+    if type(parameter.label) == 'string' then
+      first, last = label:find(parameter.label, 1, true)
+      if first then first = first - 1 end
+    elseif type(parameter.label) == 'table' then
+      first, last = parameter.label[1], parameter.label[2]
+    end
+    if first then spans = { b = first, e = last } end
+  end
+  local docs = require('frame.docs')
+  local blocks = docs.blocks(markdown, vim.bo.filetype)
+  if blocks[1] and blocks[1].t == 'code' and spans then
+    -- The parameter in turn, over the colours of the code (the window reads u as underline and bold).
+    table.insert(blocks[1].h, { b = spans.b, e = spans.e, bold = true, u = true })
+  end
+  local doc = signature.documentation
+  doc = type(doc) == 'table' and doc.value or doc
+  local extra = docs.blocks(doc or '', vim.bo.filetype)
+  vim.list_extend(blocks, extra)
+  if #state.list > 1 then
+    table.insert(blocks, 1, { t = 'text', s = ('%d of %d overloads  (Alt-Up / Alt-Down)'):format(state.index, #state.list), faint = true })
+  end
+  notify('frame_hover', vim.json.encode(blocks))
+end
+
+--- Ctrl-S, and on `(` and `,`: the signature of the call being typed, with every overload there is.
 function M.signature()
-  request_text('textDocument/signatureHelp', function(result)
-    local signature = result.signatures and result.signatures[(result.activeSignature or 0) + 1]
-    if not signature then return end
-    local text = '```\n' .. signature.label .. '\n```'
-    local doc = signature.documentation
-    doc = type(doc) == 'table' and doc.value or doc
-    if doc and doc ~= '' then text = text .. '\n' .. doc end
-    return text
+  request('textDocument/signatureHelp', function(result)
+    if not result.signatures or #result.signatures == 0 then return false end
+    local previous = M.signatures
+    M.signatures = {
+      list = result.signatures,
+      index = (result.activeSignature or 0) + 1,
+      parameter = result.activeParameter,
+    }
+    -- Typing on within the same call keeps the overload that was chosen by hand.
+    if previous and previous.chosen and #previous.list == #result.signatures then
+      M.signatures.index = previous.index
+      M.signatures.chosen = true
+    end
+    show_signature()
+    vim.schedule(function() dismiss_hover({ 'InsertLeave', 'BufLeave' }) end)
+    return true
   end)
+end
+
+--- Alt-Down / Alt-Up while the signature shows: the next or previous overload.
+function M.signature_step(step)
+  local state = M.signatures
+  if not state then return end
+  state.index = (state.index - 1 + step) % #state.list + 1
+  state.chosen = true
+  show_signature()
 end
 
 -- Anything that asks for a hover (a mapping of a config, nvim's own K) gets this one.
 vim.lsp.buf.hover = M.hover
 vim.lsp.buf.signature_help = M.signature
+
+-- The signature comes up by itself on the characters the server names, and is made again as the call is typed.
+vim.api.nvim_create_autocmd('InsertCharPre', {
+  group = vim.api.nvim_create_augroup('frame.signature', { clear = true }),
+  callback = function()
+    local char = vim.v.char
+    for _, client in ipairs(vim.lsp.get_clients({ bufnr = 0, method = 'textDocument/signatureHelp' })) do
+      local provider = client.server_capabilities.signatureHelpProvider or {}
+      local triggers = vim.list_extend(vim.list_extend({}, provider.triggerCharacters or {}), provider.retriggerCharacters or {})
+      if vim.list_contains(triggers, char) then
+        vim.schedule(M.signature)
+        return
+      end
+    end
+  end,
+})
 
 --- What the servers are busy with (indexing, loading projects, analysing), by client and token, newest last.
 M.progress = {}
@@ -335,21 +409,41 @@ function M.completion_docs()
     text = text or ''
     if text == last then return end
     last = text
-    notify('frame_completion_doc', text)
+    notify('frame_completion_doc', require('frame.docs').encode(text, vim.bo.filetype))
   end
+  -- A candidate's documentation: what the server sent with it, with its detail (the signature) above.
+  local function text_of(entry, fallback)
+    local doc = entry.documentation
+    local text = type(doc) == 'table' and doc.value or doc
+    if (text or '') == '' then text = fallback end
+    if entry.detail and entry.detail ~= '' and not (text or ''):find(entry.detail, 1, true) then
+      text = ('```\n%s\n```\n%s'):format(entry.detail, text or '')
+    end
+    return text
+  end
+  local chosen = 0
   vim.api.nvim_create_autocmd('CompleteChanged', {
     group = vim.api.nvim_create_augroup('frame.completion_docs', { clear = true }),
     callback = function()
       local item = vim.v.event.completed_item or {}
       local lsp_item = vim.tbl_get(item, 'user_data', 'nvim', 'lsp', 'completion_item') or {}
-      local doc = lsp_item.documentation
-      local text = type(doc) == 'table' and doc.value or doc
-      if (text or '') == '' then text = item.info end
-      if lsp_item.detail and lsp_item.detail ~= '' and not (text or ''):find(lsp_item.detail, 1, true) then
-        text = ('```\n%s\n```\n%s'):format(lsp_item.detail, text or '')
-      end
+      local text = text_of(lsp_item, item.info)
       last = nil
       send(text)
+      chosen = chosen + 1
+      if (text or '') ~= '' or not next(lsp_item) then return end
+      -- Most servers send the documentation only when asked for the one candidate (nvim's own resolve is for its
+      -- preview window, which is not used): asked after a moment, so walking the menu is not a request for each.
+      local mine, client_id = chosen, vim.tbl_get(item, 'user_data', 'nvim', 'lsp', 'client_id')
+      vim.defer_fn(function()
+        if mine ~= chosen then return end
+        local client = client_id and vim.lsp.get_client_by_id(client_id)
+        if not client or not client:supports_method('completionItem/resolve') then return end
+        client:request('completionItem/resolve', lsp_item, function(err, result)
+          if err or not result or mine ~= chosen then return end
+          send(text_of(result))
+        end, vim.api.nvim_get_current_buf())
+      end, 60)
     end,
   })
   vim.api.nvim_create_autocmd({ 'CompleteDone', 'InsertLeave' }, {
