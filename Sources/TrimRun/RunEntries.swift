@@ -24,7 +24,8 @@ public struct RunEntry: Equatable, Sendable, Hashable {
     /// is
     /// clear where an entry comes from and where to change it.
     public var origin: String
-    /// A configuration of the person's own (saved in Trim's own folder, per project), not one found in the project's files.
+    /// A configuration of the person's own (saved in Trim's own folder, per project), not one found in the project's
+    /// files.
     public var isCustom: Bool { source == RunConfigs.source }
 
     public init(

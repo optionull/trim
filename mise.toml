@@ -12,6 +12,14 @@ GHOSTTY_COMMIT = "1e9e14af5df14211892f5fc15fd21a49c7d94868"
 # Vendor/treesitter; the bundle carries them). `mise run treesitter-latest` prints its newest commit, to bump with.
 TREESITTER_COMMIT = "19bdfc04f40ed2ccb3340591d125f759b0406875"
 
+# The Neovim release the apps carry as a fallback (scripts/nvim.sh checks its checksum).
+NVIM_VERSION = "v0.12.6"
+NVIM_SHA256 = "1dbd148222b051ba6c307c4d17a318ed083df018a4f6a5a0ce46955ffc9ab87b"
+
+[tasks.nvim]
+description = "Download Vendor/nvim: the Neovim release the apps carry as a fallback (pinned, checksummed)"
+run = "scripts/nvim.sh"
+
 [tasks.doctor]
 description = "Check the toolchain: Xcode selected, its licence, the Metal toolchain, Zig, nvim"
 run = "scripts/doctor.sh"

@@ -3,7 +3,8 @@ import TrimRun
 
 /// The form for one of the person's own run configurations: its name, the command line (the arguments are part of it),
 /// the
-/// folder it runs in, and its environment variables, a line each. Save keeps it in Trim's own folder, per project; Save and Run
+/// folder it runs in, and its environment variables, a line each. Save keeps it in Trim's own folder, per project; Save
+/// and Run
 /// keeps it
 /// and runs it. It is what the Run tab shows while one is being made or changed.
 final class RunForm: NSView {

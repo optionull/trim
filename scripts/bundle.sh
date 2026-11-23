@@ -7,9 +7,9 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 config="${1:-debug}"
 products="$(cd "$root" && swift build -c "$config" --show-bin-path)"
-# SILL_VERSION is set by the release workflow from the release's tag; local builds say dev. The build number is the
+# TRIM_VERSION is set by the release workflow from the release's tag; local builds say dev. The build number is the
 # commit count, which only grows on main (pull requests are squash-merged). SillCommit names the commit.
-version="${SILL_VERSION:-0.1.0-dev}"
+version="${TRIM_VERSION:-0.1.0-dev}"
 build="$(git -C "$root" rev-list --count HEAD 2>/dev/null || echo 0)"
 commit="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo dev)"
 # Tree-sitter's parsers, native code built ahead of time (once per $TREESITTER_COMMIT, into Vendor/treesitter) so no one
@@ -48,9 +48,14 @@ cp -R "$root/Vendor/treesitter" "$frame/Contents/Resources/treesitter"
 codesign --force --sign - "$frame"/Contents/Resources/treesitter/parser/*.so
 sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
   "$root/Resources/Trim-Info.plist" >"$frame/Contents/Info.plist"
+# Neovim itself, as a fallback (the apps use the one on the PATH first): the pinned release with its licence.
+"$root/scripts/nvim.sh" >/dev/null
+rm -rf "$frame/Contents/Resources/nvim"
+cp -R "$root/Vendor/nvim" "$frame/Contents/Resources/nvim"
+codesign --force --sign - "$frame/Contents/Resources/nvim/bin/nvim"
 codesign --force --sign - "$frame"
 echo "bundle: $frame"
-for wanted in fonts/SymbolsNerdFontMono-Regular.ttf fonts/LICENSE runtime/plugin/trim.lua runtime/pack/trim/start/tokyonight.nvim/colors/tokyonight-night.lua treesitter/parser/c_sharp.so; do
+for wanted in fonts/SymbolsNerdFontMono-Regular.ttf fonts/LICENSE nvim/bin/nvim nvim/LICENSE.txt runtime/plugin/trim.lua runtime/pack/trim/start/tokyonight.nvim/colors/tokyonight-night.lua treesitter/parser/c_sharp.so; do
   if [ ! -f "$frame/Contents/Resources/$wanted" ]; then
     echo "bundle: $wanted is missing from Trim" >&2
     exit 1

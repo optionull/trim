@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Write the cask for a published release to optionull/homebrew-tap: packaging/homebrew/trim.rb with the version and
+# the sha256 the release carries. Run by the release workflow after publishing, and by the tap workflow to redo it.
+#
+#   TAP_TOKEN=… scripts/bump-tap.sh 0.1.0
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+version="${1:?usage: scripts/bump-tap.sh <version>}"
+version="${version#v}"
+token="${TAP_TOKEN:?set TAP_TOKEN (the HOMEBREW_TAP_TOKEN secret)}"
+release="https://github.com/optionull/trim/releases/download/v$version"
+
+# The published checksum, so the cask matches what users download.
+sha="$(curl -fsSL "$release/Trim-arm64.zip.sha256" | awk '{print $1}')"
+[[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "bump-tap: no sha256 published for v$version" >&2; exit 1; }
+
+tap="$(mktemp -d)"
+trap 'rm -rf "$tap"' EXIT
+git clone --quiet --depth 1 "https://x-access-token:$token@github.com/optionull/homebrew-tap.git" "$tap"
+mkdir -p "$tap/Casks"
+# The template's header is about the template; the tap's copy says where it comes from instead.
+{
+  echo "# Written by trim's release workflow from packaging/homebrew/trim.rb in https://github.com/optionull/trim;"
+  echo "# change it there, not here."
+  sed -e '/^# TEMPLATE:/,/^[^#]/{/^#/d;}' -e "s/__VERSION__/$version/" -e "s/__SHA256__/$sha/" \
+    "$root/packaging/homebrew/trim.rb"
+} >"$tap/Casks/trim.rb"
+rm -f "$tap/Casks/.gitkeep"
+
+cd "$tap"
+git add -A
+if git diff --cached --quiet; then
+  echo "bump-tap: the tap already has trim $version"
+  exit 0
+fi
+git -c user.name="trim release" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+  commit --quiet -m "trim $version"
+git push --quiet origin HEAD:main
+echo "bump-tap: optionull/homebrew-tap now installs trim $version ($sha)"

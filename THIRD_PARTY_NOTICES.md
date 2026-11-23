@@ -1,12 +1,12 @@
 # Third-party notices
 
-sill includes code from, or links, the projects below. Each is under the MIT licence, reproduced here as each
-project states it.
+Trim and Shim include code from, or link, the projects below. Each is under the MIT licence unless it says otherwise,
+reproduced here as each project states it.
 
 ## Veil
 
 https://github.com/0x1b2c/Veil at a29c3d0. sill's msgpack-RPC layer (`Sources/SillNvim`), its key notation
-(`Sources/SillApp/KeyNotation.swift`), and the grid's run shaping, glyph atlas, box drawing and font fallback
+(`Sources/SillInput`), and the grid's run shaping, glyph atlas, box drawing and font fallback
 (`Sources/SillRender`) are lifted from Veil and changed; each file says what changed. Veil ported its box drawing
 from Ghostty, below.
 
@@ -280,3 +280,10 @@ https://github.com/MattParkerDev/roslyn), ICSharpCode.Decompiler (https://github
 (Microsoft.Diagnostics.DbgShim, MIT, https://github.com/dotnet/diagnostics) is downloaded on the user's machine into
 `~/Library/Caches/sill/dbgshim`, not carried in the app.
 
+
+## Neovim
+
+https://github.com/neovim/neovim, v0.12.6 (`scripts/nvim.sh`). Trim.app carries the official macOS release as a fallback,
+in `Contents/Resources/nvim`, for installs that are not through Homebrew; the apps use the nvim on the person's PATH
+first. It is unchanged. Neovim is licensed under the Apache License 2.0, except for parts contributed under the Vim
+licence; the complete text is shipped beside the binary, in `Contents/Resources/nvim/LICENSE.txt`.
