@@ -1,0 +1,57 @@
+project: 'Trim'
+max_toc_depth: 2
+dev_docs: true
+
+branding:
+  icon: images/png/trim-64.png
+  favicon: images/png/trim-32.png
+  og-image: images/shots/window.png
+  apple-touch-icon: images/png/trim-180.png
+
+# Every picture under images/shots is drawn by Trim from a fixed fixture: `mise run shots` (scripts/shots.sh).
+exclude:
+  - trim-roadmap.md
+  - trim-config-audit.md
+
+toc:
+  - file: index.md
+  - folder: getting-started
+    children:
+      - file: index.md
+      - file: installation.md
+      - file: first-steps.md
+  - folder: window
+    children:
+      - file: index.md
+      - file: tree.md
+      - file: workspaces.md
+      - file: tabs.md
+      - file: status-bar.md
+  - folder: code
+    children:
+      - file: index.md
+      - file: language-servers.md
+      - file: completion.md
+      - file: run-and-build.md
+      - file: problems.md
+      - file: finding.md
+  - folder: look
+    children:
+      - file: index.md
+      - file: themes.md
+      - file: fonts.md
+  - folder: configuration
+    children:
+      - file: index.md
+      - file: settings.md
+      - file: your-config.md
+      - file: plugins.md
+  - file: shim.md
+  - folder: reference
+    children:
+      - file: index.md
+      - file: keys.md
+      - file: commands.md
+      - file: files.md
+  - file: troubleshooting.md
+  - file: development.md

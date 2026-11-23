@@ -30,7 +30,7 @@ final class Canvas {
     var cellWidth: Int { Int(Self.metrics.width * scale) }
     var cellHeight: Int { Int(Self.metrics.height * scale) }
 
-    func render(_ frame: Trim) throws {
+    func render(_ frame: Frame) throws {
         width = cols * cellWidth
         let height = rows * cellHeight
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
@@ -119,7 +119,7 @@ struct RendererTests {
     @Test("an empty screen is the default background")
     func empty() throws {
         let canvas = try Canvas()
-        try canvas.render(Trim(screen: ScreenBuilder(cols: 20, rows: 6).screen))
+        try canvas.render(Frame(screen: ScreenBuilder(cols: 20, rows: 6).screen))
         #expect(Set(canvas.cell(row: 2, col: 5)) == [background])
     }
 
@@ -129,7 +129,7 @@ struct RendererTests {
         var builder = ScreenBuilder(cols: 20, rows: 6)
         builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
         builder.text("hello", grid: 2, row: 1, col: 2)
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         for col in 2 ..< 7 {
             #expect(canvas.cell(row: 1, col: col).contains(foreground), "cell \(col) has ink")
         }
@@ -144,7 +144,7 @@ struct RendererTests {
         builder.highlight(5, ["background": .int(0xC03030)])
         builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
         builder.text("   ", grid: 2, row: 2, col: 4, hl: 5)
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         #expect(Set(canvas.cell(row: 2, col: 5)) == [0xC03030])
         #expect(canvas.centre(row: 2, col: 3) == background)
         #expect(canvas.centre(row: 2, col: 7) == background)
@@ -162,7 +162,7 @@ struct RendererTests {
         builder.float(grid: 3, row: 1, col: 4, cols: 6, rows: 2)
         builder.text("      ", grid: 3, row: 0, hl: 7)
         builder.text("      ", grid: 3, row: 1, hl: 7)
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         #expect(Set(canvas.cell(row: 1, col: 6)) == [0x3050C0])
         #expect(Set(canvas.cell(row: 2, col: 9)) == [0x3050C0])
         #expect(canvas.cell(row: 3, col: 6).contains(foreground), "the window shows below the float")
@@ -174,7 +174,7 @@ struct RendererTests {
         var builder = ScreenBuilder(cols: 20, rows: 6)
         builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
         builder.text("visible", grid: 2, row: 0)
-        try canvas.render(Trim(screen: builder.screen, covered: [2]))
+        try canvas.render(Frame(screen: builder.screen, covered: [2]))
         #expect(Set(canvas.cell(row: 0, col: 1)) == [background])
     }
 
@@ -184,7 +184,7 @@ struct RendererTests {
         var builder = ScreenBuilder(cols: 20, rows: 6)
         builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
         builder.text("────", grid: 2, row: 1, col: 2)
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         // Some pixel row through the cells is lit from the first cell's left edge to the last one's right edge.
         let y0 = 1 * canvas.cellHeight, left = 2 * canvas.cellWidth, right = 6 * canvas.cellWidth
         let lit = (y0 ..< y0 + canvas.cellHeight).contains { y in
@@ -201,7 +201,7 @@ struct RendererTests {
         builder.screen.apply(.gridLine(grid: 2, row: 1, colStart: 2, cells: [
             GridCellData(text: "🍎", hlId: 0, repeats: 1), GridCellData(text: "", hlId: 0, repeats: 1),
         ]))
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         let colours = canvas.cell(row: 1, col: 2) + canvas.cell(row: 1, col: 3)
         let saturated = colours.contains { colour in
             let (r, g, b) = ((colour >> 16) & 0xFF, (colour >> 8) & 0xFF, colour & 0xFF)
@@ -216,19 +216,19 @@ struct RendererTests {
         var builder = ScreenBuilder(cols: 20, rows: 6)
         builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
         builder.text("first", grid: 2, row: 0)
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         #expect(canvas.renderer.stats.rowsBuilt == 6 + 5)
 
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         #expect(canvas.renderer.stats.rowsBuilt == 0)
         #expect(canvas.renderer.stats.rowsReused == 11)
 
         builder.text("again", grid: 2, row: 3)
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         #expect(canvas.renderer.stats.rowsBuilt == 1)
 
         builder.highlight(9, ["foreground": .int(0x00FF00)])
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         #expect(canvas.renderer.stats.rowsBuilt == 11, "a new highlight table rebuilds every row")
     }
 
@@ -239,7 +239,7 @@ struct RendererTests {
         builder.highlight(4, ["undercurl": .bool(true), "special": .int(0xFF3030)])
         builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
         builder.text("    ", grid: 2, row: 2, col: 2, hl: 4)
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         let bottom = (2 * canvas.cellHeight + canvas.cellHeight / 2 ..< 3 * canvas.cellHeight)
         // Antialiased: the line's pixels are shades of its colour, so look for a clearly red one.
         let curl = bottom.contains { y in
@@ -271,7 +271,7 @@ struct RendererTests {
     @Test("a block cursor shows its cell reversed, character included")
     func blockCursor() throws {
         let canvas = try Canvas()
-        try canvas.render(Trim(screen: cursorScreen().screen, cursor: .init(shape: .block)))
+        try canvas.render(Frame(screen: cursorScreen().screen, cursor: .init(shape: .block)))
         let cell = canvas.cell(row: 0, col: 1)
         #expect(cell.count(where: { $0 == foreground }) * 2 > cell.count, "mostly foreground: the cursor fill")
         #expect(cell.contains(background), "the b, drawn in the background colour")
@@ -281,7 +281,7 @@ struct RendererTests {
     @Test("a vertical cursor is a bar the given share of the cell wide")
     func verticalCursor() throws {
         let canvas = try Canvas()
-        try canvas.render(Trim(screen: cursorScreen().screen, cursor: .init(shape: .vertical, percentage: 25)))
+        try canvas.render(Frame(screen: cursorScreen().screen, cursor: .init(shape: .vertical, percentage: 25)))
         // Near the top of the cell, above the b: only the bar is there.
         let y = 1, left = canvas.cellWidth
         let bar = (left ..< left + canvas.cellWidth).count(where: { canvas.pixel(x: $0, y: y) == foreground })
@@ -294,7 +294,7 @@ struct RendererTests {
         let canvas = try Canvas()
         var builder = cursorScreen()
         builder.highlight(30, ["background": .int(0x40C080), "foreground": .int(0x000000)])
-        try canvas.render(Trim(screen: builder.screen, cursor: .init(shape: .block, highlight: 30)))
+        try canvas.render(Frame(screen: builder.screen, cursor: .init(shape: .block, highlight: 30)))
         let cell = canvas.cell(row: 0, col: 1)
         #expect(cell.count(where: { $0 == 0x40C080 }) * 2 > cell.count)
         #expect(cell.contains(0x000000))
@@ -310,7 +310,7 @@ struct RendererTests {
         }
         builder.float(grid: 3, row: 1, col: 4, cols: 6, rows: 2)
         builder.text("      ", grid: 3, row: 0)
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         #expect(Set(canvas.cell(row: 1, col: 6)) == [background])
     }
 
@@ -324,7 +324,7 @@ struct RendererTests {
         builder.text(String(repeating: " ", count: 20), grid: 2, row: 1, hl: 5)
         builder.float(grid: 3, row: 1, col: 4, cols: 6, rows: 1)
         builder.text("      ", grid: 3, row: 0, hl: 6)
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         let mixed = canvas.centre(row: 1, col: 6)
         let (red, blue) = ((mixed >> 16) & 0xFF, mixed & 0xFF)
         #expect(red > 0x40 && blue > 0x40, "\(String(mixed, radix: 16))")
@@ -337,7 +337,7 @@ struct RendererTests {
         builder.highlight(4, [style: .bool(true), "special": .int(0xFF3030)])
         builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
         builder.text("    ", grid: 2, row: 2, col: 2, hl: 4)
-        try canvas.render(Trim(screen: builder.screen))
+        try canvas.render(Frame(screen: builder.screen))
         let xs = 2 * canvas.cellWidth ..< 6 * canvas.cellWidth
         let lines = (2 * canvas.cellHeight ..< 3 * canvas.cellHeight).filter { y in xs.contains { canvas.pixel(
             x: $0,
@@ -375,16 +375,16 @@ struct RendererTests {
         builder.text("line 7", grid: 2, row: 5)
         let after = builder.screen
 
-        func pixels(_ frame: Trim) throws -> [UInt8] {
+        func pixels(_ frame: Frame) throws -> [UInt8] {
             try canvas.render(frame)
             return canvas.pixels
         }
-        func scrolled(_ progress: Float) -> Trim {
-            var frame = Trim(screen: after)
+        func scrolled(_ progress: Float) -> Frame {
+            var frame = Frame(screen: after)
             frame.scrolls[2] = .init(previous: previous, lines: 2, progress: progress)
             return frame
         }
-        let old = try pixels(Trim(screen: before)), new = try pixels(Trim(screen: after))
+        let old = try pixels(Frame(screen: before)), new = try pixels(Frame(screen: after))
         #expect(try pixels(scrolled(0)) == old, "at the start, as before the scroll")
         #expect(try pixels(scrolled(1)) == new, "at the end, as after it")
         let middle = try pixels(scrolled(0.5))

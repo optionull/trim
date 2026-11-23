@@ -22,6 +22,7 @@ mkdir -p "$shim/Contents/MacOS" "$shim/Contents/Resources"
 cp "$products/Shim" "$shim/Contents/MacOS/Shim"
 rm -rf "$shim/Contents/Resources/runtime"
 cp -R "$root/runtime" "$shim/Contents/Resources/runtime"
+cp "$root/Resources/Shim.icns" "$shim/Contents/Resources/Shim.icns"
 sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
   "$root/Resources/Shim-Info.plist" >"$shim/Contents/Info.plist"
 codesign --force --sign - "$shim"
@@ -46,6 +47,7 @@ cp -R "$root"/Vendor/plugins/* "$frame/Contents/Resources/runtime/pack/trim/star
 rm -rf "$frame/Contents/Resources/treesitter"
 cp -R "$root/Vendor/treesitter" "$frame/Contents/Resources/treesitter"
 codesign --force --sign - "$frame"/Contents/Resources/treesitter/parser/*.so
+cp "$root/Resources/Trim.icns" "$frame/Contents/Resources/Trim.icns"
 sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
   "$root/Resources/Trim-Info.plist" >"$frame/Contents/Info.plist"
 # Neovim itself, as a fallback (the apps use the one on the PATH first): the pinned release with its licence.

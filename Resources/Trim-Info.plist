@@ -6,6 +6,7 @@
   <key>CFBundleDisplayName</key><string>Trim</string>
   <key>CFBundleIdentifier</key><string>io.github.mpdreamz.trim</string>
   <key>CFBundleExecutable</key><string>Trim</string>
+  <key>CFBundleIconFile</key><string>Trim</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>__BUILD__</string>
   <key>CFBundleShortVersionString</key><string>__VERSION__</string>

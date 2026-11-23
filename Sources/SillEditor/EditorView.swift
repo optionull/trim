@@ -27,7 +27,7 @@ package final class EditorView: NSView {
         didSet { if coveredGrids != oldValue { submit() } }
     }
 
-    /// Windows cover what is under them (see `Trim.windowsCover`).
+    /// Windows cover what is under them (see `Frame.windowsCover`).
     package var windowsCover = false {
         didSet { if windowsCover != oldValue { submit() } }
     }
@@ -144,9 +144,9 @@ package final class EditorView: NSView {
     }
 
     /// Where each slide is now; finished ones end, and the link stops with the last.
-    private func currentScrolls() -> [Int: Trim.ScrollAnimation] {
+    private func currentScrolls() -> [Int: Frame.ScrollAnimation] {
         let now = CACurrentMediaTime()
-        var result: [Int: Trim.ScrollAnimation] = [:]
+        var result: [Int: Frame.ScrollAnimation] = [:]
         for (grid, slide) in slides {
             if slide.heldByFinger {
                 guard screen.placements[grid] != nil else {
@@ -154,7 +154,7 @@ package final class EditorView: NSView {
                     continue
                 }
                 let progress = PixelScroll.progress(lines: slide.motion.lines, lag: pixel.lag(reported: pixelReported))
-                result[grid] = Trim.ScrollAnimation(
+                result[grid] = Frame.ScrollAnimation(
                     previous: slide.previous, lines: slide.motion.lines, progress: Float(progress)
                 )
                 continue
@@ -163,7 +163,7 @@ package final class EditorView: NSView {
                 slides[grid] = nil
                 continue
             }
-            result[grid] = Trim.ScrollAnimation(
+            result[grid] = Frame.ScrollAnimation(
                 previous: slide.previous, lines: slide.motion.lines, progress: Float(slide.motion.progress(at: now))
             )
         }
@@ -245,8 +245,8 @@ package final class EditorView: NSView {
     }
 
     /// What the render thread is drawing now.
-    package var currentFrame: Trim {
-        var frame = Trim(screen: screen, covered: coveredGrids, cursor: cursor)
+    package var currentFrame: Frame {
+        var frame = Frame(screen: screen, covered: coveredGrids, cursor: cursor)
         frame.windowsCover = windowsCover
         frame.scrolls = currentScrolls()
         return frame
@@ -265,14 +265,14 @@ package final class EditorView: NSView {
     }
 
     /// The cursor, while the editor has the keyboard, as nvim describes it for the current mode.
-    private var cursor: Trim.Cursor? {
+    private var cursor: Frame.Cursor? {
         guard window?.firstResponder === self, let style = screen.cursorStyle else { return nil }
-        let shape: Trim.Cursor.Shape = switch style.cursorShape {
+        let shape: Frame.Cursor.Shape = switch style.cursorShape {
         case .block: .block
         case .vertical: .vertical
         case .horizontal: .horizontal
         }
-        return Trim.Cursor(shape: shape, percentage: style.cellPercentage, highlight: style.attrId)
+        return Frame.Cursor(shape: shape, percentage: style.cellPercentage, highlight: style.attrId)
     }
 
     // MARK: Keys and input methods

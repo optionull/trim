@@ -46,9 +46,9 @@ final class TrimApp: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_: Notification) {
-        // sill's settings: the font, and whether a title bar shows.
-        let file = ProcessInfo.processInfo.environment["SILL_SETTINGS"].map { URL(fileURLWithPath: $0) } ??
-            SettingsLoader.defaultFile()
+        // Trim's own settings file: the title bar, where the switcher looks for repositories, smooth scrolling; the
+        // font is read from it by TrimSettings.fontSettings.
+        let file = TrimSettings.file
         if FileManager.default.fileExists(atPath: file.path) {
             let watcher = SettingsWatcher(file: file) { source in
                 Settings.shared.load(source)

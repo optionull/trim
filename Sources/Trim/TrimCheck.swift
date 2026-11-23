@@ -124,6 +124,7 @@ struct TrimCheck {
         await group("settings") { await settingsSteps() }
         await group("windows") { await windowSteps() }
         await group("switcher") { await switcherSteps() }
+        await group("docshots") { await docShotsSteps() }
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             do {
                 try shot(editor: editor, to: path)
@@ -3807,6 +3808,137 @@ struct TrimCheck {
         app.sources = .live
     }
 
+    /// The pictures of the documentation, drawn from a fixed fixture (a bakery's code, three repositories, a few heed
+    /// sessions): `TRIM_CHECK_ONLY=docshots TRIM_DOC_SHOTS=<folder>` (`mise run shots`). Nothing without the folder.
+    private func docShotsSteps() async {
+        guard let out = ProcessInfo.processInfo.environment["TRIM_DOC_SHOTS"] else { return }
+        try? FileManager.default.createDirectory(atPath: out, withIntermediateDirectories: true)
+        let base = RealPath.of(NSTemporaryDirectory()) + "trim-docshots-\(UUID().uuidString)"
+        let roots = base + "/projects", bakery = roots + "/bakery"
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        func write(_ path: String, _ text: String) {
+            try? FileManager.default.createDirectory(
+                atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true
+            )
+            try? text.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+        write(bakery + "/README.md", "# Bakery\n\nRecipes, ovens and the morning rush.\n")
+        write(
+            bakery + "/Makefile",
+            "bake:\n\t@echo preheating to 220C\n\t@sleep 1\n\t@echo loaf 1 done\n\t@echo loaf 2 done\n\ntest:\n\t@echo all recipes check out\n"
+        )
+        write(
+            bakery + "/src/oven.lua",
+            "local Oven = {}\n\n--- Heats the oven to a temperature in degrees.\nfunction Oven.heat(degrees)\n  assert(degrees < 300, 'too hot')\n  return { degrees = degrees, ready = false }\nend\n\nreturn Oven\n"
+        )
+        write(
+            bakery + "/src/Dough.cs",
+            "namespace Bakery;\n\npublic record Dough(string Name, double Hydration)\n{\n    public double Water(double flourGrams) => flourGrams * Hydration;\n\n    public override string ToString() => $\"{Name} at {Hydration:P0}\";\n}\n"
+        )
+        write(
+            bakery + "/src/recipes.json",
+            "{\n  \"sourdough\": { \"hydration\": 0.75, \"hours\": 18 },\n  \"baguette\": { \"hydration\": 0.7, \"hours\": 12 }\n}\n"
+        )
+        write(bakery + "/docs/notes.md", "## Notes\n\n- the oven runs hot\n- rest the dough\n")
+        for name in ["pantry", "ledger"] {
+            write(roots + "/" + name + "/README.md", name + "\n")
+        }
+        for folder in [bakery, roots + "/pantry", roots + "/ledger"] {
+            git(folder, "init", "-q", "-b", "main")
+            git(folder, "add", ".")
+            git(folder, "commit", "-q", "-m", "first")
+        }
+        write(
+            bakery + "/src/oven.lua",
+            "local Oven = {}\n\n--- Heats the oven to a temperature in degrees.\nfunction Oven.heat(degrees)\n  assert(degrees < 300, 'too hot')\n  return { degrees = degrees, ready = false, steam = true }\nend\n\nreturn Oven\n"
+        )
+        write(bakery + "/notes.txt", "to do: buy flour\n")
+        let sessions = [
+            HeedSession(
+                id: "d1", title: "Tune the oven curve", agent: "claude", state: "working", needsYou: false,
+                directory: bakery, repo: "me/bakery", branch: "main", lastActivity: Date()
+            ),
+            HeedSession(
+                id: "d2", title: "Reconcile the ledger", agent: "claude", state: "asking", needsYou: true,
+                directory: roots + "/ledger", repo: "me/ledger", branch: "main", lastActivity: Date()
+            ),
+        ]
+        let opened: [String: Date] = [
+            bakery: Date(timeIntervalSinceNow: -60), roots + "/ledger": Date(timeIntervalSinceNow: -3600),
+            roots + "/pantry": Date(timeIntervalSinceNow: -86400),
+        ]
+        app.sources = WorkspaceSources(
+            roots: { [roots] }, heed: { sessions }, opened: { opened }, cached: { [] }, remember: { _ in }
+        )
+        defer { app.sources = .live }
+        // This window, moved to the fixture: a window of its own that is not on screen draws no grid.
+        let ctrl = shell
+        let original = ctrl.workspace
+        _ = try? await ctrl.session.channel.lua("vim.cmd('silent! %bwipeout!')")
+        ctrl.move(to: bakery)
+        await waitAsync("the fixture's nvim in its folder") {
+            await (try? ctrl.session.channel.lua("return vim.fn.getcwd()"))?.stringValue == bakery
+        }
+        func snap(_ name: String) {
+            ctrl.view.layoutSubtreeIfNeeded()
+            do { try shot(editor: ctrl.editor, to: out + "/" + name + ".png", in: ctrl) } catch {
+                fail("the picture \(name)")
+            }
+        }
+        func bufferIs(_ name: String) async -> Bool {
+            await (try? ctrl.session.channel.lua("return vim.fn.expand('%:t')"))?.stringValue == name
+        }
+        for file in ["README.md", "src/recipes.json", "src/oven.lua", "src/Dough.cs"] {
+            ctrl.open(file: bakery + "/" + file, toEditor: true)
+            await waitAsync("\(file) open") { await bufferIs((file as NSString).lastPathComponent) }
+        }
+        _ = try? await ctrl.session.channel.lua("vim.cmd('normal! 4G')")
+        try? await Task.sleep(for: .seconds(1.5))
+        snap("window")
+        step("docshots: the window")
+
+        ctrl.showThemePicker(nil)
+        await wait("the colour schemes") { ctrl.listPicker != nil }
+        try? await Task.sleep(for: .milliseconds(400))
+        snap("theme-picker")
+        ctrl.escape()
+        await wait("the list away") { ctrl.listPicker == nil }
+        ctrl.showFontPicker(nil)
+        await wait("the fonts") { ctrl.listPicker != nil }
+        try? await Task.sleep(for: .milliseconds(400))
+        snap("font-picker")
+        ctrl.escape()
+        await wait("the list away") { ctrl.listPicker == nil }
+        step("docshots: the pickers")
+
+        app.sources = WorkspaceSources(
+            roots: { [roots] }, heed: { sessions }, opened: { opened }, cached: { [] }, remember: { _ in }
+        )
+        ctrl.showSwitcher()
+        await wait("the switcher") { ctrl.switcher?.matches.count ?? 0 >= 3 }
+        try? await Task.sleep(for: .milliseconds(800))
+        snap("switcher")
+        ctrl.escape()
+        await wait("the switcher away") { ctrl.switcher == nil }
+        step("docshots: the switcher")
+
+        #if SILL_GHOSTTY
+            ctrl.showRunPicker(nil)
+            await wait("the Run pane") { ctrl.runListPane?.isHidden == false }
+            await wait("what can run") { ctrl.runListPane?.list.all.contains { $0.title.contains("bake") } ?? false }
+            try? await Task.sleep(for: .milliseconds(500))
+            snap("run-list")
+            if let entry = RunEntries.find(in: bakery).first(where: { $0.command.contains("bake") }) {
+                ctrl.runInRunPane(entry)
+                try? await Task.sleep(for: .seconds(3))
+                snap("run-output")
+            }
+            step("docshots: the Run pane")
+        #endif
+        _ = try? await ctrl.session.channel.lua("vim.cmd('silent! %bwipeout!')")
+        ctrl.move(to: original)
+    }
+
     /// The colour of one cell of the grid as it is drawn (the middle of its first pixel row), by rendering a frame.
     private func pixel(_ editor: EditorView, row: Int, col: Int) throws -> (red: Int, green: Int, blue: Int) {
         let scale: CGFloat = 1
@@ -3832,8 +3964,9 @@ struct TrimCheck {
         return (Int(bytes[2]), Int(bytes[1]), Int(bytes[0]))
     }
 
-    private func shot(editor: EditorView, to path: String) throws {
-        let size = shell.view.bounds.size, scale: CGFloat = 2
+    private func shot(editor: EditorView, to path: String, in controller: TrimWindowController? = nil) throws {
+        let host = controller ?? shell
+        let size = host.view.bounds.size, scale: CGFloat = 2
         guard let device = MTLCreateSystemDefaultDevice() else { throw ShotFailure() }
         let renderer = try GridRenderer(
             device: device,
@@ -3916,7 +4049,7 @@ struct TrimCheck {
             height: grid.height
         ))
         // The native panes are ordinary views, drawn as they are (the grid is Metal, so it is drawn above).
-        let sidebar = shell.view.sidebar
+        let sidebar = host.view.sidebar
         if !sidebar.isHidden, let pane = sidebar.bitmapImageRepForCachingDisplay(in: sidebar.bounds) {
             // The view paints only its rounded island: what is behind it in the window is the window's own colour.
             if let backing = NSGraphicsContext(bitmapImageRep: pane) {
@@ -3934,7 +4067,7 @@ struct TrimCheck {
                 height: sidebar.frame.height
             ))
         }
-        for tabs in [shell.tabStrip, shell.tabList] where !tabs.isHidden {
+        for tabs in [host.tabStrip, host.tabList] where !tabs.isHidden {
             if let pane = tabs.bitmapImageRepForCachingDisplay(in: tabs.bounds) {
                 if let backing = NSGraphicsContext(bitmapImageRep: pane) {
                     NSGraphicsContext.saveGraphicsState()
@@ -3950,7 +4083,7 @@ struct TrimCheck {
                 ))
             }
         }
-        let button = shell.chip
+        let button = host.chip
         if !button.isHidden, let pane = button.bitmapImageRepForCachingDisplay(in: button.bounds) {
             if let backing = NSGraphicsContext(bitmapImageRep: pane) {
                 NSGraphicsContext.saveGraphicsState()
@@ -3965,7 +4098,7 @@ struct TrimCheck {
                 height: button.frame.height
             ))
         }
-        let bar = shell.view.statusBar
+        let bar = host.view.statusBar
         if !bar.isHidden, let pane = bar.bitmapImageRepForCachingDisplay(in: bar.bounds) {
             if let backing = NSGraphicsContext(bitmapImageRep: pane) {
                 NSGraphicsContext.saveGraphicsState()
@@ -3980,13 +4113,50 @@ struct TrimCheck {
                 height: bar.frame.height
             ))
         }
-        if let panel = shell.tabPicker, let pane = panel.bitmapImageRepForCachingDisplay(in: panel.bounds) {
-            panel.cacheDisplay(in: panel.bounds, to: pane)
-            pane.draw(in: NSRect(x: pad, y: pad, width: panel.bounds.width, height: panel.bounds.height))
+        // A panel that covers the whole window (a picker, the switcher): the window dimmed, and its cards drawn on it.
+        // The
+        // panel itself is transparent in the window, but drawn on its own it would be an opaque white sheet.
+        func drawPanel(_ panel: NSView) {
+            let whole = NSRect(x: pad, y: pad, width: size.width, height: size.height)
+            let dim = panel.layer?.backgroundColor.flatMap { NSColor(cgColor: $0) } ?? NSColor.black
+                .withAlphaComponent(0.28)
+            dim.setFill()
+            whole.fill(using: .sourceOver)
+            for card in panel.subviews where !card.isHidden {
+                guard let rep = card.bitmapImageRepForCachingDisplay(in: card.bounds) else { continue }
+                card.cacheDisplay(in: card.bounds, to: rep)
+                let frame = card.convert(card.bounds, to: host.view)
+                let target = NSRect(
+                    x: pad + frame.minX, y: pad + size.height - frame.maxY, width: frame.width, height: frame.height
+                )
+                NSGraphicsContext.saveGraphicsState()
+                let radius = card.layer?.cornerRadius ?? 0
+                NSBezierPath(roundedRect: target, xRadius: radius, yRadius: radius).addClip()
+                rep.draw(in: target)
+                NSGraphicsContext.restoreGraphicsState()
+            }
         }
-        if let panel = shell.switcher, let pane = panel.bitmapImageRepForCachingDisplay(in: panel.bounds) {
-            panel.cacheDisplay(in: panel.bounds, to: pane)
-            pane.draw(in: NSRect(x: pad, y: pad, width: panel.bounds.width, height: panel.bounds.height))
+        // Panes and overlays over the grid, drawn as they are: the build and Run panes, a list (the colour schemes, the
+        // fonts), and what the editor shows over itself (completion, hover).
+        var overlays: [NSView] = []
+        if let pane = host.runPane, !pane.isHidden { overlays.append(pane) }
+        if let pane = host.runListPane, !pane.isHidden { overlays.append(pane) }
+        overlays += host.view.overlay.subviews.filter { !$0.isHidden }
+        for overlay in overlays {
+            let frame = overlay.convert(overlay.bounds, to: host.view)
+            guard let pane = overlay.bitmapImageRepForCachingDisplay(in: overlay.bounds) else { continue }
+            overlay.cacheDisplay(in: overlay.bounds, to: pane)
+            let target = NSRect(
+                x: pad + frame.minX, y: pad + size.height - frame.maxY, width: frame.width, height: frame.height
+            )
+            NSGraphicsContext.saveGraphicsState()
+            let radius = overlay.layer?.cornerRadius ?? 10
+            NSBezierPath(roundedRect: target, xRadius: radius, yRadius: radius).addClip()
+            pane.draw(in: target)
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        for panel in [host.tabPicker, host.switcher, host.listPicker] as [NSView?] {
+            if let panel, !panel.isHidden { drawPanel(panel) }
         }
         NSGraphicsContext.restoreGraphicsState()
         guard let data = rep.representation(using: .png, properties: [:]) else { throw ShotFailure() }

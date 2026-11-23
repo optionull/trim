@@ -4,8 +4,8 @@ import os
 import QuartzCore
 import Synchronization
 
-/// When a frame was drawn, for latency and trim-time measurements.
-public struct TrimTiming: Sendable {
+/// When a frame was drawn, for latency and frame-time measurements.
+public struct FrameTiming: Sendable {
     /// The frame's tag, as submitted.
     public var tag: UInt64
     /// When `submit` was called, in `CACurrentMediaTime` seconds.
@@ -42,12 +42,12 @@ public final class RenderLoop: NSObject, @unchecked Sendable {
     private let minimumInterval: CFTimeInterval = 1.0 / 120
 
     private struct State {
-        var pending: (frame: Trim, tag: UInt64, submitted: CFTimeInterval)?
-        var last: (frame: Trim, tag: UInt64)?
+        var pending: (frame: Frame, tag: UInt64, submitted: CFTimeInterval)?
+        var last: (frame: Frame, tag: UInt64)?
         var framesDrawn = 0
         var lastDrawn: CFTimeInterval = 0
         var paused = true
-        var onPresented: (@Sendable (TrimTiming) -> Void)?
+        var onPresented: (@Sendable (FrameTiming) -> Void)?
     }
 
     /// Frames drawn since the loop started.
@@ -60,7 +60,7 @@ public final class RenderLoop: NSObject, @unchecked Sendable {
     public let linger: CFTimeInterval = 0.5
 
     /// Called on a Metal thread for every frame presented.
-    public var onPresented: (@Sendable (TrimTiming) -> Void)? {
+    public var onPresented: (@Sendable (FrameTiming) -> Void)? {
         get { state.withLock { $0.onPresented } }
         set { state.withLock { $0.onPresented = newValue } }
     }
@@ -98,7 +98,7 @@ public final class RenderLoop: NSObject, @unchecked Sendable {
     }
 
     /// Hands the render thread a frame to draw. Frames not yet drawn are replaced.
-    public func submit(_ frame: Trim, tag: UInt64 = 0) {
+    public func submit(_ frame: Frame, tag: UInt64 = 0) {
         state.withLock { $0.pending = (frame, tag, CACurrentMediaTime()) }
         onRenderThread { $0.drawOrSchedule() }
     }
@@ -152,7 +152,7 @@ public final class RenderLoop: NSObject, @unchecked Sendable {
     /// Draws the pending frame, if there is one.
     @discardableResult
     private func drawPending(now: CFTimeInterval) -> Bool {
-        let next = state.withLock { state -> (frame: Trim, tag: UInt64, submitted: CFTimeInterval)? in
+        let next = state.withLock { state -> (frame: Frame, tag: UInt64, submitted: CFTimeInterval)? in
             guard let pending = state.pending else { return nil }
             state.pending = nil
             state.last = (pending.frame, pending.tag)
@@ -185,7 +185,7 @@ public final class RenderLoop: NSObject, @unchecked Sendable {
                 gpu.withLock { $0 = milliseconds }
             }
             drawable.addPresentedHandler { drawable in
-                onPresented(TrimTiming(
+                onPresented(FrameTiming(
                     tag: tag, submitted: submitted, presented: drawable.presentedTime, committed: committed,
                     buildMilliseconds: build, gpuMilliseconds: gpu.withLock { $0 }
                 ))
