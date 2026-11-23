@@ -44,18 +44,36 @@ runs:
         echo "TOOLCHAINS=$(plutil -extract CFBundleIdentifier raw "$toolchain/Info.plist")" >>"$GITHUB_ENV"
 
     # What the bundle carries and the repository does not (Vendor/ is not tracked): GhosttyKit built from the pinned
-    # Ghostty commit (zig), the icon font, the plugins, and the tree-sitter parsers.
-    - name: Cache the vendored files
+    # Ghostty commit (zig, about nine minutes), the icon font, the plugins, the tree-sitter parsers and the pinned
+    # Neovim. Restored from the cache when nothing that makes it has changed, and saved as soon as it is built, so a
+    # failure later in the job does not lose it.
+    - name: Restore the vendored files
       id: vendor-cache
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: Vendor
-        key: vendor-${{ hashFiles('mise.toml', 'scripts/ghostty.sh', 'scripts/fonts.sh', 'scripts/plugins.sh', 'scripts/plugins.txt', 'scripts/treesitter.lua') }}
+        key: vendor-${{ hashFiles('mise.toml', 'scripts/ghostty.sh', 'scripts/fonts.sh', 'scripts/plugins.sh', 'scripts/plugins.txt', 'scripts/nvim.sh', 'scripts/treesitter.lua') }}
+
+    # The runner has no Neovim: the parsers are built with `nvim -l` and the tests start `nvim --embed`.
+    - name: Neovim
+      shell: bash
+      run: |
+        mise run nvim
+        echo "$GITHUB_WORKSPACE/Vendor/nvim/bin" >>"$GITHUB_PATH"
 
     - name: Build the vendored files
       if: steps.vendor-cache.outputs.cache-hit != 'true'
       shell: bash
-      run: mise run ghostty && mise run fonts && mise run plugins && mise run treesitter
+      run: |
+        export PATH="$GITHUB_WORKSPACE/Vendor/nvim/bin:$PATH"
+        mise run ghostty && mise run fonts && mise run plugins && mise run treesitter
+
+    - name: Save the vendored files
+      if: steps.vendor-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: Vendor
+        key: ${{ steps.vendor-cache.outputs.cache-primary-key }}
 
     - name: Show the toolchain
       shell: bash
