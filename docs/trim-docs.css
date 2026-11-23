@@ -309,3 +309,117 @@
 		border-radius: 6px;
 	}
 }
+
+/* Light mode only: the dark theme above is not touched by anything below. docs-builder sets data-theme="light" on <html>
+   (from the reader's choice or prefers-color-scheme), so these selectors never match in dark or black. */
+@layer ds.pages {
+	:root[data-theme='light'] body.navigation-preview {
+		background-color: #f1f5fb;
+		background-image:
+			radial-gradient(55% 45% at 10% 0%, rgb(46 230 197 / 26%), transparent 70%),
+			radial-gradient(55% 45% at 92% 0%, rgb(143 123 255 / 28%), transparent 70%),
+			radial-gradient(60% 40% at 60% 100%, rgb(76 125 255 / 14%), transparent 70%);
+		background-repeat: no-repeat;
+		background-attachment: fixed;
+	}
+
+	:root[data-theme='light'] .site-header {
+		background: rgb(255 255 255 / 62%);
+		border-bottom-color: rgb(11 14 19 / 10%);
+		box-shadow: 0 1px 14px rgb(60 70 140 / 8%);
+	}
+
+	/* Titles: a deep teal to violet, the landing page's gradient made darker for paper. */
+	:root[data-theme='light'] .prose h1 {
+		background-image: linear-gradient(90deg, #00614f 0%, #0a8f86 35%, #4a3fd1 85%, #6a35d8);
+		font-weight: 750;
+	}
+
+	:root[data-theme='light'] .prose :is(h2, h3) {
+		color: #070a10;
+	}
+
+	:root[data-theme='light'] .prose h2 {
+		font-weight: 700;
+		border-bottom: 0;
+		background: linear-gradient(90deg, rgb(0 117 106 / 55%), rgb(91 69 214 / 35%) 45%, transparent 80%) bottom / 100% 2px
+			no-repeat;
+		padding-bottom: 0.4em;
+	}
+
+	:root[data-theme='light'] .prose a:not(.nav-tree__link, .headerlink, [class*='btn'], [class*='button']) {
+		color: #00695e;
+		font-weight: 550;
+		text-decoration-color: rgb(91 69 214 / 45%);
+	}
+
+	:root[data-theme='light'] .prose a:not(.nav-tree__link, .headerlink, [class*='btn'], [class*='button']):hover {
+		color: #4a3fd1;
+	}
+
+	/* Sidebar: stronger hierarchy; the current item keeps its sunken well and gains a small gradient mark. */
+	:root[data-theme='light'] .nav-tree__link {
+		color: #2a3442;
+	}
+
+	:root[data-theme='light'] .nav-tree__link[aria-current='page'] {
+		color: #070a10;
+		position: relative;
+		background: rgb(30 40 90 / 9%);
+		box-shadow:
+			inset 0 2px 5px rgb(30 40 90 / 22%),
+			inset 0 0 0 1px rgb(30 40 90 / 6%),
+			0 1px 0 rgb(255 255 255 / 95%);
+	}
+
+	:root[data-theme='light'] .nav-tree__link[aria-current='page']::before {
+		content: '';
+		position: absolute;
+		left: 5px;
+		top: 50%;
+		width: 3px;
+		height: 1.1em;
+		translate: 0 -50%;
+		border-radius: 2px;
+		background: linear-gradient(180deg, #0a9d8f, #6a4be8);
+	}
+
+	/* Tables: a tinted header, firmer lines and a lift. */
+	:root[data-theme='light'] .prose table {
+		background: rgb(255 255 255 / 85%);
+		border-color: rgb(30 40 90 / 16%);
+		box-shadow: 0 12px 30px rgb(40 50 120 / 12%);
+	}
+
+	:root[data-theme='light'] .prose th {
+		background: rgb(110 120 230 / 11%);
+		color: #070a10;
+		border-bottom: 1px solid rgb(30 40 90 / 16%);
+	}
+
+	:root[data-theme='light'] .prose :is(th, td) {
+		border-bottom-color: rgb(30 40 90 / 10%);
+	}
+
+	:root[data-theme='light'] .prose :not(pre) > code {
+		background: rgb(91 69 214 / 9%);
+		border-color: rgb(91 69 214 / 20%);
+		color: #2b2377;
+	}
+
+	:root[data-theme='light'] .prose :is(pre, .highlight, .code-block) {
+		box-shadow: 0 18px 40px rgb(30 40 110 / 24%);
+	}
+
+	:root[data-theme='light'] .prose img[src*='/images/shots/'] {
+		border-color: rgb(30 40 90 / 14%);
+		box-shadow:
+			0 30px 60px rgb(30 40 110 / 28%),
+			0 6px 16px rgb(30 40 110 / 14%);
+	}
+
+	:root[data-theme='light'] .prose blockquote {
+		background: linear-gradient(90deg, rgb(46 230 197 / 14%), rgb(143 123 255 / 10%));
+		border-left-color: #0a9d8f;
+	}
+}
