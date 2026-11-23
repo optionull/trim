@@ -126,6 +126,7 @@ struct TrimCheck {
         await group("windows") { await windowSteps() }
         await group("switcher") { await switcherSteps() }
         await group("docshots") { await docShotsSteps() }
+        await group("lspshots") { await lspShotsSteps() }
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
             do {
                 try shot(editor: editor, to: path)
@@ -3894,6 +3895,15 @@ struct TrimCheck {
         for name in ["pantry", "ledger"] {
             write(roots + "/" + name + "/README.md", name + "\n")
         }
+        // The ledger is a Swift package that does not compile: the build picture's failing build.
+        write(
+            roots + "/ledger/Package.swift",
+            "// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: \"ledger\", targets: [.executableTarget(name: \"ledger\")])\n"
+        )
+        write(
+            roots + "/ledger/Sources/ledger/main.swift",
+            "struct Entry {\n    let amount: Int\n}\n\nlet entries = [Entry(amount: 12), Entry(amount: 30)]\nlet total: Int = \"forty-two\"\nlet unused = entries.count\nprint(totl)\n"
+        )
         for folder in [bakery, roots + "/pantry", roots + "/ledger"] {
             git(folder, "init", "-q", "-b", "main")
             git(folder, "add", ".")
@@ -3985,7 +3995,175 @@ struct TrimCheck {
                 snap("run-output")
             }
             step("docshots: the Run pane")
+            // A build that fails (a Swift package that does not compile): it runs unseen and the pane comes up on its
+            // Problems tab.
+            ctrl.hideRunPane()
+            let ledger = roots + "/ledger"
+            _ = try? await ctrl.session.channel.lua("vim.cmd('silent! %bwipeout!')")
+            ctrl.move(to: ledger)
+            await waitAsync("nvim in the ledger") {
+                await (try? ctrl.session.channel.lua("return vim.fn.getcwd()"))?.stringValue == ledger
+            }
+            ctrl.open(file: ledger + "/Sources/ledger/main.swift", toEditor: true)
+            await waitAsync("main.swift open") {
+                await (try? ctrl.session.channel.lua("return vim.fn.expand('%:t')"))?.stringValue == "main.swift"
+            }
+            ctrl.buildDefault(nil)
+            for _ in 0 ..< 240 where !(ctrl.runPane?.isHidden == false && (ctrl.runPane?.problems.all.count ?? 0) > 0) {
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            guard ctrl.runPane?.isHidden == false else {
+                snap("build-debug")
+                fail(
+                    "the failed build did not bring its Problems forward: pane \(ctrl.runPane == nil ? "none" : "hidden"), entries \(ctrl.runEntries.count), workspace \(ctrl.workspace)"
+                )
+            }
+            try? await Task.sleep(for: .milliseconds(800))
+            snap("build-problems")
+            step("docshots: the build's Problems")
         #endif
+        _ = try? await ctrl.session.channel.lua("vim.cmd('silent! %bwipeout!')")
+        ctrl.move(to: original)
+    }
+
+    /// Pictures of a real server on a real codebase, for the landing page: `TRIM_CHECK_ONLY=lspshots
+    /// TRIM_LSP_SHOTS=<folder> TRIM_LSP_CASES=<cases.json>` (see scripts/lsp-shots.sh). Each case is a folder to open,
+    /// a
+    /// file and the places to ask about: hover, a completion typed on a new line, and the usages list. Nothing without
+    /// both variables. A server that never answers fails the run: the pictures are of what it really said.
+    private func lspShotsSteps() async {
+        let environment = ProcessInfo.processInfo.environment
+        guard let out = environment["TRIM_LSP_SHOTS"], let casesPath = environment["TRIM_LSP_CASES"],
+              let data = FileManager.default.contents(atPath: casesPath),
+              let cases = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return }
+        try? FileManager.default.createDirectory(atPath: out, withIntermediateDirectories: true)
+        let ctrl = shell
+        let original = ctrl.workspace
+        for spec in cases {
+            guard let name = spec["name"] as? String, let folder = spec["folder"] as? String,
+                  let file = spec["file"] as? String else { continue }
+            // The channel is looked up each time: moving to the folder starts nvim again.
+            func lua(_ code: String) async -> MessagePackValue? { try? await ctrl.session.channel.lua(code) }
+            _ = await lua("vim.cmd('silent! %bwipeout!')")
+            ctrl.move(to: folder)
+            await waitAsync("\(name): nvim in \(folder)") {
+                await (try? ctrl.session.channel.lua("return vim.fn.getcwd()"))?.stringValue == folder
+            }
+            ctrl.open(file: folder + "/" + file, toEditor: true)
+            await waitAsync("\(name): \(file) open") {
+                await (try? ctrl.session.channel.lua("return vim.api.nvim_buf_get_name(0)"))?
+                    .stringValue == folder + "/" + file
+            }
+            let ui = ctrl.externalUI!
+            // The pictures are of the code: no tab markers over the indentation.
+            _ = await lua("vim.wo.list = false")
+            func snap(_ suffix: String) {
+                ctrl.view.layoutSubtreeIfNeeded()
+                do { try shot(editor: ctrl.editor, to: out + "/" + name + "-" + suffix + ".png", in: ctrl) } catch {
+                    fail("the picture \(name)-\(suffix)")
+                }
+            }
+            func send(_ keys: String) async {
+                _ = await lua("vim.api.nvim_feedkeys(vim.keycode('\(keys)'), 'n', false)")
+            }
+            let patience = (spec["timeout"] as? Int) ?? 600
+            // Hover: the symbol's own answer, waited for until the server has loaded the project.
+            if let hover = spec["hover"] as? [String: Any], let line = hover["line"] as? Int,
+               let col = hover["col"] as? Int
+            {
+                _ = await lua("vim.api.nvim_win_set_cursor(0, { \(line), \(col - 1) }); vim.cmd('normal! zz')")
+                var answered = false
+                for _ in 0 ..< patience {
+                    let ok = await lua("""
+                    local params = vim.lsp.util.make_position_params(0, 'utf-16')
+                    local result = vim.lsp.buf_request_sync(0, 'textDocument/hover', params, 4000)
+                    for _, r in pairs(result or {}) do
+                      if r.result and r.result.contents and #vim.inspect(r.result.contents) > 40 then return true end
+                    end
+                    return false
+                    """)?.boolValue ?? false
+                    if ok { answered = true; break }
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                guard answered else {
+                    let state = await lua("""
+                    local ok, text = pcall(function()
+                      local out = {}
+                      for _, c in ipairs(vim.lsp.get_clients({ bufnr = 0 })) do out[#out + 1] = c.name .. ' root=' .. tostring(c.root_dir) end
+                      local params = vim.lsp.util.make_position_params(0, 'utf-16')
+                      local result, err = vim.lsp.buf_request_sync(0, 'textDocument/hover', params, 4000)
+                      return table.concat(out, '; ') .. ' | buf=' .. vim.api.nvim_buf_get_name(0) .. ' | ' .. vim.inspect({ result, err }):sub(1, 300)
+                    end)
+                    return tostring(text)
+                    """)?.stringValue ?? "?"
+                    fail(
+                        "\(name): the server never answered a hover at \(file):\(line): \(state) | bar: \(ctrl.status.lsp)"
+                    )
+                }
+                _ = await lua("require('trim.lsp').hover()")
+                await wait("\(name): the hover panel") { !ui.hoverPanel.isHidden }
+                try? await Task.sleep(for: .milliseconds(600))
+                snap("hover")
+                _ = await lua("vim.api.nvim_win_set_cursor(0, { 1, 0 })")
+                await wait("\(name): the hover to go") { ui.hoverPanel.isHidden }
+                step("lspshots: \(name) hover")
+            }
+            // Usages: the list of answers, in the window's own list.
+            if let usages = spec["usages"] as? [String: Any], let line = usages["line"] as? Int,
+               let col = usages["col"] as? Int
+            {
+                _ = await lua("vim.api.nvim_win_set_cursor(0, { \(line), \(col - 1) }); vim.cmd('normal! zz')")
+                _ = await lua("require('trim.usages').references()")
+                // A whole-repository search: given its time.
+                for _ in 0 ..< patience where ctrl.listPicker == nil {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                guard ctrl.listPicker != nil else { fail("\(name): no usages list came up") }
+                try? await Task.sleep(for: .milliseconds(600))
+                snap("usages")
+                ctrl.escape()
+                await wait("\(name): the list away") { ctrl.listPicker == nil }
+                step("lspshots: \(name) usages")
+            }
+            // Completion: a line typed after another, ending where the server completes; the chosen item's documentation
+            // is in its panel.
+            if let completion = spec["completion"] as? [String: Any], let after = completion["after"] as? Int,
+               let text = completion["text"] as? String
+            {
+                let literal = text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(
+                    of: "'",
+                    with: "\\'"
+                )
+                _ = await lua("""
+                local indent = vim.api.nvim_buf_get_lines(0, \(after) - 1, \(after), false)[1]:match('^%s*') or ''
+                vim.api.nvim_buf_set_lines(0, \(after), \(after), false, { indent .. '\(literal)' })
+                vim.api.nvim_win_set_cursor(0, { \(after) + 1, #indent + #'\(literal)' })
+                vim.cmd('normal! zz')
+                vim.cmd('startinsert!')
+                """)
+                for round in 0 ..< patience where ui.popupView.isHidden {
+                    if round % 3 == 0 { _ = await lua("vim.lsp.completion.get()") }
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                guard !ui.popupView.isHidden else { fail("\(name): the server's completion never came up") }
+                let pick = (completion["pick"] as? String) ?? ""
+                let presses = await lua("""
+                for i, item in ipairs(vim.fn.complete_info({ 'items' }).items) do
+                  if item.word == '\(pick)' then return i end
+                end
+                return 1
+                """)?.integerValue ?? 1
+                _ = await lua("vim.api.nvim_feedkeys(string.rep(vim.keycode('<C-n>'), \(presses)), 'n', false)")
+                for _ in 0 ..< 60 where ui.completionDoc.isEmpty {
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+                try? await Task.sleep(for: .milliseconds(600))
+                snap("completion")
+                await send("<Esc>")
+                _ = await lua("vim.cmd('silent! bwipeout!')")
+                step("lspshots: \(name) completion")
+            }
+        }
         _ = try? await ctrl.session.channel.lua("vim.cmd('silent! %bwipeout!')")
         ctrl.move(to: original)
     }

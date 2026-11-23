@@ -431,12 +431,26 @@ package final class PopupMenuView: PanelView {
                 .font: metrics.regular, .foregroundColor: deprecated ? Design.textFaint : Design.text,
             ]
             if deprecated { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            NSAttributedString(string: item.word, attributes: attributes)
-                .draw(at: NSPoint(x: Self.padding + iconWidth, y: y))
-            let detail = NSAttributedString(
-                string: detail(item), attributes: [.font: metrics.regular, .foregroundColor: Design.textMuted]
+            // A long label and a long detail share the row: the detail takes what it needs up to two fifths, the label
+            // what is left, each cut with an ellipsis instead of one drawn over the other.
+            let inner = bounds.width - 2 * Self.padding - iconWidth
+            let cut = NSMutableParagraphStyle()
+            cut.lineBreakMode = .byTruncatingTail
+            attributes[.paragraphStyle] = cut
+            let detailText = NSAttributedString(
+                string: detail(item),
+                attributes: [.font: metrics.regular, .foregroundColor: Design.textMuted, .paragraphStyle: cut]
             )
-            detail.draw(at: NSPoint(x: bounds.width - Self.padding - detail.size().width, y: y))
+            let detailWidth = detailText.string.isEmpty ? 0 : min(ceil(detailText.size().width), inner * 0.4)
+            let wordWidth = inner - (detailWidth > 0 ? detailWidth + 16 : 0)
+            let line = metrics.cellSize.height
+            NSAttributedString(string: item.word, attributes: attributes)
+                .draw(in: NSRect(x: Self.padding + iconWidth, y: y, width: wordWidth, height: line))
+            if detailWidth > 0 {
+                detailText.draw(in: NSRect(
+                    x: bounds.width - Self.padding - detailWidth, y: y, width: detailWidth, height: line
+                ))
+            }
         }
     }
 }
