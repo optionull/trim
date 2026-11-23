@@ -1828,9 +1828,49 @@ struct FrameCheck {
         guard CompletionIcons.icon(for: "Method") != nil, CompletionIcons.icon(for: "Nonsense") != nil,
               CompletionIcons.icon(for: "") == nil
         else { fail("the kind icons are not there") }
+        // A menu too wide to leave room beside it: the documentation goes over the line or under the menu, never over
+        // it.
+        _ = try? await channel.lua("""
+        vim.fn.complete(1, {
+          { word = 'RenderAsyncDelegate', kind = 'Class', menu = string.rep('Microsoft.AspNetCore.Mvc.Razor.', 6) },
+        })
+        """)
+        _ = try? await channel
+            .lua("vim.rpcnotify(vim.g.sill_channel, 'frame_completion_doc', 'A delegate for rendering.')")
+        await wait("the documentation of a wide menu") {
+            !ui.completionDocPanel.isHidden && ui.completionDoc.hasPrefix("A delegate")
+        }
+        shell.view.layoutSubtreeIfNeeded()
+        let wideMenu = ui.popupView.frame, wideDoc = ui.completionDocPanel.frame
+        guard !wideMenu.intersects(wideDoc), wideDoc.minX >= 0, wideDoc.maxX <= shell.view.bounds.width,
+              wideDoc.minY >= 0
+        else { fail("the documentation of a wide menu is over it or outside the window: \(wideMenu) \(wideDoc)") }
+        step("completion: with no room beside a wide menu the documentation goes over the line or under the menu")
         _ = try? await channel.lua("vim.cmd('stopinsert')")
         await wait("the menu and its documentation to go") { ui.popupView.isHidden && ui.completionDocPanel.isHidden }
         step("completion: the icons for the kinds, and the menu and its documentation go together")
+        // K and Ctrl-S: what the server says is a panel of ours at the cursor, not a window of nvim's.
+        _ = try? await channel
+            .lua(
+                "vim.rpcnotify(vim.g.sill_channel, 'frame_hover', '```csharp\\nint Count { get; }\\n```\\nHow many there are.')"
+            )
+        await wait("the hover panel") { !ui.hoverPanel.isHidden }
+        shell.view.layoutSubtreeIfNeeded()
+        let hover = ui.hoverPanel.frame
+        guard hover.minX >= 0, hover.maxX <= shell.view.bounds.width, hover.minY >= 0, hover.height > 20
+        else { fail("the hover panel is outside the window: \(hover)") }
+        let hoverFloats = await (try? channel
+            .lua(
+                "return #vim.tbl_filter(function(w) return vim.api.nvim_win_get_config(w).relative ~= '' end, vim.api.nvim_list_wins())"
+            ))?
+            .integerValue
+        guard hoverFloats == 0 else { fail("nvim has a floating window for the hover") }
+        shot(shell.view, "hover")
+        _ = try? await channel.lua("vim.rpcnotify(vim.g.sill_channel, 'frame_hover', '')")
+        await wait("the hover to go") { ui.hoverPanel.isHidden }
+        guard await (try? channel.lua("return vim.lsp.buf.hover == require('frame.lsp').hover"))?.boolValue == true
+        else { fail("K and anything asking for a hover do not get the panel") }
+        step("hover (K, Ctrl-S) is a panel of the window's at the cursor, inside it, and nvim's own is not used")
     }
 
     private func zenSteps() async {

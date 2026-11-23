@@ -65,7 +65,7 @@ vim.keymap.set('i', '<CR>', function()
   return '<CR>'
 end, { expr = true, desc = 'Take the completion chosen, or a new line' })
 vim.keymap.set('i', '<C-Space>', function() vim.lsp.completion.get() end, { desc = 'Complete' })
-vim.keymap.set({ 'i', 's' }, '<C-s>', function() vim.lsp.buf.signature_help() end, { desc = 'Signature help' })
+vim.keymap.set({ 'i', 's' }, '<C-s>', function() require('frame.lsp').signature() end, { desc = 'Signature help' })
 
 -- The plugins Frame carries: in the app (`runtime/pack/frame/start/*`), or in the source tree (`Vendor/plugins/*`). A
 -- name in `plugins.disabled` of the settings is left out.

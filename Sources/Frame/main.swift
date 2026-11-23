@@ -941,6 +941,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case "frame_theme_pick": showThemePicker(nil)
         case "frame_packages": showPackages(nil)
         case "frame_select": showSelect(args)
+        case "frame_hover": externalUI.hoverText = args.first?.stringValue ?? ""
         case "frame_completion_doc": externalUI.completionDoc = args.first?.stringValue ?? ""
         case "frame_diag":
             // What changed since the last time (the first time, everything): a file's worst level, 0 for none left.

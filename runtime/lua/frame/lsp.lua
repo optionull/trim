@@ -235,6 +235,65 @@ function M.refresh(client_id)
   end, 800)
 end
 
+--- What the language server says of the word under the cursor, shown by the window in a panel at the cursor (nvim's own
+--- floating window is not used). It goes when the cursor moves or insert mode is entered.
+local function show_hover(text)
+  notify('frame_hover', text or '')
+end
+
+local function dismiss_hover_on_move()
+  vim.api.nvim_create_autocmd({ 'CursorMoved', 'InsertEnter', 'BufLeave' }, {
+    group = vim.api.nvim_create_augroup('frame.hover', { clear = true }),
+    once = true,
+    callback = function() show_hover('') end,
+  })
+end
+
+local function request_text(method, make_text, empty)
+  local buf = vim.api.nvim_get_current_buf()
+  vim.lsp.buf_request_all(buf, method, function(client)
+    return vim.lsp.util.make_position_params(0, client.offset_encoding)
+  end, function(results)
+    local parts = {}
+    for _, response in pairs(results or {}) do
+      local text = response.result and make_text(response.result)
+      if text and text ~= '' then parts[#parts + 1] = text end
+    end
+    if #parts == 0 then
+      if empty then vim.notify(empty, vim.log.levels.INFO) end
+      return show_hover('')
+    end
+    show_hover(table.concat(parts, '\n\n---\n\n'))
+    -- Armed after this has been shown, so the key that asked does not dismiss it.
+    vim.schedule(dismiss_hover_on_move)
+  end)
+end
+
+--- `K`: the server's hover (type, signature and documentation of the word under the cursor).
+function M.hover()
+  request_text('textDocument/hover', function(result)
+    local lines = vim.lsp.util.convert_input_to_markdown_lines(result.contents)
+    return table.concat(lines, '\n')
+  end, 'No information available')
+end
+
+--- Ctrl-S: the signature of the call being typed, the parameter in turn named.
+function M.signature()
+  request_text('textDocument/signatureHelp', function(result)
+    local signature = result.signatures and result.signatures[(result.activeSignature or 0) + 1]
+    if not signature then return end
+    local text = '```\n' .. signature.label .. '\n```'
+    local doc = signature.documentation
+    doc = type(doc) == 'table' and doc.value or doc
+    if doc and doc ~= '' then text = text .. '\n' .. doc end
+    return text
+  end)
+end
+
+-- Anything that asks for a hover (a mapping of a config, nvim's own K) gets this one.
+vim.lsp.buf.hover = M.hover
+vim.lsp.buf.signature_help = M.signature
+
 --- What the servers are busy with (indexing, loading projects, analysing), by client and token, newest last.
 M.progress = {}
 local progress_stamp = 0
@@ -681,7 +740,7 @@ function M.setup()
       map('gI', usages.implementation, 'Go to implementation')
       map('<leader>ls', usages.symbols, 'Symbols in this file')
       map('<leader>lS', usages.workspace_symbols, 'Symbols in the workspace')
-      map('K', vim.lsp.buf.hover, 'Hover')
+      map('K', M.hover, 'Hover')
       map('<leader>la', vim.lsp.buf.code_action, 'Code action')
       -- Alt+Enter (ReSharper, Rider) and Cmd+. (Xcode, VS Code): what can be done here.
       for _, lhs in ipairs({ '<M-CR>', '<D-.>' }) do

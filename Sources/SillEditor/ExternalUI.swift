@@ -13,6 +13,7 @@ package final class ExternalUI {
     private let commandLine: CmdlineView
     private let popup: PopupMenuView
     private let completionDocView = CompletionDocView()
+    private let hoverView = CompletionDocView(bright: true)
     private let output: OutputPanel
     private var toasts: [Int: ToastView] = [:]
     private var screen = Screen()
@@ -29,7 +30,7 @@ package final class ExternalUI {
         commandLine = CmdlineView()
         popup = PopupMenuView()
         output = OutputPanel()
-        for view in [output, commandLine, popup, completionDocView] as [NSView] {
+        for view in [output, commandLine, popup, completionDocView, hoverView] as [NSView] {
             view.isHidden = true
             overlay.addSubview(view)
         }
@@ -50,6 +51,17 @@ package final class ExternalUI {
     }
 
     package var completionDocPanel: NSView { completionDocView }
+
+    /// What the language server says of the word under the cursor (`K`) or of the call being typed, in a panel at the
+    /// cursor (empty: none). Drawn here, not by nvim, so it sits where the code is not.
+    package var hoverText = "" {
+        didSet {
+            guard hoverText != oldValue else { return }
+            layOut()
+        }
+    }
+
+    package var hoverPanel: NSView { hoverView }
     package var commandLineView: NSView { commandLine }
     package var popupView: NSView { popup }
     package var outputView: NSView { output }
@@ -84,6 +96,7 @@ package final class ExternalUI {
         }
 
         layOutPopup(in: bounds)
+        layOutHover(in: bounds)
         layOutMessages(in: bounds)
     }
 
@@ -96,6 +109,7 @@ package final class ExternalUI {
         popup.show(menu)
         let size = popup.size
         var origin: NSPoint
+        var wordLine = NSRect.zero
         if menu.grid == -1, !commandLine.isHidden {
             // Under the command line, at the column where the completed word starts.
             origin = NSPoint(x: commandLine.frame.minX + commandLine.x(ofByte: menu.col), y: commandLine.frame.maxY + 4)
@@ -103,6 +117,7 @@ package final class ExternalUI {
             let placement = screen.placements[menu.grid]
             let row = (placement?.row ?? 0) + menu.row, col = (placement?.col ?? 0) + menu.col
             let cell = editor.rect(row: row, col: col, width: 1, height: 1)
+            wordLine = cell
             origin = NSPoint(x: cell.minX - PopupMenuView.padding, y: cell.maxY + 2)
             // No room below: above the word instead.
             if origin.y + size.height > bounds.maxY, cell.minY - size.height - 2 >= 0 {
@@ -112,28 +127,60 @@ package final class ExternalUI {
         origin.x = min(max(origin.x, 4), max(bounds.maxX - size.width - 4, 4))
         popup.frame = NSRect(origin: origin, size: size)
         popup.isHidden = false
-        layOutDocumentation(beside: popup.frame, in: bounds)
+        layOutDocumentation(beside: popup.frame, line: wordLine, in: bounds)
     }
 
-    /// The documentation, beside the menu where there is room (to the right, else the left), level with its top.
-    private func layOutDocumentation(beside menu: NSRect, in bounds: NSRect) {
+    /// The documentation, beside the menu where there is room (to the right, else the left); else above the line the
+    /// word
+    /// is on, else under the menu.
+    private func layOutDocumentation(beside menu: NSRect, line: NSRect, in bounds: NSRect) {
         let text = completionDoc.trimmingCharacters(in: .whitespacesAndNewlines)
         guard completionStyle != nil, !text.isEmpty else {
             completionDocView.isHidden = true
             return
         }
         let gap: CGFloat = 6
-        let room = max(bounds.maxX - menu.maxX - gap - 4, menu.minX - gap - 4)
-        guard room >= 200 else {
-            completionDocView.isHidden = true
+        let rightRoom = bounds.maxX - menu.maxX - gap - 4, leftRoom = menu.minX - gap - 4
+        let maxHeight = min(bounds.height * 0.5, 360)
+        if max(rightRoom, leftRoom) >= 240 {
+            let size = completionDocView.show(text, maxWidth: min(max(rightRoom, leftRoom), 460), maxHeight: maxHeight)
+            let right = rightRoom >= size.width
+            let x = right ? menu.maxX + gap : menu.minX - gap - size.width
+            let y = min(max(menu.minY, 4), max(bounds.maxY - size.height - 4, 4))
+            completionDocView.frame = NSRect(origin: NSPoint(x: x, y: y), size: size)
+        } else {
+            // No room beside the menu: over the line, or under the menu when the line is at the top.
+            let width = min(max(menu.width, 320), min(560, bounds.width - 8))
+            let size = completionDocView.show(text, maxWidth: width, maxHeight: maxHeight)
+            let x = min(max(menu.minX, 4), max(bounds.maxX - size.width - 4, 4))
+            var y = line.minY - gap - size.height
+            if y < 4 { y = menu.maxY + gap }
+            if y + size.height > bounds.maxY - 4 { y = max(4, bounds.maxY - size.height - 4) }
+            completionDocView.frame = NSRect(origin: NSPoint(x: x, y: y), size: size)
+        }
+        completionDocView.isHidden = false
+    }
+
+    /// The hover panel: over the word the cursor is on (under it when there is no room above), kept inside the window.
+    private func layOutHover(in bounds: NSRect) {
+        let text = hoverText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard completionStyle != nil, !text.isEmpty, screen.popupMenu?.items.isEmpty ?? true else {
+            hoverView.isHidden = true
             return
         }
-        let size = completionDocView.show(text, maxWidth: min(room, 460), maxHeight: min(bounds.height * 0.6, 420))
-        let right = bounds.maxX - menu.maxX - gap - 4 >= size.width
-        let x = right ? menu.maxX + gap : menu.minX - gap - size.width
-        let y = min(max(menu.minY, 4), max(bounds.maxY - size.height - 4, 4))
-        completionDocView.frame = NSRect(origin: NSPoint(x: x, y: y), size: size)
-        completionDocView.isHidden = false
+        let placement = screen.placements[screen.cursorGrid]
+        let cell = editor.rect(
+            row: (placement?.row ?? 0) + screen.cursorRow, col: (placement?.col ?? 0) + screen.cursorCol, width: 1,
+            height: 1
+        )
+        let size = hoverView.show(
+            text, maxWidth: min(640, bounds.width - 16), maxHeight: min(bounds.height * 0.5, 420)
+        )
+        let x = min(max(cell.minX - 8, 4), max(bounds.maxX - size.width - 4, 4))
+        var y = cell.minY - 4 - size.height
+        if y < 4 { y = cell.maxY + 4 }
+        hoverView.frame = NSRect(origin: NSPoint(x: x, y: min(y, max(bounds.maxY - size.height - 4, 4))), size: size)
+        hoverView.isHidden = false
     }
 
     private func layOutMessages(in bounds: NSRect) {
@@ -411,8 +458,10 @@ package struct CompletionStyle {
 package final class CompletionDocView: PanelView {
     private var metrics: CellMetrics { EditorFont.metrics }
     private var text = NSAttributedString()
+    private let bright: Bool
 
-    package init() {
+    package init(bright: Bool = false) {
+        self.bright = bright
         super.init(frame: .zero)
     }
 
@@ -446,9 +495,11 @@ package final class CompletionDocView: PanelView {
             }
             result.append(NSAttributedString(string: content + "\n", attributes: [
                 .font: metrics.regular, .paragraphStyle: paragraph,
-                .foregroundColor: inCode ? Design.text : Design.textMuted,
+                .foregroundColor: inCode || bright ? Design.text : Design.textMuted,
             ]))
         }
+        if result.string
+            .hasSuffix("\n") { result.deleteCharacters(in: NSRange(location: result.length - 1, length: 1)) }
         text = result
         let inner = maxWidth - 24
         let box = result.boundingRect(
