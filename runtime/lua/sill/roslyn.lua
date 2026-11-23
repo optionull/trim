@@ -64,7 +64,7 @@ local function html_handlers()
 end
 
 --- The handlers Razor's cohosting needs of a client (its questions about HTML answered, its diagnostics taken once), for
---- another host of Roslyn's server (Frame) to use as sill does.
+--- another host of Roslyn's server (Trim) to use as sill does.
 function M.razor_handlers()
   return vim.tbl_extend('force', html_handlers(), {
     ['workspace/_roslyn_projectNeedsRestore'] = function() return vim.NIL end,

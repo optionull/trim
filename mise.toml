@@ -23,11 +23,11 @@ sources = ["mise.toml", "scripts/ghostty.sh"]
 outputs = ["Vendor/GhosttyKit.xcframework/Info.plist"]
 
 [tasks.fonts]
-description = "Download Vendor/fonts: the Nerd Fonts symbols-only font Frame draws its icons with (pinned, checksummed)"
+description = "Download Vendor/fonts: the Nerd Fonts symbols-only font Trim draws its icons with (pinned, checksummed)"
 run = "scripts/fonts.sh"
 
 [tasks.plugins]
-description = "Fetch Vendor/plugins: the nvim plugins Frame bundles, at the commits scripts/plugins.txt pins"
+description = "Fetch Vendor/plugins: the nvim plugins Trim bundles, at the commits scripts/plugins.txt pins"
 run = "scripts/plugins.sh"
 
 [tasks.treesitter]
@@ -39,13 +39,13 @@ description = "Print nvim-treesitter's newest commit, to bump TREESITTER_COMMIT 
 run = "nvim -l scripts/treesitter.lua --latest"
 
 [tasks.build]
-description = "Debug build and assemble build/Frame.app and build/Shim.app"
+description = "Debug build and assemble build/Trim.app and build/Shim.app"
 run = ["swift build", "scripts/bundle.sh debug"]
 
 [tasks.dev]
-description = "Build and launch Frame.app"
+description = "Build and launch Trim.app"
 depends = ["build"]
-run = "open $BUILD_DIR/Frame.app"
+run = "open $BUILD_DIR/Trim.app"
 
 [tasks.test]
 description = "Swift Testing suite (the nvim tests start a real `nvim --embed`)"
@@ -64,9 +64,9 @@ description = "Lint, tests and every self-check, stopping at the first failure"
 run = "scripts/verify.sh"
 
 [tasks.sign]
-description = "Sign build/Frame.app with a Developer ID (the identity is the argument)"
+description = "Sign build/Trim.app with a Developer ID (the identity is the argument)"
 run = "scripts/sign.sh"
 
 [tasks.bundle]
-description = "Release build, ad-hoc signed build/Frame.app and build/Shim.app"
+description = "Release build, ad-hoc signed build/Trim.app and build/Shim.app"
 run = ["swift build -c release", "scripts/bundle.sh release"]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Vendor/plugins: the nvim plugins Frame bundles (scripts/plugins.txt), each at a pinned tag whose commit is checked, with
+# Vendor/plugins: the nvim plugins Trim bundles (scripts/plugins.txt), each at a pinned tag whose commit is checked, with
 # only what nvim loads kept (lua, colors, plugin, after, doc and the licence). No package manager at run time and no network
 # after this: the app carries them.
 set -euo pipefail

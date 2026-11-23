@@ -39,10 +39,10 @@ login shell in `$SHELL` (sill reads its environment, as it does from the Dock: s
 
 Third-party code and licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Frame's self-check
+## Trim's self-check
 
-`SILL_FRAME_CHECK=1 build/Frame.app/Contents/MacOS/Frame` (or `.build/debug/Frame`) runs the real app against a real nvim
+`TRIM_CHECK=1 build/Trim.app/Contents/MacOS/Trim` (or `.build/debug/Trim`) runs the real app against a real nvim
 and drives it with synthetic clicks and keys, in groups, each timed: the whole of it takes about ten seconds. While working
-on one area, run only its group: `SILL_FRAME_CHECK_ONLY=tabs` (groups: tree, focus, forward, layout, isolation, status, tabs,
+on one area, run only its group: `TRIM_CHECK_ONLY=tabs` (groups: tree, focus, forward, layout, isolation, status, tabs,
 scroll, windows, switcher; a comma separates several), which takes a second or two. `SILL_CHECK_SHOT=/tmp/x.png` also saves
 pictures. `scripts/verify.sh` runs it as part of everything else.

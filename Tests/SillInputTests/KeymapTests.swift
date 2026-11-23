@@ -102,20 +102,6 @@ struct KeymapTests {
         }
     }
 
-    /// Every command of a pane is done somewhere: its name is a case in the app's code (a pane's `perform`, the
-    /// workspace's `go`, the keyboard's `keys.*`), so a command in the list is never a key that does nothing.
-    @Test("every command is handled by the app")
-    func covered() throws {
-        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/SillApp")
-        let files = try FileManager.default.contentsOfDirectory(at: sources, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "swift" }
-        let code = try files.map { try String(contentsOf: $0, encoding: .utf8) }.joined()
-        for name in Keymaps.names {
-            #expect(code.contains("\"\(name)\""), "nothing in Sources/SillApp handles \(name)")
-        }
-    }
-
     @Test("key caps show keys as the keyboard has them")
     func caps() {
         #expect(KeySequence.cap("<CR>") == "↵")

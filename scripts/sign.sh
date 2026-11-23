@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sign build/Frame.app for distribution: Developer ID, the hardened runtime (notarization requires it) and a secure
+# Sign build/Trim.app for distribution: Developer ID, the hardened runtime (notarization requires it) and a secure
 # timestamp. Replaces bundle.sh's ad-hoc signature. Follows heed's scripts/sign.sh.
 #
 # No entitlements: nvim and the sidecar's dotnet are the user's own programs, started as child processes, so the
@@ -10,7 +10,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 identity="${1:?usage: scripts/sign.sh <identity> [keychain]}"
-app="${BUILD_DIR:-$root/build}/Frame.app"
+app="${BUILD_DIR:-$root/build}/Trim.app"
 keychain=()
 [ -n "${2:-}" ] && keychain=(--keychain "$2")
 

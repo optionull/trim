@@ -36,18 +36,18 @@ SOFTWARE.
 
 ## Nerd Fonts Symbols
 
-https://github.com/ryanoasis/nerd-fonts, v3.5.1, `SymbolsNerdFontMono-Regular.ttf`: the icons Frame's file tree draws
+https://github.com/ryanoasis/nerd-fonts, v3.5.1, `SymbolsNerdFontMono-Regular.ttf`: the icons Trim's file tree draws
 (and a config's own icons, as the grid's fallback). `scripts/fonts.sh` downloads it, checks its checksum, and
-`Frame.app` carries it in `Contents/Resources/fonts` with the project's `LICENSE` (MIT, for the patcher and its
+`Trim.app` carries it in `Contents/Resources/fonts` with the project's `LICENSE` (MIT, for the patcher and its
 scripts) and `README.md`, whose table gives each icon set's own licence. The font combines: Codicons and Font
 Awesome (CC BY 4.0), Devicons, Octicons, Seti, Font Awesome Extension, Powerline and Power Symbols (MIT),
 Material Design (Apache 2.0), Pomicons and Weather Icons (SIL OFL 1.1), and Font Logos (stated as unlicensed
 upstream). Attribution for the CC BY 4.0 sets: Codicons by Microsoft (https://github.com/microsoft/vscode-codicons),
 Font Awesome by Fonticons, Inc. (https://fontawesome.com). The font is not modified.
 
-## nvim plugins Frame bundles
+## nvim plugins Trim bundles
 
-Frame.app carries these (`Contents/Resources/runtime/pack/frame/start/<name>`), each at the tag and commit `scripts/plugins.txt`
+Trim.app carries these (`Contents/Resources/runtime/pack/trim/start/<name>`), each at the tag and commit `scripts/plugins.txt`
 pins (fetched by `scripts/plugins.sh`, unmodified, only the folders nvim loads kept) with its licence file beside it:
 
 - tokyonight.nvim, https://github.com/folke/tokyonight.nvim, v4.14.1, by Folke Lemaitre: Apache License 2.0 (`LICENSE`).

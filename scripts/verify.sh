@@ -1,5 +1,5 @@
 #!/bin/bash
-# Lint, tests and the self-checks of Shim and Frame; stops at the first failure (mise run verify).
+# Lint, tests and the self-checks of Shim and Trim; stops at the first failure (mise run verify).
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO"
@@ -18,13 +18,13 @@ mise run build 2>&1 | tail -1
 rm -rf /tmp/sill-shim-configs && mkdir -p /tmp/sill-shim-configs/alpha && echo 'vim.g.shim_marker = "alpha"' >/tmp/sill-shim-configs/alpha/init.lua
 out=$(cd /tmp && perl -e 'alarm 120; exec @ARGV or die' env SILL_SHIM_CHECK=1 XDG_CONFIG_HOME=/tmp/sill-shim-configs "$REPO/build/Shim.app/Contents/MacOS/Shim" 2>&1 | grep -E "^shim check" || true)
 echo "$out" | grep -q "^shim check: passed$" || { echo "$out"; echo "CHECK shim FAILED"; exit 1; }
-echo "sill check (shim): passed"
-# Frame's own config home: its additions (~/.config/frame) must load, a config of nvim's own (~/.config/nvim) must not.
-rm -rf /tmp/sill-frame-configs && mkdir -p /tmp/sill-frame-configs/frame /tmp/sill-frame-configs/nvim
-printf 'vim.g.frame_user = "user"\nvim.g.mapleader = ","\n' >/tmp/sill-frame-configs/frame/init.lua
-printf 'vim.g.nvim_config_leaked = "yes"\n' >/tmp/sill-frame-configs/nvim/init.lua
-printf '[theme]\ncolorscheme = "rose-pine"\n' >/tmp/sill-frame-configs/frame/settings.toml
-out=$(cd /tmp && perl -e 'alarm 120; exec @ARGV or die' env SILL_FRAME_CHECK=1 XDG_CONFIG_HOME=/tmp/sill-frame-configs "$REPO/build/Frame.app/Contents/MacOS/Frame" 2>&1 | grep -E "^frame check" || true)
-echo "$out" | grep -q "^frame check: passed$" || { echo "$out"; echo "CHECK frame FAILED"; exit 1; }
-echo "sill check (frame): passed"
+echo "shim check: passed"
+# Trim's own config home: its additions (~/.config/trim) must load, a config of nvim's own (~/.config/nvim) must not.
+rm -rf /tmp/trim-configs && mkdir -p /tmp/trim-configs/trim /tmp/trim-configs/nvim
+printf 'vim.g.trim_user = "user"\nvim.g.mapleader = ","\n' >/tmp/trim-configs/trim/init.lua
+printf 'vim.g.nvim_config_leaked = "yes"\n' >/tmp/trim-configs/nvim/init.lua
+printf '[theme]\ncolorscheme = "rose-pine"\n' >/tmp/trim-configs/trim/settings.toml
+out=$(cd /tmp && perl -e 'alarm 120; exec @ARGV or die' env TRIM_CHECK=1 XDG_CONFIG_HOME=/tmp/trim-configs "$REPO/build/Trim.app/Contents/MacOS/Trim" 2>&1 | grep -E "^trim check" || true)
+echo "$out" | grep -q "^trim check: passed$" || { echo "$out"; echo "CHECK frame FAILED"; exit 1; }
+echo "trim check: passed"
 echo "ALL VERIFIED${SKIPPED:+ (skipped: $SKIPPED)}"

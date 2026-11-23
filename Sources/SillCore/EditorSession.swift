@@ -22,7 +22,7 @@ public actor EditorSession {
     private var attached: (cols: Int, rows: Int)?
     /// A size asked for before nvim was attached; applied once it is.
     private var pendingSize: (cols: Int, rows: Int)?
-    /// Where a front end's own notifications go (`shim_*`, `frame_*`: its commands in nvim), set before `start`.
+    /// Where a front end's own notifications go (`shim_*`, `trim_*`: its commands in nvim), set before `start`.
     private var frontEnd: (prefix: String, handler: @Sendable (String, [MessagePackValue]) -> Void)?
 
     public init() {

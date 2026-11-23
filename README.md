@@ -443,15 +443,15 @@ TypeScript, JavaScript, Rust, Swift, Python, Go, Java, Kotlin, Ruby, the web's a
 grammar at the revision nvim-treesitter pins, with nvim-treesitter's queries, built ahead of time, so nothing is
 compiled on your Mac. The sign column marks what changed since the branch left its
 base (committed or not, so an agent's commits stay marked) and tints the line number; `]h` and `[h` go to the next and
-previous change. The Run pane (⇧⌘R, `\rp`; a pane and a mode of its own, RUN in the status bar, in the slot the build pane has, which steps aside) has tabs as the build pane does. **Run** lists everything the folder can run, each row saying what kind it is and the file (and line) it comes from, with a pill in the header for each origin (make, npm, dotnet, VS Code, yours...) that filters the list, and the details of the highlighted one under it: its command line, the folder it runs in, its environment variables. Return runs it, and from then on only its output shows, in a tab of its own: the tab says how the run is going (a loader, then ✓ or ✗), the header says how it ended (`exited 0 in 1.2 s`, or the code it failed with) and has the button that runs it again in the same tab. Several things can run at once, a tab each (up to eight; the cross on a tab ends its run); ⇧⌘R from an output goes back to the list, `o` to the output of the last run. The tab commands (Control-Tab, ⇧⌘[ and ⇧⌘], ⌘W) go to the tabs of whichever pane has the keyboard: Problems and Output in the build pane, Run and the outputs in the Run pane (⌘W ends the run whose output shows), the file tabs elsewhere. Drag the strip between the pane and the code to size it (double-click sizes it back; the size is kept). `c` copies an entry into a configuration of your own, to change its arguments, folder and environment variables in a form (kept in Frame's own folder, `~/Library/Application Support/frame/run`, per project and never in the repository; listed first, run like any other; F5 repeats it too); `e` changes one of your own, `d` deletes it, `n` (or the + in its header) makes a new one from nothing, and the minimize button puts the pane away.
+previous change. The Run pane (⇧⌘R, `\rp`; a pane and a mode of its own, RUN in the status bar, in the slot the build pane has, which steps aside) has tabs as the build pane does. **Run** lists everything the folder can run, each row saying what kind it is and the file (and line) it comes from, with a pill in the header for each origin (make, npm, dotnet, VS Code, yours...) that filters the list, and the details of the highlighted one under it: its command line, the folder it runs in, its environment variables. Return runs it, and from then on only its output shows, in a tab of its own: the tab says how the run is going (a loader, then ✓ or ✗), the header says how it ended (`exited 0 in 1.2 s`, or the code it failed with) and has the button that runs it again in the same tab. Several things can run at once, a tab each (up to eight; the cross on a tab ends its run); ⇧⌘R from an output goes back to the list, `o` to the output of the last run. The tab commands (Control-Tab, ⇧⌘[ and ⇧⌘], ⌘W) go to the tabs of whichever pane has the keyboard: Problems and Output in the build pane, Run and the outputs in the Run pane (⌘W ends the run whose output shows), the file tabs elsewhere. Drag the strip between the pane and the code to size it (double-click sizes it back; the size is kept). `c` copies an entry into a configuration of your own, to change its arguments, folder and environment variables in a form (kept in Trim's own folder, `~/Library/Application Support/trim/run`, per project and never in the repository; listed first, run like any other; F5 repeats it too); `e` changes one of your own, `d` deletes it, `n` (or the + in its header) makes a new one from nothing, and the minimize button puts the pane away.
 
 Razor: `.razor` and `.cshtml` files are served by the same Roslyn (it hosts Razor), as Sill does it: components, directives and the C# in a component's `@code` block answer from it, and Razor's questions about HTML go to the HTML server (found or provisioned like any other).
 
-Zen (⌥⌘Z, View ▸ Zen Mode, `<leader>uz`, `:FrameRun zen`) puts the sidebar, tabs, status bar, build pane and progress toast away and the text in the middle, a hundred columns wide; the same again brings everything back as it was.
+Zen (⌥⌘Z, View ▸ Zen Mode, `<leader>uz`, `:TrimRun zen`) puts the sidebar, tabs, status bar, build pane and progress toast away and the text in the middle, a hundred columns wide; the same again brings everything back as it was.
 
-Links into Frame: `frame://open?path=/abs/file.cs&line=12&column=3` opens the file at its place (in the window that is on its folder, else in one on its repository), `frame://workspace?path=/abs/folder` a folder, and `open -a Frame file.cs` (or Finder's Open With) a file.
+Links into Trim: `frame://open?path=/abs/file.cs&line=12&column=3` opens the file at its place (in the window that is on its folder, else in one on its repository), `frame://workspace?path=/abs/folder` a folder, and `open -a Trim file.cs` (or Finder's Open With) a file.
 
-Clicking the language servers in the status bar (or `<leader>lp`, `:FrameRun lsp`) opens a panel of them: each server that has been wanted, how it is (ready, starting, restarting, failed, stopped), what it is busy with, where it is rooted, and how much of a core and how much memory it and the processes it started use (read from `ps`, kept up to date while the panel is open); `r` restarts the server under the keyboard and `s` stops it.
+Clicking the language servers in the status bar (or `<leader>lp`, `:TrimRun lsp`) opens a panel of them: each server that has been wanted, how it is (ready, starting, restarting, failed, stopped), what it is busy with, where it is rooted, and how much of a core and how much memory it and the processes it started use (read from `ps`, kept up to date while the panel is open); `r` restarts the server under the keyboard and `s` stops it.
 
 Completion comes from the language server as you type, in sill's own menu; `<leader>ff` (or
 `:find`) finds a file fuzzily among the ones git knows, `<leader>/` searches the code, `<leader>e` shows the explorer;
@@ -517,43 +517,43 @@ starts wins over it). Each config keeps its own plugins and lockfile, so none di
 
 ![The shim: nvim in a rounded window with no title bar](docs/showcase-shell-2026-10-24.png)
 
-### Frame (working title)
+### Trim (working title)
 
-`Frame.app`, built beside sill and the shim, is the shim grown into a workspace of native panes around nvim, one pane
+`Trim.app`, built beside sill and the shim, is the shim grown into a workspace of native panes around nvim, one pane
 at a time. So far a **sidebar** left of the grid: a native file tree (folders first, git's marks and branch, what git
 ignores left out, Nerd Font icons from a font the app carries, kept up to date as files change), sized by dragging its
 divider (⌘B hides it, ⇧⌘E goes into it; `j`/`k`/`h`/`l`, the arrows and Return move and open, Escape goes back to the
 editor, and `<C-w>h` from the leftmost window goes into it). Clicking a file opens it in nvim, and the tree follows
-the file nvim shows and the folder it is in. `:FrameTree [toggle|show|hide|focus|filter|ignored|dotfiles]` shows, hides or enters the sidebar (⌘B hides or shows it, ⇧⌘E enters it);
+the file nvim shows and the folder it is in. `:TrimTree [toggle|show|hide|focus|filter|ignored|dotfiles]` shows, hides or enters the sidebar (⌘B hides or shows it, ⇧⌘E enters it);
 `<leader>e` toggles it and `<C-w>e` enters it, each only where your config has not bound the key, and
-`<Plug>(frame-tree-toggle)` and `<Plug>(frame-tree-focus)` are there to bind your own. The sidebar is in the editor's
+`<Plug>(trim-tree-toggle)` and `<Plug>(trim-tree-focus)` are there to bind your own. The sidebar is in the editor's
 font and a shade of its background, and follows its colour scheme. In the tree, keys that are nvim's (the leader, `:`,
 Control chords such as `<C-w>l`) go to nvim whatever row is selected, and the sequence they start is finished there.
 The filter (the funnel at the top right, `/`, ⌥⌘F) narrows the tree to the paths that hold what you type, live;
 Escape puts the tree as it was. The eye at its right (and `I`, `H`, ⌥⇧⌘. and ⇧⌘.) shows or hides what git ignores and
-the dotfiles. `open -n Frame.app --args ~/Projects/x` starts it
+the dotfiles. `open -n Trim.app --args ~/Projects/x` starts it
 in a folder. `mise run fonts` downloads the icon font (`scripts/bundle.sh` does too); its licences are in
 `THIRD_PARTY_NOTICES.md`.
 
-Frame runs its **own isolated nvim config**, never yours: it starts nvim under the name `frame`, so its config, data, state
-and cache folders are Frame's (`~/.config/frame`, `~/.local/share/frame`...) and nothing of `~/.config/nvim` (nor any other
-config) is read, so a config of yours, LazyVim included, cannot clash with it. Frame's base settings come first (`runtime/lua/frame/base.lua`: spaces for indent, four wide, the system clipboard,
+Trim runs its **own isolated nvim config**, never yours: it starts nvim under the name `frame`, so its config, data, state
+and cache folders are Trim's (`~/.config/trim`, `~/.local/share/frame`...) and nothing of `~/.config/nvim` (nor any other
+config) is read, so a config of yours, LazyVim included, cannot clash with it. Trim's base settings come first (`runtime/lua/trim/base.lua`: spaces for indent, four wide, the system clipboard,
 `smoothscroll`, no line wrapping, quiet whitespace markers, folds from the syntax tree, a 400 ms key timeout, `\` as the
-leader); `~/.config/frame/settings.toml` changes some of them (`[editor] leader`, `[theme] colorscheme`, `[plugins]
-disabled`; a value commented out is at its default; the file is made the first time Frame changes a setting itself), and
-`~/.config/frame/init.lua`, if there is one, is the place for your additions (nvim loads it as it loads any init.lua: options,
-a plugin of your own), and wins over both. Frame carries the colour schemes tokyonight (the default, "night"), catppuccin and
+leader); `~/.config/trim/settings.toml` changes some of them (`[editor] leader`, `[theme] colorscheme`, `[plugins]
+disabled`; a value commented out is at its default; the file is made the first time Trim changes a setting itself), and
+`~/.config/trim/init.lua`, if there is one, is the place for your additions (nvim loads it as it loads any init.lua: options,
+a plugin of your own), and wins over both. Trim carries the colour schemes tokyonight (the default, "night"), catppuccin and
 rose-pine as pinned plugins (`mise run plugins` fetches them, `scripts/plugins.txt` pins each to a commit) and the 25
 tree-sitter parsers Sill has; Sill's agent commands and keys are not loaded. The shim stays what it was: nvim alone in a native window,
 with your own config and the Config menu, for doing everything the nvim way.
 
-A workspace is a repository or a worktree. ⌘⇧O, `:FrameWorkspace`, `<leader>fw` (where your config has nothing there) and
+A workspace is a repository or a worktree. ⌘⇧O, `:TrimWorkspace`, `<leader>fw` (where your config has nothing there) and
 the chip at the sidebar's foot (the git root's name and the branch) bring up the switcher: a search line over the
 repositories and worktrees under `home.roots` (`~/Projects` when it is not set) and those with a window. Rows are
 named by what the work is about, not by a folder name nobody remembers: [heed](https://github.com/heed-build/heed)'s
 title for the session in it when heed is running, else the branch of a worktree or the name of a repository; the
-repository and branch stand under it, read from `.git` at once. The order is the one Frame knows by itself, so the
-list is there the moment it opens and never shuffles: the workspaces last opened in Frame first, then the rest by
+repository and branch stand under it, read from `.git` at once. The order is the one Trim knows by itself, so the
+list is there the moment it opens and never shuffles: the workspaces last opened in Trim first, then the rest by
 repository and path. What is found under the roots, what heed says of each and what git says of each is asked for
 in the background, each on its own, and fills in names, marks and times without moving a row. heed is only ever
 an addition; without it the list is the same, by branches. Return with nothing typed goes to the one before this.
@@ -566,48 +566,48 @@ the switcher) and the status bar under the grid, level with each other. The bar 
 FILTER or SWITCH while the keyboard is in the tree or the switcher), the file (relative to the workspace, with its icon
 and a mark when it is changed) and, on the right, the diagnostics, the language servers, the file type and the
 position (a path too long for the room loses its front folders, not the file's name); the branch too, while the sidebar, which says it, is hidden. View ▸ Status Bar Across Window (or
-`:FrameStatusline window`; `:FrameStatusline editor` puts it back) makes it one bar across the window, with the
+`:TrimStatusline window`; `:TrimStatusline editor` puts it back) makes it one bar across the window, with the
 workspace as its first segment. nvim's own status line, ruler and mode message are off while it shows, and put back
-when it hides (`:FrameStatusline [toggle|show|hide]`); `vim.g.frame_statusline = false` keeps the bar away and your own
+when it hides (`:TrimStatusline [toggle|show|hide]`); `vim.g.trim_statusline = false` keeps the bar away and your own
 status line (lualine and the like) as it is.
 
 The open files are tabs (nvim's buffers; tab pages, which are layouts of windows, are not shown), and show only when
 more than one file is open. By default they are in the status bar: the file's name there, with `▾ 3`, brings up a list of the open files in the
-tree's font and colours when clicked, or by keyboard: ⌥⌘E (Go ▸ Open Files…), `:FrameTabs list`, or `<leader>t`
+tree's font and colours when clicked, or by keyboard: ⌥⌘E (Go ▸ Open Files…), `:TrimTabs list`, or `<leader>t`
 where your config has nothing there (↑ ↓ or j k move, Return shows a file, x or ⌫ closes it, Escape goes back), and there
 is no strip at all. View ▸ Tabs puts them over the grid instead, under it, or as a list at its right, or hides them;
-`:FrameTabs top|bottom|right|statusbar|hide|show|toggle` does the same, and the choice is remembered. They sit on nvim's own
+`:TrimTabs top|bottom|right|statusbar|hide|show|toggle` does the same, and the choice is remembered. They sit on nvim's own
 background, each with the file's icon in its colour as in the tree, the shown one on the colour scheme's selection colour
-(nvim's `Visual` background, or the group `vim.g.frame_selection_group` names), the same one the tree's selected row
+(nvim's `Visual` background, or the group `vim.g.trim_selection_group` names), the same one the tree's selected row
 has. A file never edited is in italics (a preview), one with changes has a dot. Past a maximum (View ▸ Tabs ▸ Maximum
-Tabs, or `:FrameTabs max N`, 10 by default, 0 for none) the tabs never edited are closed, the least recently used first
-(View ▸ Tabs ▸ Close Unedited Tabs Past the Maximum, or `:FrameTabs autoclose [on|off]`); an edited tab, one with
+Tabs, or `:TrimTabs max N`, 10 by default, 0 for none) the tabs never edited are closed, the least recently used first
+(View ▸ Tabs ▸ Close Unedited Tabs Past the Maximum, or `:TrimTabs autoclose [on|off]`); an edited tab, one with
 changes and the one showing are never closed, and nothing is closed while the tabs are hidden. A click shows a tab, its
 close mark or a middle click closes it. Everything clickable (tabs, their close marks, the tree's header icons, the workspace button) lights under the pointer, and the pointer is a hand over it. Keys: ⌃⇥ and ⌃⇧⇥ (also ⌘⇧] and ⌘⇧[) go to the next and previous tab, round
-again, ⌘W closes the current one, and `:FrameTabs next|prev|close|N` does the same from nvim. nvim's own keys are as they
+again, ⌘W closes the current one, and `:TrimTabs next|prev|close|N` does the same from nvim. nvim's own keys are as they
 were: `:bnext` and `:bprevious` (LazyVim's `]b` and `[b`, `<S-l>` and `<S-h>`), `<C-^>` for the last file, `gt` and `gT`
 for tab pages.
 
 The text scrolls smoothly: when nvim scrolls a window by less than a screenful (a wheel or trackpad step, `<C-e>`,
 `<C-d>`, a search landing a few lines away) the window slides there over about a tenth of a second, easing out
-(`smooth_scroll = false` under `[editor]` in the settings turns it off). In Frame a scroll that comes while one still
+(`smooth_scroll = false` under `[editor]` in the settings turns it off). In Trim a scroll that comes while one still
 slides goes on from where the window is drawn, as one move of all the lines, so fast scrolling flows instead of
 restarting at every line.
 
 Every mode has a key on the leader, bound only where your config has nothing there (yours are never replaced), each with a
 description for which-key, the common jumps lowercase: `<leader>e` the file tree (`<C-w>e` goes into it), `<leader>E` its
 filter, `<leader>w` the workspace switcher (also `<leader>fw`), `<leader>t` and `<leader>o` the list of open files (also
-`<leader>fo`), `<leader>c` the colour scheme. Each is a `<Plug>` mapping to bind to other keys: `<Plug>(frame-tree-toggle)`, `-tree-focus`, `-tree-filter`,
+`<leader>fo`), `<leader>c` the colour scheme. Each is a `<Plug>` mapping to bind to other keys: `<Plug>(trim-tree-toggle)`, `-tree-focus`, `-tree-filter`,
 `-workspace`, `-tabs-list`, `-theme`. In the list of open files `j` and `k` move; `/` starts a filter (type to narrow by name, ↑ ↓ or
 Return to choose, Escape ends the filter and the next Escape closes the list).
 
-The colour scheme is a mode of its own (`<leader>c`, `:FrameTheme`, View ▸ Colour Scheme…, ⌥⌘T): a list in the tree's font
+The colour scheme is a mode of its own (`<leader>c`, `:TrimTheme`, View ▸ Colour Scheme…, ⌥⌘T): a list in the tree's font
 and colours, over the window; as the keyboard moves through it each scheme is tried (the editor, the sidebar, the tabs and the
-bar follow), Return keeps one and saves it in `~/.config/frame/settings.toml`, Escape puts the one there was back exactly, `/`
-filters by typing (j and k move when not filtering, as in the list of open files). `:FrameTheme name` sets and saves one by name.
+bar follow), Return keeps one and saves it in `~/.config/trim/settings.toml`, Escape puts the one there was back exactly, `/`
+filters by typing (j and k move when not filtering, as in the list of open files). `:TrimTheme name` sets and saves one by name.
 
-The font is set in `~/.config/frame/settings.toml` (`[editor] font`, `font_size`, `line_height`; Frame no longer needs
-sill's settings for them) and chosen live like the colour scheme (`<leader>F`, `:FrameFont`, View ▸ Font…): a list of the
+The font is set in `~/.config/trim/settings.toml` (`[editor] font`, `font_size`, `line_height`; Trim no longer needs
+sill's settings for them) and chosen live like the colour scheme (`<leader>F`, `:TrimFont`, View ▸ Font…): a list of the
 installed monospaced families, each tried in the editor, the sidebar and the panes as the keyboard moves, Return keeps one
 and saves it, Escape puts the old one back. ⌘+ and ⌘- still change the size for a session.
 
@@ -615,40 +615,40 @@ A file over 1 MB (`[editor] big_file_kb`, 0 turns it off), or with a very long l
 folds, undo history or language server for that buffer, so opening is always quick. Clicking a file in the tree hands the
 keyboard to the editor at once, without waiting for nvim to finish reading it.
 
-Frame bundles which-key (the hints after the leader, `g`, `z`, `[` and `]`: `[whichkey] delay` in settings.toml, milliseconds),
+Trim bundles which-key (the hints after the leader, `g`, `z`, `[` and `]`: `[whichkey] delay` in settings.toml, milliseconds),
 mini.nvim's pairs, surround (`sa` `sd` `sr`), more text objects and `[` `]` jumps, and gitsigns (`]h` `[h`, `<leader>gs` `gr` `gp`
 `gb` `gd`). A plugin is left out with `[plugins] disabled = ["gitsigns.nvim"]`.
 
-The finder is a mode too: `<leader>ff` (⌘P, Go ▸ Find File…, `:FrameFind`) lists the workspace's files (git's own list in a repository, the
-ignored left out) and ranks them as you type, the name counting above its folders; `<leader>fg` (⇧⌘F, `:FrameGrep`) finds lines
+The finder is a mode too: `<leader>ff` (⌘P, Go ▸ Find File…, `:TrimFind`) lists the workspace's files (git's own list in a repository, the
+ignored left out) and ranks them as you type, the name counting above its folders; `<leader>fg` (⇧⌘F, `:TrimGrep`) finds lines
 containing the text (git grep, no ripgrep needed). Return opens the file (on the line), Escape goes back at once.
 
 A trackpad scrolls by the pixel: the text follows the finger by less than a line (nvim, which scrolls whole lines, is kept a line ahead
 so the next rows are already there), and settles where nvim is when the finger stops; momentum works the same way. A mouse wheel still
 steps by lines, three to a notch, sliding. `[editor] pixelscroll = false` (or the settings window) puts the trackpad back on line slides.
 
-Settings (⌘, or Frame ▸ Settings…) is a window over `~/.config/frame/settings.toml`: tab width, indenting, wrapping, line numbers,
+Settings (⌘, or Trim ▸ Settings…) is a window over `~/.config/trim/settings.toml`: tab width, indenting, wrapping, line numbers,
 scroll margin, the colour scheme, the leader, which-key's delay, where the status bar and tabs go, and buttons for the packages,
 restarting the language servers and opening the file. Each change is written into the file in place (comments are kept) and applied
 to the running editors at once, except the leader and which-key's delay, which wait for the next start. Editing the file by hand does
 the same; `[editor]` takes `tabwidth`, `expandtab`, `wrap`, `number`, `relativenumber`, `scrolloff` and `leader`.
 
-Packages are a mode (`<leader>P`, View ▸ Packages…, `:FramePackages`): the ones Frame carries (colour schemes, which-key, mini.nvim,
+Packages are a mode (`<leader>P`, View ▸ Packages…, `:TrimPackages`): the ones Trim carries (colour schemes, which-key, mini.nvim,
 gitsigns) and ones it can install: Return installs one (a tarball of a pinned tag from GitHub, its commit checked against the one
-pinned, into `~/.local/share/frame/site/pack/frame/start`; loaded at once, no git needed) or leaves a bundled one out of the next start
-(`[plugins] disabled`), `x` removes an installed one. The catalog is `runtime/lua/frame/catalog.lua`.
+pinned, into `~/.local/share/trim/site/pack/trim/start`; loaded at once, no git needed) or leaves a bundled one out of the next start
+(`[plugins] disabled`), `x` removes an installed one. The catalog is `runtime/lua/trim/catalog.lua`.
 
-Language servers run on their own and come back when they crash. They also start when you open a folder, from its project files and without a file open: a `.sln`/`.slnx`/`.csproj` starts Roslyn on the solution, a `.fsproj` fsautocomplete, `Cargo.toml` rust-analyzer, `Package.swift` sourcekit-lsp, `tsconfig.json` or `package.json` TypeScript (looked for in the folder, in what is directly in it and in what is directly in `src`), so the problems list and the tree's marks fill in from startup; a file opened later uses the same server. `[lsp] autostart = false` (or the settings window) leaves it to opening a file. What they are busy with (indexing, loading projects, analysing files) is a row each in a progress toast at the bottom left of the code, with a loader that Core Animation turns (so it keeps going while a build uses every core), beside the build itself. Frame does not offer to watch files for the servers: nvim's own watcher matches every change a build makes in `bin` and `obj` against every pattern, which held nvim for tens of seconds, so each server watches for itself. Roslyn is asked to analyse the whole solution, and servers that can give workspace diagnostics (LSP `workspace/diagnostic`) are asked once they are up, so the problems list and the tree's wavy lines cover files that were never opened; a server that only reports for open files (sourcekit-lsp, say) still needs the file opened, or a build. A server starts the first time a file of its kind opens
-(C#, F#, Rust, Swift, Markdown, HTML, CSS, JSON, TypeScript and JavaScript), unless your own config already runs one: Frame finds the
+Language servers run on their own and come back when they crash. They also start when you open a folder, from its project files and without a file open: a `.sln`/`.slnx`/`.csproj` starts Roslyn on the solution, a `.fsproj` fsautocomplete, `Cargo.toml` rust-analyzer, `Package.swift` sourcekit-lsp, `tsconfig.json` or `package.json` TypeScript (looked for in the folder, in what is directly in it and in what is directly in `src`), so the problems list and the tree's marks fill in from startup; a file opened later uses the same server. `[lsp] autostart = false` (or the settings window) leaves it to opening a file. What they are busy with (indexing, loading projects, analysing files) is a row each in a progress toast at the bottom left of the code, with a loader that Core Animation turns (so it keeps going while a build uses every core), beside the build itself. Trim does not offer to watch files for the servers: nvim's own watcher matches every change a build makes in `bin` and `obj` against every pattern, which held nvim for tens of seconds, so each server watches for itself. Roslyn is asked to analyse the whole solution, and servers that can give workspace diagnostics (LSP `workspace/diagnostic`) are asked once they are up, so the problems list and the tree's wavy lines cover files that were never opened; a server that only reports for open files (sourcekit-lsp, say) still needs the file opened, or a build. A server starts the first time a file of its kind opens
+(C#, F#, Rust, Swift, Markdown, HTML, CSS, JSON, TypeScript and JavaScript), unless your own config already runs one: Trim finds the
 program on your PATH (also rustup's, Xcode's and mise's), or else downloads it into its own cache at a pinned version with the
 checksum checked (marksman, rust-analyzer), installs it as a .NET tool (Roslyn for C#, fsautocomplete for F#: the **.NET SDK must be
-installed**) or with npm (the web servers: **Node must be installed**); Frame says so when either is missing. Roslyn is told to load
+installed**) or with npm (the web servers: **Node must be installed**); Trim says so when either is missing. Roslyn is told to load
 the folder's solution (`.sln`, `.slnx`) or else its `.csproj`. A server that dies is started again after a wait that doubles (1 s up to 30 s) and given up on after five
 deaths inside a minute; the status bar shows it as `name ↻` while it waits and `name ✗` once given up on, and nvim itself is never
-touched. `:FrameLsp [status|restart|stop] [name]`, `<leader>lR`. Keys on a buffer with a server: `gd` `gr` `gI` `K`,
-`gd` `gy` `gr` `gI` (definition, type, usages, implementations) and `<leader>ls` `lS` (symbols of the file, of the workspace) list their answers in Frame's own list, the line with its file beside it, Return going there (one answer is gone to at once). `<leader>la`, Alt+Enter or Cmd+. (code actions, in Frame's own list: type `/` to filter, Return applies) `lr` (rename) `lf` (format) `ld` `ll` (diagnostics).
+touched. `:TrimLsp [status|restart|stop] [name]`, `<leader>lR`. Keys on a buffer with a server: `gd` `gr` `gI` `K`,
+`gd` `gy` `gr` `gI` (definition, type, usages, implementations) and `<leader>ls` `lS` (symbols of the file, of the workspace) list their answers in Trim's own list, the line with its file beside it, Return going there (one answer is gone to at once). `<leader>la`, Alt+Enter or Cmd+. (code actions, in Trim's own list: type `/` to filter, Return applies) `lr` (rename) `lf` (format) `ld` `ll` (diagnostics).
 
-Completion comes from the language server as you type: the menu (an icon and colour for each kind of candidate, deprecated ones struck through and muted, and the documentation of the one chosen in a panel of Frame's own beside the menu, never over it: nvim's own preview window is not used) comes up on every letter, digit and `.`, matched fuzzily; Tab and Shift-Tab walk it (or a snippet's places), Enter takes the one chosen, Ctrl-Space asks for the menu and Ctrl-S for the signature of what is being called. `K` (hover) and Ctrl-S show what the server says in a panel of the window's own at the cursor, which goes when the cursor moves; nvim's floating windows are not used. Documentation (hover, signatures, the notes on a completion) is cleaned of markdown escapes and HTML entities, and its code is coloured by tree-sitter in whatever language the fence names (the buffer's own when it names none), in the editor's colours. The signature comes up by itself on `(` and `,`, with the parameter being typed underlined; when there are overloads, Alt-Down and Alt-Up step through them ("2 of 6").
+Completion comes from the language server as you type: the menu (an icon and colour for each kind of candidate, deprecated ones struck through and muted, and the documentation of the one chosen in a panel of Trim's own beside the menu, never over it: nvim's own preview window is not used) comes up on every letter, digit and `.`, matched fuzzily; Tab and Shift-Tab walk it (or a snippet's places), Enter takes the one chosen, Ctrl-Space asks for the menu and Ctrl-S for the signature of what is being called. `K` (hover) and Ctrl-S show what the server says in a panel of the window's own at the cursor, which goes when the cursor moves; nvim's floating windows are not used. Documentation (hover, signatures, the notes on a completion) is cleaned of markdown escapes and HTML entities, and its code is coloured by tree-sitter in whatever language the fence names (the buffer's own when it names none), in the editor's colours. The signature comes up by itself on `(` and `,`, with the parameter being typed underlined; when there are overloads, Alt-Down and Alt-Up step through them ("2 of 6").
 
 Scrolling stops near the end of a file: the last line can go up to two rows from the bottom of the window (`[editor] scrollpast`),
 not to the top, with a wheel, a trackpad or the keys.
@@ -657,7 +657,7 @@ not to the top, with a wheel, a trackpad or the keys.
 
 F5 runs, ⇧⌘B builds, ⇧⌘R (or `<leader>rp`) chooses what to run from everything the folder offers, and the output appears in a real terminal
 pane (Ghostty's): to the right of the code when the window is at least 1300 points wide, under it when it is not. The keyboard stays in
-the code; ⌘J goes into the pane and back, ⇧⌘J closes it. `<leader>rr` `rb` `rp` `rt` `rx` do the same from nvim, and `:FrameRun [default|build|pick|terminal|close]`.
+the code; ⌘J goes into the pane and back, ⇧⌘J closes it. `<leader>rr` `rb` `rp` `rt` `rx` do the same from nvim, and `:TrimRun [default|build|pick|terminal|close]`.
 What can be run is read from the folder, never built to find out: `.sln`/`.slnx`/`.csproj` and `Package.swift` and `Cargo.toml` (build, run, test),
 Makefile targets, mise tasks, justfile recipes, `package.json` scripts, and VS Code's `.vscode/tasks.json` (the task in the default build group is
 what ⇧⌘B builds) and `.vscode/launch.json` (node, python, .NET dll and native programs). F5 runs what was run last in the folder, else the first program.

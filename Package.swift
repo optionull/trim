@@ -50,29 +50,29 @@ targets.append(.executableTarget(
     name: "Shim",
     dependencies: ["SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", messagePack]
 ))
-// Frame's file tree: what a folder holds, in order, and what git says of it. Foundation only, so it is tested alone.
-targets.append(.target(name: "FrameTree"))
-targets.append(.testTarget(name: "FrameTreeTests", dependencies: ["FrameTree"]))
-// Frame: Shim's host grown into a workspace of native panes around nvim (a working title). A copy of Shim that diverges.
-// Frame's modes: which surface has the keyboard (the editor, the tree, the switcher), what the tree is doing, and what
+// Trim's file tree: what a folder holds, in order, and what git says of it. Foundation only, so it is tested alone.
+targets.append(.target(name: "TrimTree"))
+targets.append(.testTarget(name: "TrimTreeTests", dependencies: ["TrimTree"]))
+// Trim: Shim's host grown into a workspace of native panes around nvim. A copy of Shim that diverges.
+// Trim's modes: which surface has the keyboard (the editor, the tree, the switcher), what the tree is doing, and what
 // Escape does from each. Pure, so it is tested alone.
-targets.append(.target(name: "FrameModes"))
-targets.append(.testTarget(name: "FrameModesTests", dependencies: ["FrameModes"]))
-// Frame's workspace switcher: the repositories and worktrees to go to, what heed calls the work in them, and how a
+targets.append(.target(name: "TrimModes"))
+targets.append(.testTarget(name: "TrimModesTests", dependencies: ["TrimModes"]))
+// Trim's workspace switcher: the repositories and worktrees to go to, what heed calls the work in them, and how a
 // query finds them. No UI, so it is tested alone.
-targets.append(.target(name: "FrameWorkspaces", dependencies: ["SillCore", "SillAgent", "FrameTree"]))
+targets.append(.target(name: "TrimWorkspaces", dependencies: ["SillCore", "SillAgent", "TrimTree"]))
 targets.append(.testTarget(
-    name: "FrameWorkspacesTests",
-    dependencies: ["FrameWorkspaces", "FrameTree", "SillCore", "SillAgent"]
+    name: "TrimWorkspacesTests",
+    dependencies: ["TrimWorkspaces", "TrimTree", "SillCore", "SillAgent"]
 ))
-// What Frame can run and build in its terminal pane: project files, Makefile, mise, npm, VS Code's tasks and launches.
-targets.append(.target(name: "FrameRun", dependencies: ["SillCore"]))
-targets.append(.testTarget(name: "FrameRunTests", dependencies: ["FrameRun"]))
+// What Trim can run and build in its terminal pane: project files, Makefile, mise, npm, VS Code's tasks and launches.
+targets.append(.target(name: "TrimRun", dependencies: ["SillCore"]))
+targets.append(.testTarget(name: "TrimRunTests", dependencies: ["TrimRun"]))
 targets.append(.executableTarget(
-    name: "Frame",
+    name: "Trim",
     dependencies: [
-        "SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", "SillAgent", "FrameTree", "FrameWorkspaces",
-        "FrameModes", "FrameRun",
+        "SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", "SillAgent", "TrimTree", "TrimWorkspaces",
+        "TrimModes", "TrimRun",
         messagePack,
     ] + (hasGhostty ? ["SillTerminal"] : []),
     swiftSettings: hasGhostty ? [.define("SILL_GHOSTTY")] : []
@@ -83,7 +83,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .executable(name: "Shim", targets: ["Shim"]),
-        .executable(name: "Frame", targets: ["Frame"]),
+        .executable(name: "Trim", targets: ["Trim"]),
     ],
     // The msgpack codec Veil's RPC layer is written against (MIT).
     dependencies: [.package(url: "https://github.com/qvacua/MessagePack.swift", exact: "4.1.0")],

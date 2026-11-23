@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Vendor/fonts: the Nerd Fonts symbols-only font Frame draws its icons with (the tree's file and folder glyphs, later the
+# Vendor/fonts: the Nerd Fonts symbols-only font Trim draws its icons with (the tree's file and folder glyphs, later the
 # status bar's), so nobody has to install a patched font. Pinned to a release and its checksum; the licence files that
 # come with it (SIL OFL 1.1 for the font, MIT for the scripts) are kept beside it and bundled with it.
 set -euo pipefail

@@ -4,7 +4,7 @@ import Metal
 import SillCore
 
 /// What one frame draws: a screen, the grids terminal panes cover, and the cursor.
-public struct Frame: Sendable {
+public struct Trim: Sendable {
     public var screen: Screen
     /// Grids not to draw: those under a terminal pane.
     public var covered: Set<Int>
@@ -55,7 +55,7 @@ public struct Frame: Sendable {
 }
 
 /// Timings of the last frame the renderer built, for the benchmark and the debug overlay.
-public struct FrameStats: Sendable {
+public struct TrimStats: Sendable {
     /// CPU time spent turning the screen into instances.
     public var buildMilliseconds = 0.0
     /// Rows built this frame; the rest came from the row cache.
@@ -98,7 +98,7 @@ public final class GridRenderer {
     /// Cell size in points.
     public let cellSize: CGSize
     public let scale: CGFloat
-    public private(set) var stats = FrameStats()
+    public private(set) var stats = TrimStats()
 
     private let rectPipeline: MTLRenderPipelineState
     private let glyphPipeline: MTLRenderPipelineState
@@ -176,7 +176,7 @@ public final class GridRenderer {
     }
 
     /// Encodes `frame` into a render pass whose target is `viewport` pixels.
-    public func encode(_ frame: Frame, into encoder: MTLRenderCommandEncoder, viewport: CGSize) {
+    public func encode(_ frame: Trim, into encoder: MTLRenderCommandEncoder, viewport: CGSize) {
         let start = DispatchTime.now().uptimeNanoseconds
         let layers = build(frame)
         stats.buildMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
@@ -216,7 +216,7 @@ public final class GridRenderer {
     }
 
     /// Renders `frame` into `texture` and returns the committed command buffer: for tests and screenshots.
-    public func render(_ frame: Frame, to texture: MTLTexture) -> MTLCommandBuffer? {
+    public func render(_ frame: Trim, to texture: MTLTexture) -> MTLCommandBuffer? {
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = texture
         pass.colorAttachments[0].loadAction = .clear
@@ -307,7 +307,7 @@ public final class GridRenderer {
         var order: [Layer] = []
     }
 
-    private func build(_ frame: Frame) -> Layers {
+    private func build(_ frame: Trim) -> Layers {
         let screen = frame.screen
         let style = Style(
             highlights: screen.highlights, foreground: screen.defaultForeground, background: screen.defaultBackground
@@ -414,7 +414,7 @@ public final class GridRenderer {
 
     /// The cursor's rect, and for a block cursor the character under it drawn in the cursor's text colour.
     private func cursorInstances(
-        _ cursor: Frame.Cursor, buffer: GridBuffer, screen: Screen, placement: Placement
+        _ cursor: Trim.Cursor, buffer: GridBuffer, screen: Screen, placement: Placement
     ) -> (RectInstance, GlyphInstance?) {
         let (row, col) = (screen.cursorRow, screen.cursorCol)
         let x = Float(placement.col + col) * cellWidth, y = Float(placement.row + row) * cellHeight

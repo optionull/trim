@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Assemble build/Shim.app and build/Frame.app from the SwiftPM products: each app's binary, the nvim runtime
+# Assemble build/Shim.app and build/Trim.app from the SwiftPM products: each app's binary, the nvim runtime
 # (Contents/Resources/runtime), its Info.plist, then an ad-hoc signature (scripts/sign.sh signs for release).
 #
 #   scripts/bundle.sh debug|release
@@ -27,10 +27,10 @@ sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$co
 codesign --force --sign - "$shim"
 echo "bundle: $shim"
 
-# Frame: Shim's host with native panes around nvim (a working title). Its binary, sill's runtime and its own Info.plist.
-frame="${BUILD_DIR:-$root/build}/Frame.app"
+# Trim: Shim's host with native panes around nvim (a working title). Its binary, sill's runtime and its own Info.plist.
+frame="${BUILD_DIR:-$root/build}/Trim.app"
 mkdir -p "$frame/Contents/MacOS" "$frame/Contents/Resources"
-cp "$products/Frame" "$frame/Contents/MacOS/Frame"
+cp "$products/Trim" "$frame/Contents/MacOS/Trim"
 rm -rf "$frame/Contents/Resources/runtime"
 cp -R "$root/runtime" "$frame/Contents/Resources/runtime"
 # The icon font the tree draws with, from Vendor/fonts (downloaded once, checksummed), licence files beside it.
@@ -38,21 +38,21 @@ cp -R "$root/runtime" "$frame/Contents/Resources/runtime"
 rm -rf "$frame/Contents/Resources/fonts"
 mkdir -p "$frame/Contents/Resources/fonts"
 cp "$root"/Vendor/fonts/* "$frame/Contents/Resources/fonts/"
-# The plugins Frame carries (scripts/plugins.txt, pinned), where its runtime finds them; and the tree-sitter parsers, as
+# The plugins Trim carries (scripts/plugins.txt, pinned), where its runtime finds them; and the tree-sitter parsers, as
 # Sill has them (built once into Vendor/treesitter by the step above), signed one by one.
 "$root/scripts/plugins.sh" >/dev/null
-mkdir -p "$frame/Contents/Resources/runtime/pack/frame/start"
-cp -R "$root"/Vendor/plugins/* "$frame/Contents/Resources/runtime/pack/frame/start/"
+mkdir -p "$frame/Contents/Resources/runtime/pack/trim/start"
+cp -R "$root"/Vendor/plugins/* "$frame/Contents/Resources/runtime/pack/trim/start/"
 rm -rf "$frame/Contents/Resources/treesitter"
 cp -R "$root/Vendor/treesitter" "$frame/Contents/Resources/treesitter"
 codesign --force --sign - "$frame"/Contents/Resources/treesitter/parser/*.so
 sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
-  "$root/Resources/Frame-Info.plist" >"$frame/Contents/Info.plist"
+  "$root/Resources/Trim-Info.plist" >"$frame/Contents/Info.plist"
 codesign --force --sign - "$frame"
 echo "bundle: $frame"
-for wanted in fonts/SymbolsNerdFontMono-Regular.ttf fonts/LICENSE runtime/plugin/frame.lua runtime/pack/frame/start/tokyonight.nvim/colors/tokyonight-night.lua treesitter/parser/c_sharp.so; do
+for wanted in fonts/SymbolsNerdFontMono-Regular.ttf fonts/LICENSE runtime/plugin/trim.lua runtime/pack/trim/start/tokyonight.nvim/colors/tokyonight-night.lua treesitter/parser/c_sharp.so; do
   if [ ! -f "$frame/Contents/Resources/$wanted" ]; then
-    echo "bundle: $wanted is missing from Frame" >&2
+    echo "bundle: $wanted is missing from Trim" >&2
     exit 1
   fi
 done

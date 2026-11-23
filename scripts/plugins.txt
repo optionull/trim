@@ -1,6 +1,6 @@
-# The nvim plugins Frame bundles: name, repository, tag, and the commit that tag must be (a commit is its content's hash,
+# The nvim plugins Trim bundles: name, repository, tag, and the commit that tag must be (a commit is its content's hash,
 # so the pin cannot drift). `scripts/plugins.sh` fetches them into Vendor/plugins; `scripts/bundle.sh` carries them in
-# Frame.app. Licences are kept beside each and listed in THIRD_PARTY_NOTICES.md.
+# Trim.app. Licences are kept beside each and listed in THIRD_PARTY_NOTICES.md.
 tokyonight.nvim folke/tokyonight.nvim v4.14.1 545d72cde6400835d895160ecb5853874fd5156d
 catppuccin catppuccin/nvim v2.0.0 605b4603797de970e9f3a4238c199c850da03186
 rose-pine rose-pine/neovim v3.0.2 f01eac6eedf6197509dde8b66de0263207ee1877
