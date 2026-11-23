@@ -517,7 +517,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     private(set) var window: NSWindow!
     private(set) var editor: EditorView!
     private(set) var view: FrameView!
-    private var externalUI: ExternalUI!
+    private(set) var externalUI: ExternalUI!
     /// Which session is the current one: a session that ends after a switch is not nvim quitting.
     private var generation = 0
     /// The config nvim runs under now, and whether a switch is under way.
@@ -735,6 +735,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         // A card over the grid (the switcher, the list of open files) has the pointer: no I-beam over its rows.
         editor.isCovered = { [weak self] event in self?.cardHasPointer(event) ?? false }
         externalUI = ExternalUI(editor: editor)
+        externalUI.completionStyle = CompletionIcons.style
         // What nvim says about its own routine (a file written, a search count) does not interrupt the code.
         externalUI.showsAsToast = { message in
             !Self.routineMessageKinds.contains(message.kind) && !message.text.hasPrefix("watch.watch")
@@ -940,6 +941,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         case "frame_theme_pick": showThemePicker(nil)
         case "frame_packages": showPackages(nil)
         case "frame_select": showSelect(args)
+        case "frame_completion_doc": externalUI.completionDoc = args.first?.stringValue ?? ""
         case "frame_diag":
             // What changed since the last time (the first time, everything): a file's worst level, 0 for none left.
             let map = args.first?.dictionaryValue ?? [:]

@@ -109,6 +109,7 @@ struct FrameCheck {
             await dotnetSteps()
             await razorSteps()
             await startupSteps()
+            await completionSteps()
         }
         await group("zen") { await zenSteps() }
         await group("links") { await linkSteps() }
@@ -1781,6 +1782,57 @@ struct FrameCheck {
     /// Zen: the sidebar, tabs, status bar and build pane out of the way, the text in the middle as wide as a page of
     /// code,
     /// and everything as it was when it is over.
+    /// Completion is drawn by the window: the menu with an icon for each kind and deprecated ones struck through, and
+    /// the
+    /// documentation in a panel of ours beside it (nvim's own preview window is not used, so nothing fights the menu).
+    private func completionSteps() async {
+        let channel = shell.session.channel
+        shell.focusEditor()
+        await wait("an editor") { shell.modes.surface == .editor }
+        _ = try? await channel
+            .lua("vim.cmd('enew!'); vim.api.nvim_buf_set_lines(0, 0, -1, false, {'Ren'}); vim.cmd('startinsert!')")
+        _ = try? await channel.lua("require('frame.lsp').completion_docs()")
+        let options = await (try? channel.lua("return vim.o.completeopt"))?.stringValue ?? ""
+        guard !options.contains("popup") else { fail("nvim's own documentation window is still on: \(options)") }
+        _ = try? await channel.lua("""
+        vim.fn.complete(1, {
+          { word = 'RenderAsync', kind = 'Method', menu = 'Task' },
+          { word = 'RenderMode', kind = 'Enum', menu = 'Microsoft.AspNetCore' },
+          { word = 'Obsolete', kind = 'Method\u{2063}deprecated', menu = 'old' },
+          { word = 'Name', kind = 'Property', menu = 'string' },
+        })
+        """)
+        let ui = shell.externalUI!
+        await wait("the menu") { !ui.popupView.isHidden }
+        // The documentation arrives later, when the server has resolved the item: through nvim's own call for it.
+        let setResult = try? await channel
+            .lua(
+                "return vim.inspect({pcall(vim.api.nvim__complete_set, 0, { info = '```csharp\\nTask RenderAsync()\\n```\\nWrites the **view**.' }) })"
+            )
+        await wait("the documentation panel") { !ui.completionDocPanel.isHidden }
+        shell.view.layoutSubtreeIfNeeded()
+        let menu = ui.popupView.frame, doc = ui.completionDocPanel.frame
+        guard !menu.intersects(doc),
+              doc.height > 20 else { fail("the documentation overlaps the menu: \(menu) \(doc)") }
+        let floats = await (try? channel
+            .lua(
+                "return #vim.tbl_filter(function(w) return vim.api.nvim_win_get_config(w).relative ~= '' end, vim.api.nvim_list_wins())"
+            ))?
+            .integerValue
+        guard floats == 0
+        else { fail("nvim has a floating window of its own over the menu: \(String(describing: floats))") }
+        shot(shell.view, "completion")
+        step(
+            "completion: the documentation is a panel beside the menu, never over it, and nvim has no window of its own there"
+        )
+        guard CompletionIcons.icon(for: "Method") != nil, CompletionIcons.icon(for: "Nonsense") != nil,
+              CompletionIcons.icon(for: "") == nil
+        else { fail("the kind icons are not there") }
+        _ = try? await channel.lua("vim.cmd('stopinsert')")
+        await wait("the menu and its documentation to go") { ui.popupView.isHidden && ui.completionDocPanel.isHidden }
+        step("completion: the icons for the kinds, and the menu and its documentation go together")
+    }
+
     private func zenSteps() async {
         let channel = shell.session.channel
         shell.focusEditor()

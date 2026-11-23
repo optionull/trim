@@ -38,7 +38,8 @@ o.confirm = true
 o.pumheight = 12
 -- Completion: a menu even for one candidate, matched fuzzily, nothing taken until it is chosen, with what the server says of
 -- the candidate beside it.
-o.completeopt = 'menu,menuone,noselect,popup,fuzzy'
+-- No `popup`: the documentation is drawn by the window beside the menu (see lsp.lua).
+o.completeopt = 'menu,menuone,noselect,fuzzy'
 o.shortmess = o.shortmess .. 'cI'
 
 -- What the settings' `[editor]` says (tab width, wrap, line numbers...) wins over the above.

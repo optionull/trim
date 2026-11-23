@@ -252,7 +252,60 @@ function M.complete(client, buf)
     if (c:match('[%w_]') or c == '.') and not have[c] then triggers[#triggers + 1] = c end
   end
   provider.triggerCharacters = triggers
-  vim.lsp.completion.enable(true, client.id, buf, { autotrigger = true })
+  vim.lsp.completion.enable(true, client.id, buf, {
+    autotrigger = true,
+    -- A deprecated item says so after its kind (the menu draws it struck through; nothing else sees the mark).
+    convert = function(item)
+      local deprecated = item.deprecated or vim.list_contains(item.tags or {}, 1)
+      if not deprecated then return {} end
+      local kind = vim.lsp.protocol.CompletionItemKind[item.kind] or ''
+      return { kind = kind .. '\u{2063}deprecated' }
+    end,
+  })
+  M.completion_docs()
+end
+
+--- The documentation of the completion chosen is drawn by the window, beside the menu (nvim's own preview window is
+--- not used: it does not know where the menu is). It comes with the item when the server sent it, and later when the
+--- server has resolved it.
+function M.completion_docs()
+  if M.docs_ready then return end
+  M.docs_ready = true
+  local last
+  local function send(text)
+    text = text or ''
+    if text == last then return end
+    last = text
+    notify('frame_completion_doc', text)
+  end
+  vim.api.nvim_create_autocmd('CompleteChanged', {
+    group = vim.api.nvim_create_augroup('frame.completion_docs', { clear = true }),
+    callback = function()
+      local item = vim.v.event.completed_item or {}
+      local lsp_item = vim.tbl_get(item, 'user_data', 'nvim', 'lsp', 'completion_item') or {}
+      local doc = lsp_item.documentation
+      local text = type(doc) == 'table' and doc.value or doc
+      if (text or '') == '' then text = item.info end
+      if lsp_item.detail and lsp_item.detail ~= '' and not (text or ''):find(lsp_item.detail, 1, true) then
+        text = ('```\n%s\n```\n%s'):format(lsp_item.detail, text or '')
+      end
+      last = nil
+      send(text)
+    end,
+  })
+  vim.api.nvim_create_autocmd({ 'CompleteDone', 'InsertLeave' }, {
+    group = 'frame.completion_docs',
+    callback = function()
+      last = nil
+      send('')
+    end,
+  })
+  -- What the server resolves later is handed to nvim's preview window, which there is none of (and nvim refuses the
+  -- call without one): the documentation goes to the window instead, and nvim is told there is no window.
+  vim.api.nvim__complete_set = function(_, opts)
+    if opts and opts.info then send(opts.info) end
+    return {}
+  end
 end
 
 local function push_progress()
