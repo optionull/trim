@@ -606,6 +606,15 @@ and colours, over the window; as the keyboard moves through it each scheme is tr
 bar follow), Return keeps one and saves it in `~/.config/frame/settings.toml`, Escape puts the one there was back exactly, `/`
 filters by typing (j and k move when not filtering, as in the list of open files). `:FrameTheme name` sets and saves one by name.
 
+The font is set in `~/.config/frame/settings.toml` (`[editor] font`, `font_size`, `line_height`; Frame no longer needs
+sill's settings for them) and chosen live like the colour scheme (`<leader>F`, `:FrameFont`, View ▸ Font…): a list of the
+installed monospaced families, each tried in the editor, the sidebar and the panes as the keyboard moves, Return keeps one
+and saves it, Escape puts the old one back. ⌘+ and ⌘- still change the size for a session.
+
+A file over 1 MB (`[editor] big_file_kb`, 0 turns it off), or with a very long line, opens plain: no tree-sitter, syntax,
+folds, undo history or language server for that buffer, so opening is always quick. Clicking a file in the tree hands the
+keyboard to the editor at once, without waiting for nvim to finish reading it.
+
 Frame bundles which-key (the hints after the leader, `g`, `z`, `[` and `]`: `[whichkey] delay` in settings.toml, milliseconds),
 mini.nvim's pairs, surround (`sa` `sd` `sr`), more text objects and `[` `]` jumps, and gitsigns (`]h` `[h`, `<leader>gs` `gr` `gp`
 `gb` `gd`). A plugin is left out with `[plugins] disabled = ["gitsigns.nvim"]`.

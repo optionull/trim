@@ -57,7 +57,7 @@ final class FrameApp: NSObject, NSApplicationDelegate {
             Settings.shared.load(watcher.start())
             self.watcher = watcher
         }
-        EditorFont.load(Settings.shared.current)
+        EditorFont.load(FrameSettings.fontSettings(over: Settings.shared.current))
         EditorFont.onChange = { [weak self] in self?.controllers.forEach { $0.fontChanged() } }
         buildMenu()
         installTabKeys()
@@ -393,6 +393,7 @@ final class FrameApp: NSObject, NSApplicationDelegate {
             withTitle: "Colour Scheme…", action: #selector(Window.showThemePicker(_:)), keyEquivalent: "t"
         )
         themeItem.keyEquivalentModifierMask = [.command, .option]
+        viewMenu.addItem(withTitle: "Font…", action: #selector(Window.showFontPicker(_:)), keyEquivalent: "")
         viewMenu.addItem(withTitle: "Filter Files", action: #selector(Window.filterTree(_:)), keyEquivalent: "f")
             .keyEquivalentModifierMask = [.command, .option]
         let ignoredItem = viewMenu.addItem(

@@ -895,6 +895,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     vim.api.nvim_create_user_command('FrameFind', function() tell('frame_find', 'files') end, { desc = 'Find a file in the workspace' })
     vim.api.nvim_create_user_command('FrameGrep', function() tell('frame_find', 'grep') end, { desc = 'Find text in the workspace' })
     vim.keymap.set('n', '<Plug>(frame-theme)', function() tell('frame_theme_pick', '') end, { desc = 'Colour scheme' })
+    vim.keymap.set('n', '<Plug>(frame-font)', function() tell('frame_font_pick', '') end, { desc = 'Font' })
+    vim.api.nvim_create_user_command('FrameFont', function() tell('frame_font_pick', '') end, { desc = 'Choose the editor font: a mode with a preview as you move' })
     vim.api.nvim_create_user_command('FrameTheme', function(opts)
       if opts.args == '' then return tell('frame_theme_pick', '') end
       if pcall(vim.cmd.colorscheme, opts.args) then
@@ -939,6 +941,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         switch method {
         case "frame_workspace": switchWorkspace(nil)
         case "frame_theme_pick": showThemePicker(nil)
+        case "frame_font_pick": showFontPicker(nil)
         case "frame_packages": showPackages(nil)
         case "frame_select": showSelect(args)
         case "frame_hover": externalUI.hoverText = args.first?.stringValue ?? ""
@@ -1592,6 +1595,42 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         }
     }
 
+    // MARK: The font
+
+    /// The installed monospaced families as choices, the one in use marked.
+    static func fontItems(current: String) -> [PickerItem] {
+        let manager = NSFontManager.shared
+        var families: [String] = []
+        for name in manager.availableFontNames(with: .fixedPitchFontMask) ?? [] {
+            guard let family = NSFont(name: name, size: 12)?.familyName, !families.contains(family) else { continue }
+            families.append(family)
+        }
+        if !current.isEmpty, !families.contains(current) { families.append(current) }
+        return families.sorted { $0.localizedStandardCompare($1) == .orderedAscending }.map { family in
+            PickerItem(id: family, title: family, detail: "", isCurrent: family == current)
+        }
+    }
+
+    /// The fonts as a mode, like the colour schemes: moving through them sets each in the editor, the tree and the
+    /// panes at once, Return keeps one in the settings, Escape puts back the one there was.
+    @objc func showFontPicker(_: Any?) {
+        if listPicker != nil { return apply(escapeFromPicker()) }
+        let original = FrameSettings.fontSettings(over: Settings.shared.current).font
+        func use(_ family: String?) {
+            FrameSettings.fontPreview = family
+            EditorFont.load(FrameSettings.fontSettings(over: Settings.shared.current))
+        }
+        showList(
+            title: "Font", items: Self.fontItems(current: original), current: original,
+            onMove: { use($0.id) },
+            onChoose: { item in
+                FrameSettings.set(["editor", "font"], to: .string(item.id))
+                use(nil)
+            },
+            onCancel: { use(nil) }
+        )
+    }
+
     @objc func nextTab(_: Any?) { stepTab(1) }
     @objc func previousTab(_: Any?) { stepTab(-1) }
 
@@ -1755,7 +1794,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             window.standardWindowButton(button)?.isHidden = !titleBar
         }
         view?.top = titleBar ? 22 : 0
-        EditorFont.load(Settings.shared.current)
+        EditorFont.load(FrameSettings.fontSettings(over: Settings.shared.current))
     }
 
     func fontChanged() {

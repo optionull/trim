@@ -22,11 +22,37 @@ enum FrameSettings {
     [editor]
     # The leader key.
     # leader = "\\\\"
+    # The editor's font (any installed monospaced family; "Font…" in the View menu or the leader and F chooses one live), its size in
+    # points (⌘+ and ⌘- change it for a session) and its line height as a multiple of the font's.
+    # font = "JetBrains Mono"
+    # font_size = 13
+    # line_height = 1.2
 
     [theme]
     # The colour scheme, by its :colorscheme name. Frame's sidebar, tabs and status bar follow it.
     # colorscheme = "tokyonight-night"
     """
+
+    /// A font being tried by the font picker (not yet kept); nil when there is none.
+    @MainActor static var fontPreview: String?
+
+    /// The font, size and line height this file asks for (the font being tried first), over what the base settings say.
+    @MainActor
+    static func fontSettings(over base: SillSettings) -> SillSettings {
+        var settings = base
+        let editor = load()["editor"]?.table
+        if let family = fontPreview ?? editor?["font"]?.string, !family.isEmpty { settings.font = family }
+        func number(_ value: TOMLValue?) -> Double? {
+            switch value {
+            case let .integer(value): Double(value)
+            case let .float(value): value
+            default: nil
+            }
+        }
+        if let size = number(editor?["font_size"]), size > 0 { settings.size = size }
+        if let height = number(editor?["line_height"]), height > 0 { settings.lineHeight = height }
+        return settings
+    }
 
     /// What the file says, as a table (empty when there is no file or it does not parse).
     static func load() -> TOMLTable {

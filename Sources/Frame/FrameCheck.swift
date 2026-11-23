@@ -99,6 +99,7 @@ struct FrameCheck {
         await group("layout") { await layoutSteps() }
         await group("isolation") { await isolationSteps() }
         await group("status") { await statusSteps() }
+        await group("font") { await fontSteps() }
         await group("tabs") { await tabsSteps() }
         await group("bigfile") { await bigFileSteps() }
         await group("scroll") { await scrollSteps() }
@@ -2975,6 +2976,66 @@ struct FrameCheck {
         await wait("it ends by itself") { _ = editor.currentFrame; return !editor.isSliding }
         _ = await lua("vim.cmd('silent! bwipeout!')")
         step("with pixel scrolling off, scrolls slide by lines as before")
+    }
+
+    /// The font: the settings' font, size and line height apply, and the picker is a mode that tries each family as the
+    /// keyboard moves, puts the old one back on Escape, and keeps (and saves) the one chosen.
+    private func fontSteps() async {
+        let saved = NSTemporaryDirectory() + "frame-font-\(UUID().uuidString).toml"
+        setenv("FRAME_SETTINGS", saved, 1)
+        defer { unsetenv("FRAME_SETTINGS") }
+        func savedText() -> String { (try? String(contentsOfFile: saved, encoding: .utf8)) ?? "" }
+        shell.focusEditor()
+        let beforeCell = EditorFont.metrics.cellSize
+        let beforeFamily = EditorFont.metrics.regular.familyName ?? ""
+        try? "[editor]\nfont_size = 20\nline_height = 1.6\n".write(toFile: saved, atomically: true, encoding: .utf8)
+        shell.apply()
+        guard EditorFont.size == 20, EditorFont.metrics.cellSize != beforeCell else {
+            fail("font_size and line_height of the settings did not reach the editor")
+        }
+        step("font_size and line_height in the settings change the editor's cells")
+        try? "".write(toFile: saved, atomically: true, encoding: .utf8)
+        shell.apply()
+        guard EditorFont.metrics.cellSize == beforeCell
+        else { fail("the settings taken away did not bring the size back") }
+
+        shell.showFontPicker(nil)
+        await wait("the fonts as a list") { shell.listPicker != nil }
+        guard let picker = shell.listPicker, picker.all.contains(where: { $0.id == "Menlo" }),
+              picker.all.contains(where: { $0.id == beforeFamily })
+        else {
+            fail("the fonts did not come up with Menlo and the one in use")
+        }
+        step("the monospaced fonts are a list, on the one in use")
+        picker.keyDown(with: key("/", code: 44))
+        for letter in "Menlo" {
+            picker.keyDown(with: key(String(letter), code: 0))
+        }
+        guard picker.visible.first?.title == "Menlo"
+        else { fail("the filter did not find Menlo: \(picker.visible.map(\.title))") }
+        await wait("the editor to try Menlo") { EditorFont.metrics.regular.familyName == "Menlo" }
+        step("moving through the fonts tries each at once")
+        picker.keyDown(with: key("\u{1B}", code: 53))
+        picker.keyDown(with: key("\u{1B}", code: 53))
+        await wait("the list put away") { shell.listPicker == nil }
+        guard EditorFont.metrics.regular.familyName == beforeFamily, savedText().isEmpty else {
+            fail("Escape did not put the old font back and save nothing: \(savedText())")
+        }
+        step("Escape puts the old font back and saves nothing")
+        shell.showFontPicker(nil)
+        await wait("the fonts again") { shell.listPicker != nil }
+        guard let again = shell.listPicker else { fail("no list") }
+        again.keyDown(with: key("/", code: 44))
+        for letter in "Menlo" {
+            again.keyDown(with: key(String(letter), code: 0))
+        }
+        again.keyDown(with: key("\r", code: 36))
+        await wait("Menlo to stay") { EditorFont.metrics.regular.familyName == "Menlo" && shell.listPicker == nil }
+        guard savedText().contains("font = \"Menlo\"") else { fail("the font was not saved: \(savedText())") }
+        step("Return keeps the font and saves it in the settings")
+        try? "".write(toFile: saved, atomically: true, encoding: .utf8)
+        shell.apply()
+        await wait("the font back") { EditorFont.metrics.regular.familyName == beforeFamily }
     }
 
     /// A big file, and one with a very long line, open plain and at once: no tree-sitter, no folds, no language server.
