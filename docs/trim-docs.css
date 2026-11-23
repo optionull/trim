@@ -202,20 +202,26 @@
 		text-decoration-color: currentcolor;
 	}
 
-	/* Sidebar: the current page in the accent, with a gradient bar. */
+	/* Sidebar: the current page is pressed into the panel (an inset shadow on a slightly darker fill, a faint lighter
+	   lower edge) rather than outlined or filled with a colour. */
 	.nav-tree__link {
 		border-radius: 8px;
 	}
 
 	.nav-tree__link:hover {
-		background: var(--color-accent-surface);
+		background: var(--ds-l, rgb(11 14 19 / 4%)) var(--ds-d, rgb(255 255 255 / 4%));
 	}
 
 	.nav-tree__link[aria-current='page'] {
-		color: var(--color-accent);
-		background: var(--color-accent-surface);
+		color: var(--color-heading);
 		font-weight: 600;
-		box-shadow: inset 2px 0 0 var(--color-accent);
+		border: 0;
+		outline: 0;
+		background: var(--ds-l, rgb(11 14 19 / 6%)) var(--ds-d, rgb(0 0 0 / 38%));
+		box-shadow:
+			inset 0 2px 5px var(--ds-l, rgb(11 14 19 / 16%)) var(--ds-d, rgb(0 0 0 / 70%)),
+			inset 0 0 0 1px var(--ds-l, rgb(11 14 19 / 4%)) var(--ds-d, rgb(0 0 0 / 30%)),
+			0 1px 0 var(--ds-l, rgb(255 255 255 / 90%)) var(--ds-d, rgb(255 255 255 / 7%));
 	}
 
 	/* Inline code: a quiet chip. */
