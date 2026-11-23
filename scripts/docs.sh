@@ -51,15 +51,17 @@ if [[ ! -x "$tool" ]]; then
   chmod +x "$tool"
 fi
 
+# The design-system layout (which docs/trim-docs.css themes) is behind a feature flag, read from the environment only.
+export FEATURE_NAVIGATION_PREVIEW=true
 if [[ -n "$path_prefix" ]]; then
   "$tool" build --path docs --path-prefix "$path_prefix"
 else
   "$tool" build --path docs
 fi
 out=".artifacts/docs/html"
-cp "$landing" "$out/index.html"
-cp docs/robots.txt "$out/robots.txt"
-echo "docs: built $out (landing page applied)"
+# Theme, header logo, landing page, robots.txt: the same script CI runs.
+scripts/docs-finish.sh "$out" "$path_prefix"
+echo "docs: built $out (theme and landing page applied)"
 
 [[ "${1:-}" == "--noserve" ]] && exit 0
 # Served from a folder named like the prefix (the root when there is none), so the site's absolute links resolve as they
