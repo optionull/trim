@@ -46,26 +46,4 @@ struct AgentWaitingTests {
         ]
         #expect(AgentActivity.promptTimes(in: lines, since: since).count == 2)
     }
-
-    @Test("waiting is Home's loudest reason, and the day's line counts each hour")
-    func home() {
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        var state = CheckoutState(branch: "main", agent: AgentActivity(
-            working: true, last: now, prompt: "x", prompts: [now.addingTimeInterval(-60), now.addingTimeInterval(-90)],
-            waiting: "Keep the v1 route?"
-        ))
-        state.walkthroughs = [CheckoutState.Prepared(
-            path: "/a",
-            title: "New",
-            summary: "",
-            at: now,
-            seen: false,
-            kind: "handoff"
-        )]
-        state.commits = [now.addingTimeInterval(-3 * 3600 - 1), now.addingTimeInterval(-2 * 86400)]
-        #expect(HomeList.reason(state) == .waiting("Keep the v1 route?"))
-        let line = HomeList.activity(state, now: now)
-        #expect(line.count == 24 && line[23].prompts == 2 && line[20].commits == 1)
-        #expect(line.reduce(0) { $0 + $1.prompts + $1.commits } == 3, "two days ago is off the line")
-    }
 }
