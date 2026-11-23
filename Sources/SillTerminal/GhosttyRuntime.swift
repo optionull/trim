@@ -162,6 +162,12 @@ public final class GhosttyRuntime {
                 }
             }
             return true
+        case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
+            let code = Int(action.action.child_exited.exit_code)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { alive(userdata.value)?.onChildExit?(code) }
+            }
+            return true
         case GHOSTTY_ACTION_PWD:
             guard let pointer = action.action.pwd.pwd else { return false }
             let directory = String(cString: pointer)

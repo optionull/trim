@@ -1,12 +1,12 @@
 # Third-party notices
 
-sill includes code from, or links, the projects below. Each is under the MIT licence, reproduced here as each
-project states it.
+Trim and Shim include code from, or link, the projects below. Each is under the MIT licence unless it says otherwise,
+reproduced here as each project states it.
 
 ## Veil
 
 https://github.com/0x1b2c/Veil at a29c3d0. sill's msgpack-RPC layer (`Sources/SillNvim`), its key notation
-(`Sources/SillApp/KeyNotation.swift`), and the grid's run shaping, glyph atlas, box drawing and font fallback
+(`Sources/SillInput`), and the grid's run shaping, glyph atlas, box drawing and font fallback
 (`Sources/SillRender`) are lifted from Veil and changed; each file says what changed. Veil ported its box drawing
 from Ghostty, below.
 
@@ -33,6 +33,29 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Nerd Fonts Symbols
+
+https://github.com/ryanoasis/nerd-fonts, v3.5.1, `SymbolsNerdFontMono-Regular.ttf`: the icons Trim's file tree draws
+(and a config's own icons, as the grid's fallback). `scripts/fonts.sh` downloads it, checks its checksum, and
+`Trim.app` carries it in `Contents/Resources/fonts` with the project's `LICENSE` (MIT, for the patcher and its
+scripts) and `README.md`, whose table gives each icon set's own licence. The font combines: Codicons and Font
+Awesome (CC BY 4.0), Devicons, Octicons, Seti, Font Awesome Extension, Powerline and Power Symbols (MIT),
+Material Design (Apache 2.0), Pomicons and Weather Icons (SIL OFL 1.1), and Font Logos (stated as unlicensed
+upstream). Attribution for the CC BY 4.0 sets: Codicons by Microsoft (https://github.com/microsoft/vscode-codicons),
+Font Awesome by Fonticons, Inc. (https://fontawesome.com). The font is not modified.
+
+## nvim plugins Trim bundles
+
+Trim.app carries these (`Contents/Resources/runtime/pack/trim/start/<name>`), each at the tag and commit `scripts/plugins.txt`
+pins (fetched by `scripts/plugins.sh`, unmodified, only the folders nvim loads kept) with its licence file beside it:
+
+- tokyonight.nvim, https://github.com/folke/tokyonight.nvim, v4.14.1, by Folke Lemaitre: Apache License 2.0 (`LICENSE`).
+- catppuccin, https://github.com/catppuccin/nvim, v2.0.0, by Catppuccin: MIT (`LICENSE.md`, Copyright (c) 2021 Catppuccin).
+- rose-pine, https://github.com/rose-pine/neovim, v3.0.2, by Rosé Pine: MIT (`license`, Copyright (c) 2023 Rosé Pine).
+- which-key.nvim, https://github.com/folke/which-key.nvim, v3.17.0, by Folke Lemaitre: Apache License 2.0 (`LICENSE`).
+- mini.nvim, https://github.com/nvim-mini/mini.nvim, v0.18.0, by Evgeni Chasnovski: MIT (`LICENSE`, Copyright (c) 2021 Evgeni Chasnovski).
+- gitsigns.nvim, https://github.com/lewis6991/gitsigns.nvim, v2.1.0, by Lewis Russell: MIT (`LICENSE`, Copyright (c) 2020 Lewis Russell).
 
 ## Passenger
 
@@ -257,3 +280,10 @@ https://github.com/MattParkerDev/roslyn), ICSharpCode.Decompiler (https://github
 (Microsoft.Diagnostics.DbgShim, MIT, https://github.com/dotnet/diagnostics) is downloaded on the user's machine into
 `~/Library/Caches/sill/dbgshim`, not carried in the app.
 
+
+## Neovim
+
+https://github.com/neovim/neovim, v0.12.6 (`scripts/nvim.sh`). Trim.app carries the official macOS release as a fallback,
+in `Contents/Resources/nvim`, for installs that are not through Homebrew; the apps use the nvim on the person's PATH
+first. It is unchanged. Neovim is licensed under the Apache License 2.0, except for parts contributed under the Vim
+licence; the complete text is shipped beside the binary, in `Contents/Resources/nvim/LICENSE.txt`.

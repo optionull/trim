@@ -22,6 +22,8 @@ public actor EditorSession {
     private var attached: (cols: Int, rows: Int)?
     /// A size asked for before nvim was attached; applied once it is.
     private var pendingSize: (cols: Int, rows: Int)?
+    /// Where a front end's own notifications go (`shim_*`, `trim_*`: its commands in nvim), set before `start`.
+    private var frontEnd: (prefix: String, handler: @Sendable (String, [MessagePackValue]) -> Void)?
 
     public init() {
         (updates, continuation) = AsyncStream<ScreenUpdate>.makeStream()
@@ -68,6 +70,15 @@ public actor EditorSession {
         }
     }
 
+    /// Hands the notifications nvim sends a front end of its own (named `<prefix>…`, e.g. `shim_`) to `handler`, in
+    /// order. They never reach the screen model, which is sill's.
+    public func onFrontEndNotification(
+        prefix: String,
+        _ handler: @escaping @Sendable (String, [MessagePackValue]) -> Void
+    ) {
+        frontEnd = (prefix, handler)
+    }
+
     /// Asks nvim for a new screen size. A size asked for before nvim is attached is kept and applied once it is: the
     /// window can be resized (by a tiling window manager, say) while nvim is still starting.
     public func resize(cols: Int, rows: Int) async {
@@ -91,7 +102,9 @@ public actor EditorSession {
             // sill's runtime notifies outside redraw, so no flush need follow: a focus request or a pane report goes
             // out at once, with the last consistent screen.
             if case let .notification(method, args) = event {
-                if method == "sill_terminal" {
+                if let frontEnd, method.hasPrefix(frontEnd.prefix) {
+                    frontEnd.handler(method, args)
+                } else if method == "sill_terminal" {
                     continuation.yield(ScreenUpdate(screen: flushed, focusPane: args.first?.intValue))
                 } else if method.hasPrefix("sill_") {
                     screen.apply(event)
@@ -113,14 +126,23 @@ public actor EditorSession {
         public var arguments: [String]
         /// The user's config is loaded (their init.lua, plugins and lockfile, as in a terminal).
         public var userConfig: Bool
+
+        public init(appName: String, arguments: [String], userConfig: Bool) {
+            self.appName = appName
+            self.arguments = arguments
+            self.userConfig = userConfig
+        }
     }
+
+    /// sill's base settings, passed ahead of the user's config so theirs win.
+    static let baseArguments = ["--cmd", "lua require('sill.base')"]
 
     /// With a config of the user's (`$XDG_CONFIG_HOME/nvim` or `~/.config/nvim` holding an init.lua or init.vim),
     /// nvim runs under its own name so that config loads as it always does, plugins and lockfile shared with nvim in
     /// a terminal; sill's base settings go first (`--cmd`), so the user's win. Without one, or when `own` asks for
     /// sill alone (the self-check), nvim runs as `sill` with only the base settings.
     public static func startup(environment: [String: String], own: Bool) -> Startup {
-        let base = ["--cmd", "lua require('sill.base')"]
+        let base = baseArguments
         guard !own else { return Startup(appName: "sill", arguments: base, userConfig: false) }
         let home = environment["HOME"] ?? NSHomeDirectory()
         let configHome = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? "\(home)/.config"

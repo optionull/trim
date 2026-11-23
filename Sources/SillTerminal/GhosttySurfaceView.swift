@@ -11,10 +11,14 @@ public struct TerminalLaunch: Sendable {
     /// Typed into the shell once it starts.
     public var initialInput: String?
     public var environment: [String: String]
+    /// With a `command`: the pane stays when it ends, showing what it printed (else it closes).
+    public var waitAfterCommand: Bool
 
     public init(
-        directory: String, command: String? = nil, initialInput: String? = nil, environment: [String: String]
+        directory: String, command: String? = nil, initialInput: String? = nil, environment: [String: String],
+        waitAfterCommand: Bool = false
     ) {
+        self.waitAfterCommand = waitAfterCommand
         self.directory = directory
         self.command = command
         self.initialInput = initialInput
@@ -73,6 +77,7 @@ public final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient
 
         config.working_directory = UnsafePointer(c(launch.directory))
         if let command = launch.command { config.command = UnsafePointer(c(command)) }
+        config.wait_after_command = launch.waitAfterCommand
         // Typed into the shell once it is up (Ghostty waits for it), as Run types the project's run command.
         if let input = launch.initialInput { config.initial_input = UnsafePointer(c(input)) }
         var env = launch.environment.map { ghostty_env_var_s(key: c($0.key), value: c($0.value)) }
@@ -108,6 +113,26 @@ public final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient
             bottom_right: ghostty_point_s(
                 tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
                 x: UInt32(max(size.columns, 1) - 1), y: UInt32(max(size.rows, 1) - 1)
+            ),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+
+    /// Everything the pane holds, scrollback included, as text: what a build printed, to read its problems from.
+    public func screenText() -> String? {
+        guard let surface else { return nil }
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_SCREEN,
+                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                x: 0,
+                y: 0
             ),
             rectangle: false
         )
@@ -185,10 +210,15 @@ public final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient
     }
 
     override public var acceptsFirstResponder: Bool { true }
+    /// The surface has the keyboard now (a click, or asked for).
+    public var onFocus: (() -> Void)?
+    /// The command the pane was started with has ended, with its exit code.
+    public var onChildExit: ((Int) -> Void)?
 
     override public func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
         if result, let surface { ghostty_surface_set_focus(surface, true) }
+        if result { onFocus?() }
         return result
     }
 

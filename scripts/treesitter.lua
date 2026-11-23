@@ -143,7 +143,7 @@ elseif first == '--latest' then
 elseif first then
   local commit = vim.env.TREESITTER_COMMIT
   if not commit or commit == '' then error('treesitter: set TREESITTER_COMMIT (mise.toml)', 0) end
-  build(first, commit)
+  build(vim.fn.fnamemodify(first, ':p'):gsub('/$', ''), commit)
 else
   error('usage: nvim -l scripts/treesitter.lua <folder> | --latest | --plan <parsers.lua>', 0)
 end

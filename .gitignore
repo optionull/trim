@@ -11,3 +11,4 @@ sidecar/**/bin/
 sidecar/**/obj/
 Tests/**/bin/
 Tests/**/obj/
+.artifacts/

@@ -1,60 +1,65 @@
 #!/usr/bin/env bash
-# Assemble build/Sill.app from the SwiftPM product: the app binary, sill's nvim runtime (Contents/Resources/runtime),
-# the .NET sidecar (Contents/Resources/sidecar, framework-dependent: it runs on the user's dotnet), Info.plist, then an
-# ad-hoc signature. Follows heed's scripts/bundle.sh; Sparkle joins at M9.
+# Assemble build/Shim.app and build/Trim.app from the SwiftPM products: each app's binary, the nvim runtime
+# (Contents/Resources/runtime), its Info.plist, then an ad-hoc signature (scripts/sign.sh signs for release).
 #
 #   scripts/bundle.sh debug|release
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 config="${1:-debug}"
 products="$(cd "$root" && swift build -c "$config" --show-bin-path)"
-app="${BUILD_DIR:-$root/build}/Sill.app"
-# SILL_VERSION will be set by the release workflow from the release's tag; local builds say dev. The build number is
-# the commit count, which only grows on main (pull requests are squash-merged). SillCommit names the commit.
-version="${SILL_VERSION:-0.1.0-dev}"
+# TRIM_VERSION is set by the release workflow from the release's tag; local builds say dev. The build number is the
+# commit count, which only grows on main (pull requests are squash-merged). SillCommit names the commit.
+version="${TRIM_VERSION:-0.1.0-dev}"
 build="$(git -C "$root" rev-list --count HEAD 2>/dev/null || echo 0)"
 commit="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo dev)"
-
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "$products/SillApp" "$app/Contents/MacOS/Sill"
-rm -rf "$app/Contents/Resources/runtime"
-cp -R "$root/runtime" "$app/Contents/Resources/runtime"
-# The sidecar: managed code only, no apphost, so nothing in it is native code to sign.
-rm -rf "$app/Contents/Resources/sidecar"
-dotnet publish "$root/sidecar/Sill.Sidecar" -c Release -o "$app/Contents/Resources/sidecar" -nologo -v q >/dev/null
-# The debug adapter (M8), a process of its own on the same dotnet; dbgshim, the native part, is downloaded where sill runs.
-rm -rf "$app/Contents/Resources/debugger"
-dotnet publish "$root/sidecar/Sill.DebugAdapter" -c Release -o "$app/Contents/Resources/debugger" -nologo -v q >/dev/null
-# Mach-O would need signing; a Windows native binary (TraceEvent's helpers) is dead weight, and not all of it is ours to ship.
-native="$(find "$app/Contents/Resources/sidecar" "$app/Contents/Resources/debugger" -type f -exec file {} + | grep -iE 'Mach-O|PE32.*for MS Windows' | grep -v 'Mono/.Net assembly' || true)"
-if [ -n "$native" ]; then
-  echo "bundle: the sidecar carries native code, which would need signing: $native" >&2
-  exit 1
-fi
-# Tree-sitter's parsers for sill's own nvim, native code built ahead of time (once per $TREESITTER_COMMIT, into
-# Vendor/treesitter) so no one needs a compiler; signed one by one, as the app's signature does not cover them.
+# Tree-sitter's parsers, native code built ahead of time (once per $TREESITTER_COMMIT, into Vendor/treesitter) so no one
+# needs a compiler; signed one by one, as the app's signature does not cover them.
 nvim -l "$root/scripts/treesitter.lua" "$root/Vendor/treesitter"
-rm -rf "$app/Contents/Resources/treesitter"
-cp -R "$root/Vendor/treesitter" "$app/Contents/Resources/treesitter"
-codesign --force --sign - "$app"/Contents/Resources/treesitter/parser/*.so
+
+# The shim: nvim alone in a native window. Its binary, the runtime and its own Info.plist.
+shim="${BUILD_DIR:-$root/build}/Shim.app"
+mkdir -p "$shim/Contents/MacOS" "$shim/Contents/Resources"
+cp "$products/Shim" "$shim/Contents/MacOS/Shim"
+rm -rf "$shim/Contents/Resources/runtime"
+cp -R "$root/runtime" "$shim/Contents/Resources/runtime"
+cp "$root/Resources/Shim.icns" "$shim/Contents/Resources/Shim.icns"
 sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
-  "$root/Resources/Info.plist" >"$app/Contents/Info.plist"
-codesign --force --sign - "$app"
-for wanted in runtime/plugin/sill.lua sidecar/Sill.Sidecar.dll treesitter/parser/c_sharp.so treesitter/queries/c_sharp/highlights.scm; do
-  if [ ! -f "$app/Contents/Resources/$wanted" ]; then
-    echo "bundle: $wanted is missing from the app" >&2
+  "$root/Resources/Shim-Info.plist" >"$shim/Contents/Info.plist"
+codesign --force --sign - "$shim"
+echo "bundle: $shim"
+
+# Trim: Shim's host with native panes around nvim (a working title). Its binary, sill's runtime and its own Info.plist.
+frame="${BUILD_DIR:-$root/build}/Trim.app"
+mkdir -p "$frame/Contents/MacOS" "$frame/Contents/Resources"
+cp "$products/Trim" "$frame/Contents/MacOS/Trim"
+rm -rf "$frame/Contents/Resources/runtime"
+cp -R "$root/runtime" "$frame/Contents/Resources/runtime"
+# The icon font the tree draws with, from Vendor/fonts (downloaded once, checksummed), licence files beside it.
+"$root/scripts/fonts.sh" >/dev/null
+rm -rf "$frame/Contents/Resources/fonts"
+mkdir -p "$frame/Contents/Resources/fonts"
+cp "$root"/Vendor/fonts/* "$frame/Contents/Resources/fonts/"
+# The plugins Trim carries (scripts/plugins.txt, pinned), where its runtime finds them; and the tree-sitter parsers, as
+# Sill has them (built once into Vendor/treesitter by the step above), signed one by one.
+"$root/scripts/plugins.sh" >/dev/null
+mkdir -p "$frame/Contents/Resources/runtime/pack/trim/start"
+cp -R "$root"/Vendor/plugins/* "$frame/Contents/Resources/runtime/pack/trim/start/"
+rm -rf "$frame/Contents/Resources/treesitter"
+cp -R "$root/Vendor/treesitter" "$frame/Contents/Resources/treesitter"
+codesign --force --sign - "$frame"/Contents/Resources/treesitter/parser/*.so
+cp "$root/Resources/Trim.icns" "$frame/Contents/Resources/Trim.icns"
+sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
+  "$root/Resources/Trim-Info.plist" >"$frame/Contents/Info.plist"
+# Neovim itself, as a fallback (the apps use the one on the PATH first): the pinned release with its licence.
+"$root/scripts/nvim.sh" >/dev/null
+rm -rf "$frame/Contents/Resources/nvim"
+cp -R "$root/Vendor/nvim" "$frame/Contents/Resources/nvim"
+codesign --force --sign - "$frame/Contents/Resources/nvim/bin/nvim"
+codesign --force --sign - "$frame"
+echo "bundle: $frame"
+for wanted in fonts/SymbolsNerdFontMono-Regular.ttf fonts/LICENSE nvim/bin/nvim nvim/LICENSE.txt runtime/plugin/trim.lua runtime/pack/trim/start/tokyonight.nvim/colors/tokyonight-night.lua treesitter/parser/c_sharp.so; do
+  if [ ! -f "$frame/Contents/Resources/$wanted" ]; then
+    echo "bundle: $wanted is missing from Trim" >&2
     exit 1
   fi
 done
-echo "bundle: $app ($version, build $build, $commit)"
-
-# The shell: nvim alone in a native window. Its binary, sill's runtime and its own Info.plist; no sidecar.
-shell="${BUILD_DIR:-$root/build}/Sill Shell.app"
-mkdir -p "$shell/Contents/MacOS" "$shell/Contents/Resources"
-cp "$products/SillShell" "$shell/Contents/MacOS/SillShell"
-rm -rf "$shell/Contents/Resources/runtime"
-cp -R "$root/runtime" "$shell/Contents/Resources/runtime"
-sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$commit/g" \
-  "$root/Resources/Shell-Info.plist" >"$shell/Contents/Info.plist"
-codesign --force --sign - "$shell"
-echo "bundle: $shell"

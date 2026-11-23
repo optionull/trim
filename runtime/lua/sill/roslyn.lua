@@ -63,6 +63,26 @@ local function html_handlers()
   return handlers
 end
 
+--- The handlers Razor's cohosting needs of a client (its questions about HTML answered, its diagnostics taken once), for
+--- another host of Roslyn's server (Trim) to use as sill does.
+function M.razor_handlers()
+  return vim.tbl_extend('force', html_handlers(), {
+    ['workspace/_roslyn_projectNeedsRestore'] = function() return vim.NIL end,
+    ['textDocument/diagnostic'] = function(err, result, ctx, config)
+      local identifier = ctx.params and ctx.params.identifier
+      if identifier ~= nil and ctx.bufnr and vim.api.nvim_buf_is_valid(ctx.bufnr) and vim.bo[ctx.bufnr].filetype == 'razor' then
+        return
+      end
+      return vim.lsp.diagnostic.on_diagnostic(err, result, ctx, config)
+    end,
+  })
+end
+
+--- The language id a document goes to Roslyn with.
+function M.language_id(_, filetype)
+  return filetype == 'razor' and 'aspnetcorerazor' or filetype == 'cs' and 'csharp' or filetype
+end
+
 local function notify(method, ...)
   local channel = vim.g.sill_channel
   if channel then

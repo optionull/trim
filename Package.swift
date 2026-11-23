@@ -18,14 +18,10 @@ var targets: [Target] = [
     // AppKit input in nvim's terms: key notation, mouse and IME.
     .target(name: "SillInput"),
     .testTarget(name: "SillInputTests", dependencies: ["SillInput"]),
-    // The .NET sidecar: started on the user's own dotnet, JSON lines over its standard input and output.
-    .target(name: "SillSidecar", dependencies: ["SillNvim", "SillCore"]),
-    // Fixtures: a .NET sample the profiler tests run.
-    .testTarget(name: "SillSidecarTests", dependencies: ["SillSidecar"], exclude: ["Fixtures"]),
     // The agent bridge: sill's MCP server on a Unix socket.
     .target(name: "SillAgent"),
     // The editor surface any nvim front end of sill's makes: the Metal grid and its input, nvim's command line,
-    // completion and messages as native views, the design's tokens and the grid's font. sill and the shell use it.
+    // completion and messages as native views, the design's tokens and the grid's font. sill and the shim use it.
     .target(name: "SillEditor", dependencies: ["SillCore", "SillNvim", "SillRender", "SillInput", messagePack]),
     .testTarget(name: "SillAgentTests", dependencies: ["SillAgent"]),
     // The Metal grid: glyph atlas, instanced passes, and the render thread that draws screens.
@@ -34,16 +30,6 @@ var targets: [Target] = [
         linkerSettings: [.linkedFramework("Metal"), .linkedFramework("QuartzCore"), .linkedFramework("CoreText")]
     ),
     .testTarget(name: "SillRenderTests", dependencies: ["SillRender", "SillCore", "SillNvim", messagePack]),
-]
-var appDependencies: [Target.Dependency] = [
-    "SillEditor",
-    "SillCore",
-    "SillNvim",
-    "SillRender",
-    "SillInput",
-    "SillSidecar",
-    "SillAgent",
-    messagePack,
 ]
 if hasGhostty {
     targets += [
@@ -57,17 +43,38 @@ if hasGhostty {
             ]
         ),
     ]
-    appDependencies.append("SillTerminal")
 }
 
-// The shell: nvim alone in a native window, with sill's editor surface and nothing else.
+// The shim: nvim alone in a native window, with sill's editor surface and nothing else.
 targets.append(.executableTarget(
-    name: "SillShell",
+    name: "Shim",
     dependencies: ["SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", messagePack]
 ))
+// Trim's file tree: what a folder holds, in order, and what git says of it. Foundation only, so it is tested alone.
+targets.append(.target(name: "TrimTree"))
+targets.append(.testTarget(name: "TrimTreeTests", dependencies: ["TrimTree"]))
+// Trim: Shim's host grown into a workspace of native panes around nvim. A copy of Shim that diverges.
+// Trim's modes: which surface has the keyboard (the editor, the tree, the switcher), what the tree is doing, and what
+// Escape does from each. Pure, so it is tested alone.
+targets.append(.target(name: "TrimModes"))
+targets.append(.testTarget(name: "TrimModesTests", dependencies: ["TrimModes"]))
+// Trim's workspace switcher: the repositories and worktrees to go to, what heed calls the work in them, and how a
+// query finds them. No UI, so it is tested alone.
+targets.append(.target(name: "TrimWorkspaces", dependencies: ["SillCore", "SillAgent", "TrimTree"]))
+targets.append(.testTarget(
+    name: "TrimWorkspacesTests",
+    dependencies: ["TrimWorkspaces", "TrimTree", "SillCore", "SillAgent"]
+))
+// What Trim can run and build in its terminal pane: project files, Makefile, mise, npm, VS Code's tasks and launches.
+targets.append(.target(name: "TrimRun", dependencies: ["SillCore"]))
+targets.append(.testTarget(name: "TrimRunTests", dependencies: ["TrimRun"]))
 targets.append(.executableTarget(
-    name: "SillApp",
-    dependencies: appDependencies,
+    name: "Trim",
+    dependencies: [
+        "SillEditor", "SillCore", "SillNvim", "SillRender", "SillInput", "SillAgent", "TrimTree", "TrimWorkspaces",
+        "TrimModes", "TrimRun",
+        messagePack,
+    ] + (hasGhostty ? ["SillTerminal"] : []),
     swiftSettings: hasGhostty ? [.define("SILL_GHOSTTY")] : []
 ))
 
@@ -75,8 +82,8 @@ let package = Package(
     name: "Sill",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "SillApp", targets: ["SillApp"]),
-        .executable(name: "SillShell", targets: ["SillShell"]),
+        .executable(name: "Shim", targets: ["Shim"]),
+        .executable(name: "Trim", targets: ["Trim"]),
     ],
     // The msgpack codec Veil's RPC layer is written against (MIT).
     dependencies: [.package(url: "https://github.com/qvacua/MessagePack.swift", exact: "4.1.0")],

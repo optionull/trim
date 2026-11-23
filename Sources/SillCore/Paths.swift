@@ -7,3 +7,8 @@ public func realPath(_ path: String) -> String {
     defer { free(resolved) }
     return String(cString: resolved)
 }
+
+package extension String {
+    /// nil when empty, else the string.
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}

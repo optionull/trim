@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/">
+<title>Trim · A trimmed IDE around Neovim, for the Mac</title>
+<meta name="description" content="Trim puts Neovim in a native Mac window with a file tree, tabs, language servers, a run pane and a workspace switcher, and keeps your editing in nvim. It comes with Shim, a lightweight native nvim for single files.">
+<link rel="canonical" href="https://trim.optionull.app/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://trim.optionull.app/">
+<meta property="og:site_name" content="Trim">
+<meta property="og:title" content="Trim · A trimmed IDE around Neovim">
+<meta property="og:description" content="Neovim in a native Mac window, with the few panes an editor is missing for project work. Installs with Shim, a lightweight nvim for single files.">
+<meta property="og:image" content="https://trim.optionull.app/images/shots/window.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0B0D11">
+<link rel="icon" href="images/png/trim-32.png">
+<link rel="apple-touch-icon" href="images/png/trim-180.png">
+<style>
+  :root {
+    --bg: #090B0F; --bg2: #0F1218; --line: rgba(255,255,255,0.09); --text: #E8EDF3; --muted: #97A2B1; --dim: #6B7686;
+    --teal: #2EE6C5; --violet: #8F7BFF;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace; --maxw: 1120px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+  body::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background-image: radial-gradient(at 12% 10%, rgba(46,230,197,0.14) 0, transparent 50%),
+      radial-gradient(at 88% 4%, rgba(143,123,255,0.22) 0, transparent 48%),
+      radial-gradient(at 60% 90%, rgba(76,125,255,0.10) 0, transparent 55%); }
+  a { color: inherit; } img { display: block; max-width: 100%; height: auto; } code { font-family: var(--mono); }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+  nav { display: flex; align-items: center; gap: 22px; padding: 22px 0; }
+  nav .brand { display: flex; align-items: center; gap: 10px; font: 600 19px var(--display); text-decoration: none; margin-right: auto; }
+  nav .brand img { width: 30px; height: 30px; }
+  nav a.l { color: var(--muted); text-decoration: none; font-size: 15px; } nav a.l:hover { color: var(--text); }
+  .hero { text-align: center; padding: 56px 0 28px; }
+  h1 { font: 700 clamp(40px, 7vw, 68px)/1.05 var(--display); letter-spacing: -0.02em; margin: 0 0 18px; }
+  h1 span { background: linear-gradient(90deg, var(--teal), var(--violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { max-width: 700px; margin: 0 auto 28px; color: var(--muted); font-size: 20px; }
+  .cmd { display: inline-flex; align-items: center; gap: 12px; background: var(--bg2); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 10px 10px 18px; font: 15px var(--mono); max-width: 100%; overflow: auto; }
+  .cmd b { color: var(--teal); font-weight: 600; }
+  .cmd button { font: 600 13px var(--sans); background: rgba(255,255,255,0.08); color: var(--text); border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+  .cmd button:hover { background: rgba(255,255,255,0.14); }
+  .sub { color: var(--dim); font-size: 14px; margin-top: 14px; }
+  .shot { margin: 38px auto 0; max-width: 1040px; } .shot img { width: 100%; filter: drop-shadow(0 30px 60px rgba(0,0,0,0.55)); }
+  section { padding: 76px 0 0; }
+  h2 { font: 650 clamp(28px, 4vw, 40px)/1.15 var(--display); letter-spacing: -0.015em; margin: 0 0 14px; }
+  .p { color: var(--muted); max-width: 620px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 30px; }
+  .card { background: var(--bg2); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+  .card h3 { margin: 0 0 6px; font: 600 18px var(--display); } .card p { margin: 0; color: var(--muted); font-size: 16px; }
+  .split { display: grid; grid-template-columns: 1fr 1.25fr; gap: 40px; align-items: center; margin-top: 8px; }
+  .split.rev { grid-template-columns: 1.25fr 1fr; } .split.rev .txt { order: 2; }
+  .split img { filter: drop-shadow(0 22px 44px rgba(0,0,0,0.5)); }
+  ul.ticks { list-style: none; padding: 0; margin: 16px 0 0; } ul.ticks li { padding-left: 24px; position: relative; margin: 8px 0; color: var(--muted); }
+  ul.ticks li::before { content: ''; position: absolute; left: 3px; top: 0.62em; width: 8px; height: 8px; border-radius: 50%; background: var(--teal); }
+  .shim { margin-top: 76px; background: linear-gradient(180deg, rgba(46,230,197,0.06), rgba(143,123,255,0.06)); border: 1px solid var(--line); border-radius: 22px; padding: 38px; display: flex; gap: 28px; align-items: center; }
+  .shim img { width: 96px; height: 96px; flex: none; }
+  .shim h2 { margin-bottom: 8px; } .shim p { margin: 0; color: var(--muted); max-width: 640px; }
+  .install { text-align: center; padding-bottom: 70px; } .install .cmd { margin-top: 10px; }
+  .links { display: flex; justify-content: center; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
+  .btn { text-decoration: none; padding: 11px 18px; border-radius: 10px; border: 1px solid var(--line); font-weight: 600; font-size: 15px; background: var(--bg2); }
+  .btn.primary { background: linear-gradient(90deg, var(--teal), var(--violet)); color: #07090C; border: 0; }
+  footer { border-top: 1px solid var(--line); padding: 26px 0 40px; color: var(--dim); font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap; }
+  footer a { text-decoration: none; } footer a:hover { color: var(--text); } footer .sp { margin-left: auto; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } .split, .split.rev { grid-template-columns: 1fr; } .split.rev .txt { order: 0; }
+    .shim { flex-direction: column; text-align: center; } nav a.l.hide { display: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="/"><img src="images/png/trim-64.png" alt="" width="30" height="30">Trim</a>
+    <a class="l" href="getting-started/">Docs</a>
+    <a class="l hide" href="shim/">Shim</a>
+    <a class="l" href="https://github.com/optionull/trim">GitHub</a>
+  </nav>
+
+  <header class="hero">
+    <h1>A trimmed IDE<br>around <span>Neovim</span></h1>
+    <p class="lede">Neovim in a native Mac window, with only the panes an editor is missing for project work. Powerful enough, not bloated, and your editing stays in nvim.</p>
+    <div class="cmd"><code><b>$</b> brew install --cask optionull/tap/trim</code><button type="button" data-copy="brew install --cask optionull/tap/trim">Copy</button></div>
+    <p class="sub">macOS 15 or later, Apple silicon. Installs Trim and Shim, and Neovim if you need it.</p>
+    <div class="shot"><img src="images/shots/window.png" alt="Trim: a file tree with git marks beside Neovim editing C#, with a status bar" width="1148" height="808"></div>
+  </header>
+
+  <section>
+    <h2>Everything you reach for, nothing you don't</h2>
+    <p class="p">A small set of native panes, each one optional, each drawn by the app so it follows your colour scheme and font.</p>
+    <div class="grid">
+      <div class="card"><h3>A file tree that knows git</h3><p>Branch, changed and new files, diagnostics on the files and folders that have them, a live filter.</p></div>
+      <div class="card"><h3>Language servers that recover</h3><p>Roslyn, rust-analyzer, TypeScript and more, started from your project files, restarted when they crash, isolated from the editor.</p></div>
+      <div class="card"><h3>Instant by design</h3><p>Opening a file never waits for a plugin. Big files open plain, and the keyboard is in the editor before nvim finishes reading.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="split">
+      <div class="txt">
+        <h2>Jump between repositories and worktrees</h2>
+        <p class="p">One search line over everything you work on, named by what the work is about: the branch, or the title of the agent session in it if you use <a href="https://heed.build/">heed</a>.</p>
+        <ul class="ticks"><li>Return opens it here, ⇧Return in a new window</li><li>The list never shuffles while it fills in</li><li>A workspace with a window is brought forward, never opened twice</li></ul>
+      </div>
+      <img src="images/shots/switcher.png" alt="The workspace switcher over the editor" width="1148" height="808" loading="lazy">
+    </div>
+  </section>
+
+  <section>
+    <div class="split rev">
+      <img src="images/shots/run-output.png" alt="A make target's output in a Run pane tab, with its exit status" width="1148" height="808" loading="lazy">
+      <div class="txt">
+        <h2>Run anything the folder offers</h2>
+        <p class="p">F5 runs, ⇧⌘B builds. Trim reads what the folder can run, never builds to find out: .NET, Swift and Rust projects, Makefiles, mise, just, npm scripts and VS Code tasks.</p>
+        <ul class="ticks"><li>Output in a tab each, with the exit status and a button to run again</li><li>Several runs at once</li><li>One Problems list from servers and builds</li></ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="split">
+      <div class="txt">
+        <h2>Try a look before you keep it</h2>
+        <p class="p">Colour schemes and fonts are lists where each choice is tried live in the editor, the tree and the panes. Return keeps it, Escape puts it back.</p>
+        <ul class="ticks"><li>tokyonight, catppuccin, rose-pine and every nvim scheme</li><li>Any installed monospaced font, with its own icons</li></ul>
+      </div>
+      <img src="images/shots/theme-picker.png" alt="The colour scheme picker over the editor" width="1148" height="808" loading="lazy">
+    </div>
+  </section>
+
+  <div class="shim">
+    <img src="images/png/shim-180.png" alt="" width="96" height="96">
+    <div><h2>And Shim, for the single file</h2>
+    <p>Shim is nvim alone in a native window with <b>your own config</b>: no tree, no panels, instant. Open it for the file you want to edit now, and switch between your nvim configs from a menu. It installs with Trim.</p></div>
+  </div>
+
+  <section class="install">
+    <h2>Install</h2>
+    <div class="cmd"><code><b>$</b> brew install --cask optionull/tap/trim</code><button type="button" data-copy="brew install --cask optionull/tap/trim">Copy</button></div>
+    <div class="links"><a class="btn primary" href="getting-started/">Read the docs</a><a class="btn" href="https://github.com/optionull/trim">View on GitHub</a></div>
+  </section>
+
+  <footer><span>Trim and Shim are MIT licensed.</span><a href="https://optionull.app/">optionull</a><a href="reference/">Reference</a><a href="troubleshooting/">Troubleshooting</a><span class="sp">Made by Martijn Laarman</span></footer>
+</div>
+<script>
+  document.querySelectorAll('[data-copy]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (navigator.clipboard) navigator.clipboard.writeText(b.dataset.copy);
+      var t = b.textContent; b.textContent = 'Copied'; setTimeout(function () { b.textContent = t; }, 1400);
+    });
+  });
+</script>
+</body>
+</html>

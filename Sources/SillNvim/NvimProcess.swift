@@ -241,7 +241,21 @@ public final nonisolated class NvimProcess: @unchecked Sendable {
             Self.cacheNvimPath(candidate)
             return candidate
         }
+        // The one the app carries (not remembered: an nvim installed later is preferred).
+        if let bundled = Self.bundledNvim() { return bundled }
         throw NvimProcessError.binaryNotFound
+    }
+
+    /// The nvim an app carries as a fallback: in its own Resources (`nvim/bin/nvim`), or in Trim.app beside it (so Shim
+    /// stays small when both were installed together).
+    public static func bundledNvim(resources: URL? = Bundle.main.resourceURL, fileManager: FileManager = .default)
+        -> String?
+    {
+        guard let resources else { return nil }
+        let own = resources.appendingPathComponent("nvim/bin/nvim").path
+        let sibling = resources.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Trim.app/Contents/Resources/nvim/bin/nvim").path
+        return [own, sibling].first { fileManager.isExecutableFile(atPath: $0) }
     }
 
     private static func cacheNvimPath(_ path: String) {
@@ -273,7 +287,7 @@ public nonisolated enum NvimProcessError: Error, LocalizedError {
             """
             Couldn't find `nvim` in your shell PATH or the standard install locations.
 
-            Install Neovim with `brew install neovim`, or set `nvim_path` in sill's settings to point to an existing installation.
+            Install Neovim with `brew install neovim`, or set `nvim_path` in the settings to point to an existing installation.
             """
         }
     }

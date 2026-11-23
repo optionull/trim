@@ -12,6 +12,8 @@ package final class ExternalUI {
     private let editor: EditorView
     private let commandLine: CmdlineView
     private let popup: PopupMenuView
+    private let completionDocView = CompletionDocView()
+    private let hoverView = CompletionDocView(bright: true)
     private let output: OutputPanel
     private var toasts: [Int: ToastView] = [:]
     private var screen = Screen()
@@ -20,18 +22,46 @@ package final class ExternalUI {
     /// Output up to this serial has been read (a key was pressed after it).
     private var outputDismissed = 0
     private var expiry: Timer?
+    /// Which short messages are shown as notifications (all, unless the host says some are too quiet to interrupt).
+    package var showsAsToast: (Message) -> Bool = { _ in true }
 
     package init(editor: EditorView) {
         self.editor = editor
         commandLine = CmdlineView()
         popup = PopupMenuView()
         output = OutputPanel()
-        for view in [output, commandLine, popup] as [NSView] {
+        for view in [output, commandLine, popup, completionDocView, hoverView] as [NSView] {
             view.isHidden = true
             overlay.addSubview(view)
         }
     }
 
+    /// How the completion menu looks when the host wants more than words and kinds: an icon for each kind, deprecated
+    /// ones struck through (nil: as it always was).
+    package var completionStyle: CompletionStyle? {
+        didSet { popup.style = completionStyle }
+    }
+
+    /// The documentation of the completion chosen, drawn beside the menu (empty: none).
+    package var completionDoc = "" {
+        didSet {
+            guard completionDoc != oldValue else { return }
+            layOut()
+        }
+    }
+
+    package var completionDocPanel: NSView { completionDocView }
+
+    /// What the language server says of the word under the cursor (`K`) or of the call being typed, in a panel at the
+    /// cursor (empty: none). Drawn here, not by nvim, so it sits where the code is not.
+    package var hoverText = "" {
+        didSet {
+            guard hoverText != oldValue else { return }
+            layOut()
+        }
+    }
+
+    package var hoverPanel: NSView { hoverView }
     package var commandLineView: NSView { commandLine }
     package var popupView: NSView { popup }
     package var outputView: NSView { output }
@@ -66,17 +96,20 @@ package final class ExternalUI {
         }
 
         layOutPopup(in: bounds)
+        layOutHover(in: bounds)
         layOutMessages(in: bounds)
     }
 
     private func layOutPopup(in bounds: NSRect) {
         guard let menu = screen.popupMenu, !menu.items.isEmpty else {
             popup.isHidden = true
+            completionDocView.isHidden = true
             return
         }
         popup.show(menu)
         let size = popup.size
         var origin: NSPoint
+        var wordLine = NSRect.zero
         if menu.grid == -1, !commandLine.isHidden {
             // Under the command line, at the column where the completed word starts.
             origin = NSPoint(x: commandLine.frame.minX + commandLine.x(ofByte: menu.col), y: commandLine.frame.maxY + 4)
@@ -84,6 +117,7 @@ package final class ExternalUI {
             let placement = screen.placements[menu.grid]
             let row = (placement?.row ?? 0) + menu.row, col = (placement?.col ?? 0) + menu.col
             let cell = editor.rect(row: row, col: col, width: 1, height: 1)
+            wordLine = cell
             origin = NSPoint(x: cell.minX - PopupMenuView.padding, y: cell.maxY + 2)
             // No room below: above the word instead.
             if origin.y + size.height > bounds.maxY, cell.minY - size.height - 2 >= 0 {
@@ -93,6 +127,60 @@ package final class ExternalUI {
         origin.x = min(max(origin.x, 4), max(bounds.maxX - size.width - 4, 4))
         popup.frame = NSRect(origin: origin, size: size)
         popup.isHidden = false
+        layOutDocumentation(beside: popup.frame, line: wordLine, in: bounds)
+    }
+
+    /// The documentation, beside the menu where there is room (to the right, else the left); else above the line the
+    /// word
+    /// is on, else under the menu.
+    private func layOutDocumentation(beside menu: NSRect, line: NSRect, in bounds: NSRect) {
+        let text = completionDoc.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard completionStyle != nil, !text.isEmpty else {
+            completionDocView.isHidden = true
+            return
+        }
+        let gap: CGFloat = 6
+        let rightRoom = bounds.maxX - menu.maxX - gap - 4, leftRoom = menu.minX - gap - 4
+        let maxHeight = min(bounds.height * 0.5, 360)
+        if max(rightRoom, leftRoom) >= 240 {
+            let size = completionDocView.show(text, maxWidth: min(max(rightRoom, leftRoom), 460), maxHeight: maxHeight)
+            let right = rightRoom >= size.width
+            let x = right ? menu.maxX + gap : menu.minX - gap - size.width
+            let y = min(max(menu.minY, 4), max(bounds.maxY - size.height - 4, 4))
+            completionDocView.frame = NSRect(origin: NSPoint(x: x, y: y), size: size)
+        } else {
+            // No room beside the menu: over the line, or under the menu when the line is at the top.
+            let width = min(max(menu.width, 320), min(560, bounds.width - 8))
+            let size = completionDocView.show(text, maxWidth: width, maxHeight: maxHeight)
+            let x = min(max(menu.minX, 4), max(bounds.maxX - size.width - 4, 4))
+            var y = line.minY - gap - size.height
+            if y < 4 { y = menu.maxY + gap }
+            if y + size.height > bounds.maxY - 4 { y = max(4, bounds.maxY - size.height - 4) }
+            completionDocView.frame = NSRect(origin: NSPoint(x: x, y: y), size: size)
+        }
+        completionDocView.isHidden = false
+    }
+
+    /// The hover panel: over the word the cursor is on (under it when there is no room above), kept inside the window.
+    private func layOutHover(in bounds: NSRect) {
+        let text = hoverText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard completionStyle != nil, !text.isEmpty, screen.popupMenu?.items.isEmpty ?? true else {
+            hoverView.isHidden = true
+            return
+        }
+        let placement = screen.placements[screen.cursorGrid]
+        let cell = editor.rect(
+            row: (placement?.row ?? 0) + screen.cursorRow, col: (placement?.col ?? 0) + screen.cursorCol, width: 1,
+            height: 1
+        )
+        let size = hoverView.show(
+            text, maxWidth: min(640, bounds.width - 16), maxHeight: min(bounds.height * 0.5, 420)
+        )
+        let x = min(max(cell.minX - 8, 4), max(bounds.maxX - size.width - 4, 4))
+        var y = cell.minY - 4 - size.height
+        if y < 4 { y = cell.maxY + 4 }
+        hoverView.frame = NSRect(origin: NSPoint(x: x, y: min(y, max(bounds.maxY - size.height - 4, 4))), size: size)
+        hoverView.isHidden = false
     }
 
     private func layOutMessages(in bounds: NSRect) {
@@ -115,7 +203,7 @@ package final class ExternalUI {
 
         // Short messages as notifications, newest at the bottom, each until it has been shown long enough.
         let live = screen.messages.filter { message in
-            guard !message.isOutput, let first = seen[message.serial] else { return false }
+            guard !message.isOutput, showsAsToast(message), let first = seen[message.serial] else { return false }
             return now.timeIntervalSince(first) < Self.lifetime(message)
         }
         let liveSerials = Set(live.map(\.serial))
@@ -265,6 +353,9 @@ package final class PopupMenuView: PanelView {
     private var items: PopupMenu?
     /// The first item shown: the list scrolls to keep the selection in view.
     private var top = 0
+    package var style: CompletionStyle? {
+        didSet { needsDisplay = true }
+    }
 
     package init() {
         super.init(frame: .zero)
@@ -286,9 +377,19 @@ package final class PopupMenuView: PanelView {
         needsDisplay = true
     }
 
-    private func detail(_ item: PopupItem) -> String {
-        [item.kind, item.menu].filter { !$0.isEmpty }.joined(separator: "  ")
+    /// The kind of an item and whether it is deprecated (the host marks that after the kind).
+    private func kind(of item: PopupItem) -> (name: String, deprecated: Bool) {
+        let parts = item.kind.components(separatedBy: CompletionStyle.deprecatedMark)
+        return (parts[0], parts.count > 1)
     }
+
+    /// What is said at the right: with icons the kind is in the icon, and only the menu text is left.
+    private func detail(_ item: PopupItem) -> String {
+        let name = kind(of: item).name
+        return [style == nil ? name : "", item.menu].filter { !$0.isEmpty }.joined(separator: "  ")
+    }
+
+    private var iconWidth: CGFloat { style == nil ? 0 : 22 }
 
     package var size: NSSize {
         guard let menu = items else { return .zero }
@@ -296,7 +397,8 @@ package final class PopupMenuView: PanelView {
             .map { NSAttributedString(string: $0.word, attributes: [.font: metrics.regular]).size().width }
         let details = menu.items
             .map { NSAttributedString(string: detail($0), attributes: [.font: metrics.regular]).size().width }
-        let width = (words.max() ?? 0) + ((details.max() ?? 0) > 0 ? 24 + (details.max() ?? 0) : 0) + 2 * Self.padding
+        let width = iconWidth + (words.max() ?? 0) + ((details.max() ?? 0) > 0 ? 24 + (details.max() ?? 0) : 0) + 2 *
+            Self.padding
         return NSSize(
             width: min(max(width.rounded(.up), 160), 640),
             height: CGFloat(min(menu.items.count, Self.maxRows)) * rowHeight + 8
@@ -316,13 +418,82 @@ package final class PopupMenuView: PanelView {
                 NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
             }
             let y = rect.minY + 2 + metrics.textOffset
-            NSAttributedString(string: item.word, attributes: [.font: metrics.regular, .foregroundColor: Design.text])
-                .draw(at: NSPoint(x: Self.padding, y: y))
+            let (name, deprecated) = kind(of: item)
+            if let style, let icon = style.icon(name) {
+                let glyph = NSAttributedString(string: icon.glyph, attributes: [
+                    .font: style.iconFont, .foregroundColor: icon.color,
+                ])
+                glyph.draw(at: NSPoint(
+                    x: Self.padding + (16 - glyph.size().width) / 2, y: rect.midY - glyph.size().height / 2
+                ))
+            }
+            var attributes: [NSAttributedString.Key: Any] = [
+                .font: metrics.regular, .foregroundColor: deprecated ? Design.textFaint : Design.text,
+            ]
+            if deprecated { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            NSAttributedString(string: item.word, attributes: attributes)
+                .draw(at: NSPoint(x: Self.padding + iconWidth, y: y))
             let detail = NSAttributedString(
                 string: detail(item), attributes: [.font: metrics.regular, .foregroundColor: Design.textMuted]
             )
             detail.draw(at: NSPoint(x: bounds.width - Self.padding - detail.size().width, y: y))
         }
+    }
+}
+
+/// What a host that wants more of the completion menu gives it: the icon and colour for a kind (nil: none), and the
+/// font they are drawn in. A deprecated item has `deprecatedMark` after its kind.
+package struct CompletionStyle {
+    package static let deprecatedMark = "\u{2063}deprecated"
+    package var iconFont: NSFont
+    package var icon: (String) -> (glyph: String, color: NSColor)?
+
+    package init(iconFont: NSFont, icon: @escaping (String) -> (glyph: String, color: NSColor)?) {
+        self.iconFont = iconFont
+        self.icon = icon
+    }
+}
+
+/// The documentation of the completion chosen: its text, with code in the editor's font, in a panel beside the menu.
+package final class CompletionDocView: PanelView {
+    private var metrics: CellMetrics { EditorFont.metrics }
+    private var text = NSAttributedString()
+    private let bright: Bool
+
+    package init(bright: Bool = false) {
+        self.bright = bright
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    package required init?(coder _: NSCoder) { fatalError("not used") }
+
+    override package func hitTest(_: NSPoint) -> NSView? { nil }
+
+    /// Lays `content` out in at most `maxWidth` by `maxHeight`; the size it needs. The host sends blocks of text and of
+    /// code (coloured by it) as JSON; anything else is taken as plain text.
+    package func show(_ content: String, maxWidth: CGFloat, maxHeight: CGFloat) -> NSSize {
+        let result = DocContent.attributed(
+            content, regular: metrics.regular, text: bright ? Design.text : Design.textMuted, code: Design.text,
+            faint: Design.textFaint, rule: Design.border
+        )
+        text = result
+        let inner = maxWidth - 24
+        let box = result.boundingRect(
+            with: NSSize(width: inner, height: maxHeight), options: [.usesLineFragmentOrigin]
+        )
+        needsDisplay = true
+        return NSSize(
+            width: min(maxWidth, max(ceil(box.width) + 24, 160)), height: min(maxHeight, ceil(box.height) + 20)
+        )
+    }
+
+    override package func draw(_: NSRect) {
+        drawPanel()
+        text.draw(
+            with: NSRect(x: 12, y: 10, width: bounds.width - 24, height: bounds.height - 20),
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
+        )
     }
 }
 
