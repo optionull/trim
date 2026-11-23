@@ -829,7 +829,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         } catch {
             let alert = NSAlert(error: error)
             alert.messageText = "nvim could not start"
-            alert.runModal()
+            alert.runOrFail()
             await session.stop()
             app.close(self)
         }
@@ -1039,6 +1039,11 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     /// A file opened from the tree: nvim shows it, and has the keyboard only when asked (Return, a double-click): a
     /// click or `l` leaves it in the tree, so the next key is the tree's.
     func open(file path: String, toEditor: Bool, line: Int? = nil, column: Int? = nil) {
+        // The keyboard goes to the editor at once; a big file or a slow autocmd does not hold the person up.
+        if toEditor {
+            focusEditor()
+            modes.handedToEditor()
+        }
         Task { [weak self] in
             guard let self else { return }
             _ = try? await session.channel.lua(
@@ -1053,10 +1058,6 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
                 """,
                 args: [.string(path), line.map { .int(Int64($0)) } ?? .nil, column.map { .int(Int64($0)) } ?? .nil]
             )
-            if toEditor {
-                focusEditor()
-                modes.handedToEditor()
-            }
         }
     }
 
@@ -1791,7 +1792,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             alert.informativeText = "Changes it has not saved may be lost."
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Go On Anyway")
-            return alert.runModal() == .alertSecondButtonReturn ? .discarded : .cancelled
+            return alert.runOrFail() == .alertSecondButtonReturn ? .discarded : .cancelled
         }
         guard modified > 0 else { return .clean }
         let alert = NSAlert()
@@ -1799,7 +1800,7 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
         alert.addButton(withTitle: "Save All")
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Don't Save")
-        switch alert.runModal() {
+        switch alert.runOrFail() {
         case .alertFirstButtonReturn:
             return await (try? session.channel.command("wall")) != nil ? .saved : .cancelled
         case .alertThirdButtonReturn:

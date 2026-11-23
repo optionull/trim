@@ -726,6 +726,7 @@ end
 --- A file of a served kind opened: ask Frame for the program the first time, start the server.
 local function opened(args)
   local buf = args.buf
+  if vim.b[buf].frame_big then return end
   local ft = vim.bo[buf].filetype
   for name, spec in pairs(M.specs) do
     if vim.tbl_contains(spec.filetypes, ft) and not theirs(spec, buf) and vim.bo[buf].buftype == '' then

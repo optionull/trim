@@ -64,6 +64,7 @@ vim.keymap.set('i', '<CR>', function()
   if pumvisible() and vim.fn.complete_info({ 'selected' }).selected >= 0 then return '<C-y>' end
   return '<CR>'
 end, { expr = true, desc = 'Take the completion chosen, or a new line' })
+require('frame.bigfile').setup()
 vim.keymap.set('i', '<C-Space>', function() vim.lsp.completion.get() end, { desc = 'Complete' })
 vim.keymap.set({ 'i', 's' }, '<M-Down>', function() require('frame.lsp').signature_step(1) end, { desc = 'Next overload' })
 vim.keymap.set({ 'i', 's' }, '<M-Up>', function() require('frame.lsp').signature_step(-1) end, { desc = 'Previous overload' })

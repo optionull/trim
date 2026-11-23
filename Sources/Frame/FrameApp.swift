@@ -416,3 +416,17 @@ final class FrameApp: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = menu
     }
 }
+
+extension NSAlert {
+    /// Runs the dialog. In the self-check nobody answers, so a dialog is a failure that says what it asked, never a
+    /// hang.
+    @MainActor @discardableResult
+    func runOrFail() -> NSApplication.ModalResponse {
+        if FrameApp.checking {
+            print("frame check: FAILED: an alert came up: \(messageText) \(informativeText)")
+            fflush(stdout)
+            exit(1)
+        }
+        return runModal()
+    }
+}

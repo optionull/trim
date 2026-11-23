@@ -100,6 +100,7 @@ struct FrameCheck {
         await group("isolation") { await isolationSteps() }
         await group("status") { await statusSteps() }
         await group("tabs") { await tabsSteps() }
+        await group("bigfile") { await bigFileSteps() }
         await group("scroll") { await scrollSteps() }
         await group("pixel") { await pixelSteps() }
         await group("theme") { await themeSteps() }
@@ -2974,6 +2975,41 @@ struct FrameCheck {
         await wait("it ends by itself") { _ = editor.currentFrame; return !editor.isSliding }
         _ = await lua("vim.cmd('silent! bwipeout!')")
         step("with pixel scrolling off, scrolls slide by lines as before")
+    }
+
+    /// A big file, and one with a very long line, open plain and at once: no tree-sitter, no folds, no language server.
+    private func bigFileSteps() async {
+        let channel = shell.session.channel
+        func lua(_ code: String) async -> MessagePackValue? { try? await channel.lua(code) }
+        let dir = RealPath.of(NSTemporaryDirectory()) + "frame-big-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let big = dir + "/big.lua", small = dir + "/small.lua", minified = dir + "/min.lua"
+        let line = "local value = 12345 -- padding padding padding padding padding padding padding padding\n"
+        try? String(repeating: line, count: 20000).write(toFile: big, atomically: true, encoding: .utf8)
+        try? line.write(toFile: small, atomically: true, encoding: .utf8)
+        try? ("local x = '" + String(repeating: "a", count: 20000) + "'\n").write(
+            toFile: minified, atomically: true, encoding: .utf8
+        )
+        let probe = "return { big = vim.b.frame_big == true, ts = vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()] ~= nil, undo = vim.bo.undolevels }"
+        func state(_ path: String) async -> (big: Bool, ts: Bool)? {
+            _ = await lua("vim.cmd('edit ' .. vim.fn.fnameescape('\(path)'))")
+            guard let table = await lua(probe)?.dictionaryValue,
+                  let big = table[.string("big")]?.boolValue,
+                  let ts = table[.string("ts")]?.boolValue else { return nil }
+            return (big, ts)
+        }
+        let began = Date()
+        guard let bigState = await state(big), bigState.big, !bigState.ts else {
+            fail("a file over the limit was not opened plain")
+        }
+        guard Date().timeIntervalSince(began) < 2 else { fail("a big file took over two seconds to open") }
+        guard let smallState = await state(small), !smallState.big else { fail("a small file was opened plain") }
+        guard let minState = await state(minified), minState.big, !minState.ts else {
+            fail("a file with a very long line was not opened plain")
+        }
+        step("a big file and a minified one open plain (no tree-sitter), a small one as it always does")
+        _ = await lua("vim.cmd('%bwipeout!')")
+        try? FileManager.default.removeItem(atPath: dir)
     }
 
     /// The tabs: the open files, in the places they can be, selected and closed by clicks and keys, and kept from being
