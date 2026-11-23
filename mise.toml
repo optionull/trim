@@ -39,13 +39,13 @@ description = "Print nvim-treesitter's newest commit, to bump TREESITTER_COMMIT 
 run = "nvim -l scripts/treesitter.lua --latest"
 
 [tasks.build]
-description = "Debug build and assemble build/Sill.app"
+description = "Debug build and assemble build/Frame.app and build/Shim.app"
 run = ["swift build", "scripts/bundle.sh debug"]
 
 [tasks.dev]
-description = "Build and launch Sill.app"
+description = "Build and launch Frame.app"
 depends = ["build"]
-run = "open $BUILD_DIR/Sill.app"
+run = "open $BUILD_DIR/Frame.app"
 
 [tasks.test]
 description = "Swift Testing suite (the nvim tests start a real `nvim --embed`)"
@@ -63,15 +63,10 @@ run = ["swiftformat Sources Tests Package.swift --lint", "swiftlint lint --quiet
 description = "Lint, tests and every self-check, stopping at the first failure"
 run = "scripts/verify.sh"
 
-[tasks.bench]
-description = "The grid's go/no-go numbers at 4K, on a release build"
-depends = ["bundle"]
-run = "SILL_BENCH=1 $BUILD_DIR/Sill.app/Contents/MacOS/Sill"
-
 [tasks.sign]
-description = "Sign build/Sill.app with a Developer ID (the identity is the argument)"
+description = "Sign build/Frame.app with a Developer ID (the identity is the argument)"
 run = "scripts/sign.sh"
 
 [tasks.bundle]
-description = "Release build, ad-hoc signed build/Sill.app"
+description = "Release build, ad-hoc signed build/Frame.app and build/Shim.app"
 run = ["swift build -c release", "scripts/bundle.sh release"]

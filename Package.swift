@@ -18,10 +18,6 @@ var targets: [Target] = [
     // AppKit input in nvim's terms: key notation, mouse and IME.
     .target(name: "SillInput"),
     .testTarget(name: "SillInputTests", dependencies: ["SillInput"]),
-    // The .NET sidecar: started on the user's own dotnet, JSON lines over its standard input and output.
-    .target(name: "SillSidecar", dependencies: ["SillNvim", "SillCore"]),
-    // Fixtures: a .NET sample the profiler tests run.
-    .testTarget(name: "SillSidecarTests", dependencies: ["SillSidecar"], exclude: ["Fixtures"]),
     // The agent bridge: sill's MCP server on a Unix socket.
     .target(name: "SillAgent"),
     // The editor surface any nvim front end of sill's makes: the Metal grid and its input, nvim's command line,
@@ -35,16 +31,6 @@ var targets: [Target] = [
     ),
     .testTarget(name: "SillRenderTests", dependencies: ["SillRender", "SillCore", "SillNvim", messagePack]),
 ]
-var appDependencies: [Target.Dependency] = [
-    "SillEditor",
-    "SillCore",
-    "SillNvim",
-    "SillRender",
-    "SillInput",
-    "SillSidecar",
-    "SillAgent",
-    messagePack,
-]
 if hasGhostty {
     targets += [
         .binaryTarget(name: "GhosttyKit", path: "Vendor/GhosttyKit.xcframework"),
@@ -57,7 +43,6 @@ if hasGhostty {
             ]
         ),
     ]
-    appDependencies.append("SillTerminal")
 }
 
 // The shim: nvim alone in a native window, with sill's editor surface and nothing else.
@@ -92,17 +77,11 @@ targets.append(.executableTarget(
     ] + (hasGhostty ? ["SillTerminal"] : []),
     swiftSettings: hasGhostty ? [.define("SILL_GHOSTTY")] : []
 ))
-targets.append(.executableTarget(
-    name: "SillApp",
-    dependencies: appDependencies,
-    swiftSettings: hasGhostty ? [.define("SILL_GHOSTTY")] : []
-))
 
 let package = Package(
     name: "Sill",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "SillApp", targets: ["SillApp"]),
         .executable(name: "Shim", targets: ["Shim"]),
         .executable(name: "Frame", targets: ["Frame"]),
     ],
