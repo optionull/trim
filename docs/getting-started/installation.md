@@ -20,7 +20,7 @@ Homebrew's `neovim`, so it is always the current one).
 |---|---|
 | macOS | 15 (Sequoia) or later, on Apple silicon |
 | Neovim | 0.12 or later. Trim uses the `nvim` on your `PATH` first. Trim.app also carries a copy as a fallback for installs that are not through Homebrew, and Shim uses that one when it sits beside Trim.app. |
-| Language servers | Found on your `PATH` or fetched on first use. C# and F# need the .NET SDK; the web servers need Node. See [Language servers](../code/language-servers.md). |
+| Language servers | Found on your `PATH` or fetched on first use. C# and F# need the .NET SDK; Go needs Go; the web servers need Node. See [Language servers](../code/language-servers.md). |
 
 ## From source
 

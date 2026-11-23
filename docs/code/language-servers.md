@@ -14,16 +14,17 @@ project files and without a file open, so the problems list and the tree's marks
 | `.fsproj` | fsautocomplete (F#) |
 | `Cargo.toml` | rust-analyzer |
 | `Package.swift` | sourcekit-lsp |
+| `go.mod`, `go.work` | gopls (Go) |
 | `tsconfig.json`, `package.json` | TypeScript |
 
-A server also starts the first time a file of its kind opens: C#, F#, Rust, Swift, Markdown, HTML, CSS, JSON,
-TypeScript and JavaScript, unless your own config already runs one.
+A server also starts the first time a file of its kind opens: C#, F#, Rust, Swift, Go, Markdown, HTML, CSS,
+JSON, TypeScript and JavaScript, unless your own config already runs one.
 
 ## Where they come from
 
 Trim uses the program on your `PATH` (also rustup's, Xcode's and mise's), or else downloads it into its own cache
 at a pinned version with the checksum checked (marksman, rust-analyzer), installs it as a .NET tool (Roslyn,
-fsautocomplete: the **.NET SDK must be installed**) or with npm (the web servers: **Node must be installed**).
+fsautocomplete: the **.NET SDK must be installed**), with `go install` (gopls: **Go must be installed**) or with npm (the web servers: **Node must be installed**).
 Trim says so when either is missing.
 
 ## When one dies

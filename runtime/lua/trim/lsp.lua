@@ -60,6 +60,7 @@ M.specs = {
   },
   rust_analyzer = { filetypes = { 'rust' }, root = { 'Cargo.toml', '.git' }, aliases = { 'rust_analyzer', 'rust-analyzer' } },
   sourcekit = { filetypes = { 'swift' }, root = { 'Package.swift', '.git' }, aliases = { 'sourcekit' } },
+  gopls = { filetypes = { 'go', 'gomod', 'gowork', 'gotmpl' }, root = { 'go.work', 'go.mod', '.git' }, aliases = { 'gopls' } },
   marksman = { filetypes = { 'markdown' }, root = { '.marksman.toml', '.git' }, aliases = { 'marksman' } },
   html = { filetypes = { 'html' }, root = { 'package.json', '.git' }, aliases = { 'html' } },
   cssls = { filetypes = { 'css', 'scss', 'less' }, root = { 'package.json', '.git' }, aliases = { 'cssls' } },
@@ -658,6 +659,7 @@ local warm_patterns = {
   fsautocomplete = { '%.fsproj$' },
   rust_analyzer = { '^Cargo%.toml$' },
   sourcekit = { '^Package%.swift$' },
+  gopls = { '^go%.mod$', '^go%.work$' },
   typescript = { '^tsconfig%.json$', '^jsconfig%.json$', '^package%.json$' },
 }
 local not_projects = { node_modules = true, bin = true, obj = true, target = true, build = true, dist = true, vendor = true, Pods = true }
