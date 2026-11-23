@@ -4,14 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="/">
-<title>Trim · A trimmed IDE around Neovim, for the Mac</title>
-<meta name="description" content="Trim puts Neovim in a native Mac window with a file tree, tabs, language servers, a run pane and a workspace switcher, and keeps your editing in nvim. It comes with Shim, a lightweight native nvim for single files.">
+<title>Trim · A fast, native Mac IDE around Neovim</title>
+<meta name="description" content="Trim is a fast, non-blocking, Metal-rendered Mac IDE around Neovim. Opinionated and functional out of the box, still Neovim and fully extensible. Language servers for Swift, Rust, C#, F#, TypeScript and Go; run and build panes; everything is a mode.">
+<meta name="keywords" content="Neovim, nvim, Mac, macOS, IDE, native, Metal, fast, non-blocking, language server, LSP, Swift, Rust, C#, TypeScript, Go, run, build, Ghostty">
 <link rel="canonical" href="https://trim.optionull.app/">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://trim.optionull.app/">
 <meta property="og:site_name" content="Trim">
-<meta property="og:title" content="Trim · A trimmed IDE around Neovim">
-<meta property="og:description" content="Neovim in a native Mac window, with the few panes an editor is missing for project work. Installs with Shim, a lightweight nvim for single files.">
+<meta property="og:title" content="Trim · A fast, native Mac IDE around Neovim">
+<meta property="og:description" content="Metal-rendered, non-blocking, opinionated out of the box and still Neovim. Language servers, run and build panes, and everything is a mode.">
 <meta property="og:image" content="https://trim.optionull.app/images/shots/window.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#0B0D11">
@@ -19,8 +20,8 @@
 <link rel="apple-touch-icon" href="images/png/trim-180.png">
 <style>
   :root {
-    --bg: #090B0F; --bg2: #0F1218; --line: rgba(255,255,255,0.09); --text: #E8EDF3; --muted: #97A2B1; --dim: #6B7686;
-    --teal: #2EE6C5; --violet: #8F7BFF;
+    --bg: #090B0F; --bg2: #0F1218; --bg3: #151922; --line: rgba(255,255,255,0.09); --text: #E8EDF3; --muted: #97A2B1; --dim: #6B7686;
+    --teal: #2EE6C5; --violet: #8F7BFF; --blue: #4C7DFF; --amber: #FFB03D;
     --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
     --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
     --mono: ui-monospace, "SF Mono", Menlo, monospace; --maxw: 1120px;
@@ -29,48 +30,79 @@
   html { scroll-behavior: smooth; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
   body::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-    background-image: radial-gradient(at 12% 10%, rgba(46,230,197,0.14) 0, transparent 50%),
+    background-image: radial-gradient(at 12% 8%, rgba(46,230,197,0.14) 0, transparent 50%),
       radial-gradient(at 88% 4%, rgba(143,123,255,0.22) 0, transparent 48%),
-      radial-gradient(at 60% 90%, rgba(76,125,255,0.10) 0, transparent 55%); }
-  a { color: inherit; } img { display: block; max-width: 100%; height: auto; } code { font-family: var(--mono); }
+      radial-gradient(at 60% 92%, rgba(76,125,255,0.10) 0, transparent 55%); }
+  a { color: inherit; } img { display: block; max-width: 100%; height: auto; } code, kbd { font-family: var(--mono); }
   .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
   nav { display: flex; align-items: center; gap: 22px; padding: 22px 0; }
   nav .brand { display: flex; align-items: center; gap: 10px; font: 600 19px var(--display); text-decoration: none; margin-right: auto; }
   nav .brand img { width: 30px; height: 30px; }
   nav a.l { color: var(--muted); text-decoration: none; font-size: 15px; } nav a.l:hover { color: var(--text); }
-  .hero { text-align: center; padding: 56px 0 28px; }
-  h1 { font: 700 clamp(40px, 7vw, 68px)/1.05 var(--display); letter-spacing: -0.02em; margin: 0 0 18px; }
+  .eyebrow { display: inline-flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px 5px 10px; font-size: 13.5px; color: var(--muted); text-decoration: none; background: rgba(255,255,255,0.03); }
+  .eyebrow i { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 10px var(--teal); }
+  .eyebrow:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+  .hero { text-align: center; padding: 44px 0 26px; }
+  h1 { font: 700 clamp(40px, 7vw, 70px)/1.04 var(--display); letter-spacing: -0.025em; margin: 22px 0 18px; }
   h1 span { background: linear-gradient(90deg, var(--teal), var(--violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .lede { max-width: 700px; margin: 0 auto 28px; color: var(--muted); font-size: 20px; }
-  .cmd { display: inline-flex; align-items: center; gap: 12px; background: var(--bg2); border: 1px solid var(--line); border-radius: 12px;
-    padding: 10px 10px 10px 18px; font: 15px var(--mono); max-width: 100%; overflow: auto; }
+  .lede { max-width: 720px; margin: 0 auto 26px; color: var(--muted); font-size: 20px; }
+  .keys { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 0 auto 28px; max-width: 760px; }
+  .keys b { font: 600 13.5px var(--sans); padding: 6px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg2); color: var(--text); }
+  .keys b:nth-child(odd) { color: var(--teal); } .keys b:nth-child(even) { color: #BDB3FF; }
+  .cmd { display: inline-flex; align-items: center; gap: 12px; background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 10px 10px 18px; font: 15px var(--mono); max-width: 100%; overflow: auto; }
   .cmd b { color: var(--teal); font-weight: 600; }
   .cmd button { font: 600 13px var(--sans); background: rgba(255,255,255,0.08); color: var(--text); border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
   .cmd button:hover { background: rgba(255,255,255,0.14); }
   .sub { color: var(--dim); font-size: 14px; margin-top: 14px; }
-  .shot { margin: 38px auto 0; max-width: 1040px; } .shot img { width: 100%; filter: drop-shadow(0 30px 60px rgba(0,0,0,0.55)); }
-  section { padding: 76px 0 0; }
-  h2 { font: 650 clamp(28px, 4vw, 40px)/1.15 var(--display); letter-spacing: -0.015em; margin: 0 0 14px; }
-  .p { color: var(--muted); max-width: 620px; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 30px; }
+  .shot { margin: 38px auto 0; max-width: 1040px; } .shot img, .split img, .stage img { filter: drop-shadow(0 28px 56px rgba(0,0,0,0.55)); }
+  section { padding: 84px 0 0; }
+  .kicker { color: var(--teal); font: 600 13px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
+  h2 { font: 650 clamp(28px, 4vw, 42px)/1.12 var(--display); letter-spacing: -0.018em; margin: 0 0 14px; }
+  .p { color: var(--muted); max-width: 640px; } .center { text-align: center; } .center .p { margin-left: auto; margin-right: auto; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 32px; }
   .card { background: var(--bg2); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
-  .card h3 { margin: 0 0 6px; font: 600 18px var(--display); } .card p { margin: 0; color: var(--muted); font-size: 16px; }
-  .split { display: grid; grid-template-columns: 1fr 1.25fr; gap: 40px; align-items: center; margin-top: 8px; }
-  .split.rev { grid-template-columns: 1.25fr 1fr; } .split.rev .txt { order: 2; }
-  .split img { filter: drop-shadow(0 22px 44px rgba(0,0,0,0.5)); }
-  ul.ticks { list-style: none; padding: 0; margin: 16px 0 0; } ul.ticks li { padding-left: 24px; position: relative; margin: 8px 0; color: var(--muted); }
+  .card h3 { margin: 0 0 8px; font: 600 18px var(--display); } .card p { margin: 0; color: var(--muted); font-size: 15.5px; } .card p + p { margin-top: 8px; }
+  .card .tag { display: inline-block; font: 600 11px var(--mono); letter-spacing: 0.06em; color: var(--amber); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; margin-bottom: 10px; }
+  .split { display: grid; grid-template-columns: 1fr 1.3fr; gap: 44px; align-items: center; margin-top: 8px; }
+  .split.rev { grid-template-columns: 1.3fr 1fr; } .split.rev .txt { order: 2; }
+  ul.ticks { list-style: none; padding: 0; margin: 16px 0 0; } ul.ticks li { padding-left: 24px; position: relative; margin: 9px 0; color: var(--muted); }
   ul.ticks li::before { content: ''; position: absolute; left: 3px; top: 0.62em; width: 8px; height: 8px; border-radius: 50%; background: var(--teal); }
-  .shim { margin-top: 76px; background: linear-gradient(180deg, rgba(46,230,197,0.06), rgba(143,123,255,0.06)); border: 1px solid var(--line); border-radius: 22px; padding: 38px; display: flex; gap: 28px; align-items: center; }
-  .shim img { width: 96px; height: 96px; flex: none; }
-  .shim h2 { margin-bottom: 8px; } .shim p { margin: 0; color: var(--muted); max-width: 640px; }
+  ul.ticks b { color: var(--text); font-weight: 600; }
+  kbd { background: rgba(255,255,255,0.08); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; font-size: 0.86em; color: var(--text); }
+  /* Everything is a mode */
+  .modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 30px; }
+  .mode { background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .mode .name { display: inline-block; font: 700 12px var(--mono); letter-spacing: 0.06em; padding: 3px 9px; border-radius: 6px; background: #5AA9F0; color: #07131F; margin-bottom: 8px; }
+  .mode .name.n { background: #A5D66F; } .mode .name.t { background: #7DD6C7; } .mode .name.v { background: #B79CFF; } .mode .name.r { background: #FFB03D; }
+  .mode p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.45; }
+  /* Language carousel */
+  .lang { margin-top: 28px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .tabs button { font: 600 14.5px var(--sans); color: var(--muted); background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
+  .tabs button:hover { color: var(--text); }
+  .tabs button[aria-selected="true"] { color: #07131F; background: linear-gradient(90deg, var(--teal), var(--violet)); border-color: transparent; }
+  .feat { display: flex; justify-content: center; gap: 4px; margin: 16px auto 0; padding: 4px; width: fit-content; border: 1px solid var(--line); border-radius: 12px; background: var(--bg2); }
+  .feat button { font: 600 13.5px var(--sans); color: var(--muted); background: none; border: 0; border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+  .feat button[aria-selected="true"] { color: var(--text); background: rgba(255,255,255,0.09); }
+  .feat button:disabled { opacity: 0.35; cursor: default; }
+  .stage { position: relative; margin: 22px auto 0; max-width: 1040px; aspect-ratio: 2296 / 1616; }
+  .stage img { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity .45s ease; }
+  .stage img.on { opacity: 1; }
+  .cap { text-align: center; color: var(--dim); font-size: 14.5px; margin-top: 4px; min-height: 1.6em; }
+  .cap b { color: var(--muted); font-weight: 600; }
+  .also { text-align: center; color: var(--dim); font-size: 14.5px; margin-top: 14px; } .also b { color: var(--muted); font-weight: 600; }
+  .shim { margin-top: 84px; background: linear-gradient(180deg, rgba(46,230,197,0.06), rgba(143,123,255,0.06)); border: 1px solid var(--line); border-radius: 22px; padding: 38px; display: flex; gap: 28px; align-items: center; }
+  .shim img { width: 96px; height: 96px; flex: none; } .shim h2 { margin-bottom: 8px; } .shim p { margin: 0; color: var(--muted); max-width: 640px; }
   .install { text-align: center; padding-bottom: 70px; } .install .cmd { margin-top: 10px; }
   .links { display: flex; justify-content: center; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
   .btn { text-decoration: none; padding: 11px 18px; border-radius: 10px; border: 1px solid var(--line); font-weight: 600; font-size: 15px; background: var(--bg2); }
   .btn.primary { background: linear-gradient(90deg, var(--teal), var(--violet)); color: #07090C; border: 0; }
+  .made { text-align: center; color: var(--dim); font-size: 15px; padding: 22px 0 6px; } .made a { color: var(--text); text-decoration: none; border-bottom: 1px solid var(--line); } .made a:hover { border-color: var(--teal); }
   footer { border-top: 1px solid var(--line); padding: 26px 0 40px; color: var(--dim); font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap; }
   footer a { text-decoration: none; } footer a:hover { color: var(--text); } footer .sp { margin-left: auto; }
-  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } .split, .split.rev { grid-template-columns: 1fr; } .split.rev .txt { order: 0; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } .modes { grid-template-columns: repeat(2, 1fr); } .split, .split.rev { grid-template-columns: 1fr; } .split.rev .txt { order: 0; }
     .shim { flex-direction: column; text-align: center; } nav a.l.hide { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .stage img { transition: none; } html { scroll-behavior: auto; } }
 </style>
 </head>
 <body>
@@ -79,73 +111,152 @@
     <a class="brand" href="/"><img src="images/png/trim-64.png" alt="" width="30" height="30">Trim</a>
     <a class="l" href="getting-started/">Docs</a>
     <a class="l hide" href="shim/">Shim</a>
+    <a class="l hide" href="https://optionull.app/">optionull</a>
     <a class="l" href="https://github.com/optionull/trim">GitHub</a>
   </nav>
 
   <header class="hero">
-    <h1>A trimmed IDE<br>around <span>Neovim</span></h1>
-    <p class="lede">Neovim in a native Mac window, with only the panes an editor is missing for project work. Powerful enough, not bloated, and your editing stays in nvim.</p>
+    <a class="eyebrow" href="https://optionull.app/"><i></i>A native Mac app from optionull</a>
+    <h1>Neovim, with the IDE parts.<br><span>Fast.</span></h1>
+    <p class="lede">A native Mac IDE around Neovim: Metal-rendered, non-blocking, opinionated and working out of the box, and still Neovim all the way down.</p>
+    <div class="keys"><b>Fast</b><b>Non-blocking</b><b>Metal first</b><b>Everything is a mode</b><b>Opinionated</b><b>Fully extensible</b></div>
     <div class="cmd"><code><b>$</b> brew install --cask optionull/tap/trim</code><button type="button" data-copy="brew install --cask optionull/tap/trim">Copy</button></div>
     <p class="sub">macOS 15 or later, Apple silicon. Installs Trim and Shim, and Neovim if you need it.</p>
     <div class="shot"><img src="images/shots/window.png" alt="Trim: a file tree with git marks beside Neovim editing C#, with a status bar" width="1148" height="808"></div>
   </header>
 
   <section>
-    <h2>Everything you reach for, nothing you don't</h2>
-    <p class="p">A small set of native panes, each one optional, each drawn by the app so it follows your colour scheme and font.</p>
+    <div class="kicker">Fast</div>
+    <h2>Built so nothing waits on anything.</h2>
+    <p class="p">Speed is the point. Editing is always instant, and everything that can be slow happens somewhere else.</p>
     <div class="grid">
-      <div class="card"><h3>A file tree that knows git</h3><p>Branch, changed and new files, diagnostics on the files and folders that have them, a live filter.</p></div>
-      <div class="card"><h3>Language servers that recover</h3><p>Roslyn, rust-analyzer, TypeScript and more, started from your project files, restarted when they crash, isolated from the editor.</p></div>
-      <div class="card"><h3>Instant by design</h3><p>Opening a file never waits for a plugin. Big files open plain, and the keyboard is in the editor before nvim finishes reading.</p></div>
+      <div class="card"><span class="tag">METAL FIRST</span><h3>The text is drawn by Metal</h3><p>The editor grid is a Metal renderer, and terminal panes are Ghostty's, also Metal. Everything around them is plain AppKit: no web view, no Electron, no second runtime to keep warm.</p></div>
+      <div class="card"><span class="tag">NON-BLOCKING</span><h3>Work happens elsewhere</h3><p>Neovim, each language server and each build run as their own processes. Git, the file tree, filtering and diagnostics are read off the main thread, and a build runs unseen and only comes forward when it has something to say.</p></div>
+      <div class="card"><span class="tag">INSTANT</span><h3>Opening a file never waits</h3><p>The keyboard is in the editor before Neovim has finished reading the file. Big files, and files with enormous lines, open plain: no tree-sitter, folds, undo history or language server, so they are quick.</p></div>
     </div>
   </section>
 
   <section>
+    <div class="center">
+      <div class="kicker">Everything is a mode</div>
+      <h2>One idea, used everywhere.</h2>
+      <p class="p">Anything that takes the keyboard is a mode with a name in the status bar, and Escape always goes back to where you came from. No dialogs, no panels you have to find the mouse for.</p>
+    </div>
+    <div class="modes">
+      <div class="mode"><span class="name n">NORMAL</span><p>And INSERT, VISUAL, COMMAND: Neovim's own modes, untouched.</p></div>
+      <div class="mode"><span class="name t">TREE</span><p>The file tree, with git marks and diagnostics. <kbd>⇧⌘E</kbd></p></div>
+      <div class="mode"><span class="name t">FILTER</span><p>Narrow the tree, or any list, as you type. <kbd>/</kbd></p></div>
+      <div class="mode"><span class="name">SWITCH</span><p>Jump between repositories and worktrees. <kbd>⌘⇧O</kbd></p></div>
+      <div class="mode"><span class="name">TABS</span><p>The list of open files. <kbd>⌥⌘E</kbd></p></div>
+      <div class="mode"><span class="name">FIND</span><p>Files by name, ranked as you type. <kbd>⌘P</kbd></p></div>
+      <div class="mode"><span class="name">GREP</span><p>Text in files, with <code>git grep</code>. <kbd>⇧⌘F</kbd></p></div>
+      <div class="mode"><span class="name v">COLOUR SCHEME</span><p>Each one tried live as you move. <kbd>⌥⌘T</kbd></p></div>
+      <div class="mode"><span class="name v">FONT</span><p>Every monospaced family, tried live. <kbd>\F</kbd></p></div>
+      <div class="mode"><span class="name">PACKAGES</span><p>Bundled and installable plugins. <kbd>\P</kbd></p></div>
+      <div class="mode"><span class="name r">RUN</span><p>Everything the folder can run, in tabs. <kbd>⇧⌘R</kbd></p></div>
+      <div class="mode"><span class="name r">BUILD</span><p>Output and Problems of a build. <kbd>⇧⌘B</kbd></p></div>
+    </div>
+  </section>
+
+  <section id="run">
     <div class="split">
       <div class="txt">
-        <h2>Jump between repositories and worktrees</h2>
-        <p class="p">One search line over everything you work on, named by what the work is about: the branch, or the title of the agent session in it if you use <a href="https://heed.build/">heed</a>.</p>
-        <ul class="ticks"><li>Return opens it here, ⇧Return in a new window</li><li>The list never shuffles while it fills in</li><li>A workspace with a window is brought forward, never opened twice</li></ul>
+        <div class="kicker">Run</div>
+        <h2>Run anything the folder offers.</h2>
+        <p class="p"><kbd>F5</kbd> runs, <kbd>⇧⌘R</kbd> chooses. Trim reads what the folder can run and never builds to find out.</p>
+        <ul class="ticks">
+          <li><b>Read, not guessed:</b> .NET, Swift and Rust projects, Makefiles, mise tasks, justfiles, npm scripts, VS Code tasks and launches.</li>
+          <li><b>Pills by origin</b> filter the list: make, npm, dotnet, VS Code, and your own.</li>
+          <li><b>Your own configurations:</b> copy any entry, change its arguments, folder and environment, kept out of your repository.</li>
+        </ul>
       </div>
-      <img src="images/shots/switcher.png" alt="The workspace switcher over the editor" width="1148" height="808" loading="lazy">
+      <img src="images/shots/run-list.png" alt="The Run mode: everything the folder can run, with a pill for each origin" width="1148" height="808" loading="lazy">
     </div>
-  </section>
-
-  <section>
-    <div class="split rev">
-      <img src="images/shots/run-output.png" alt="A make target's output in a Run pane tab, with its exit status" width="1148" height="808" loading="lazy">
+    <div class="split rev" style="margin-top:56px">
+      <img src="images/shots/run-output.png" alt="A run's output in its own tab, with its exit status and a button to run it again" width="1148" height="808" loading="lazy">
       <div class="txt">
-        <h2>Run anything the folder offers</h2>
-        <p class="p">F5 runs, ⇧⌘B builds. Trim reads what the folder can run, never builds to find out: .NET, Swift and Rust projects, Makefiles, mise, just, npm scripts and VS Code tasks.</p>
-        <ul class="ticks"><li>Output in a tab each, with the exit status and a button to run again</li><li>Several runs at once</li><li>One Problems list from servers and builds</li></ul>
+        <h2>Output in a tab each.</h2>
+        <p class="p">A real terminal, Ghostty's, beside or under the code. The keyboard stays in the editor until you ask for the pane.</p>
+        <ul class="ticks">
+          <li><b>Exit status</b> in the header, and a button to run it again in the same tab.</li>
+          <li><b>Several at once,</b> up to eight, a tab each.</li>
+          <li><b>Resizable,</b> and remembered.</li>
+        </ul>
       </div>
     </div>
   </section>
 
-  <section>
+  <section id="build">
     <div class="split">
       <div class="txt">
-        <h2>Try a look before you keep it</h2>
-        <p class="p">Colour schemes and fonts are lists where each choice is tried live in the editor, the tree and the panes. Return keeps it, Escape puts it back.</p>
-        <ul class="ticks"><li>tokyonight, catppuccin, rose-pine and every nvim scheme</li><li>Any installed monospaced font, with its own icons</li></ul>
+        <div class="kicker">Build</div>
+        <h2>Builds that tell you only what matters.</h2>
+        <p class="p"><kbd>⇧⌘B</kbd> builds the folder. It runs unseen: a loader in the status bar, and the pane comes forward on its Problems tab only when there is an error or a warning.</p>
+        <ul class="ticks">
+          <li><b>One Problems list</b> for the whole workspace: language server diagnostics of every file, and what the last build printed.</li>
+          <li><b>Parses what your tools print:</b> MSBuild, tsc, swiftc, clang, gcc and rustc, down to the line.</li>
+          <li><b>A clean build is one line</b> in the status bar that goes away.</li>
+          <li>Files with problems get a wavy line in the tree, and so do the folders above them.</li>
+        </ul>
       </div>
-      <img src="images/shots/theme-picker.png" alt="The colour scheme picker over the editor" width="1148" height="808" loading="lazy">
+      <img src="images/shots/build-problems.png" alt="A failed build: the Problems tab listing the compiler's errors and warnings with files and lines" width="1148" height="808" loading="lazy">
+    </div>
+  </section>
+
+  <section id="lsp">
+    <div class="center">
+      <div class="kicker">Language servers</div>
+      <h2>Real servers, on real codebases.</h2>
+      <p class="p">Go to definition, usages, completion and documentation, drawn by the window and never fighting each other for room. These are Trim on large public projects, with each language's own server.</p>
+    </div>
+    <div class="lang" id="lang">
+      <div class="tabs" role="tablist" aria-label="Language">
+        <button role="tab" aria-selected="true" data-lang="swift">Swift</button>
+        <button role="tab" aria-selected="false" data-lang="rust">Rust</button>
+        <button role="tab" aria-selected="false" data-lang="csharp">C#</button>
+        <button role="tab" aria-selected="false" data-lang="typescript">TypeScript</button>
+        <button role="tab" aria-selected="false" data-lang="go">Go</button>
+      </div>
+      <div class="feat" role="tablist" aria-label="Feature">
+        <button role="tab" aria-selected="true" data-feat="hover">Docs</button>
+        <button role="tab" aria-selected="false" data-feat="completion">Completion</button>
+        <button role="tab" aria-selected="false" data-feat="usages">Usages</button>
+      </div>
+      <div class="stage" id="stage"></div>
+      <p class="cap" id="cap"></p>
+      <p class="also"><b>Also:</b> F# (fsautocomplete), HTML, CSS, JSON and Markdown, and any server your own config starts. Servers start from your project files, restart when they crash, and are isolated from the editor.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="center">
+      <div class="kicker">Opinionated, and still Neovim</div>
+      <h2>Works the moment you open a folder. Bends as far as Neovim does.</h2>
+    </div>
+    <div class="grid" style="grid-template-columns: repeat(2, 1fr)">
+      <div class="card"><span class="tag">OUT OF THE BOX</span><h3>Decisions already made</h3>
+        <p>tokyonight, a good monospaced font and its icons, which-key, pairs, surround and git signs, language servers found or installed for you and started from your project files, sensible keys on the leader. Open a folder and work.</p>
+        <p>An isolated Neovim config, so nothing in <code>~/.config/nvim</code> can break it, and it cannot break yours.</p></div>
+      <div class="card"><span class="tag">FULLY EXTENSIBLE</span><h3>It is Neovim</h3>
+        <p>Your additions go in <code>~/.config/trim/init.lua</code> and win over every default. Any plugin, your own <code>vim.lsp.config</code>, your own keys: each of Trim's modes is a <code>&lt;Plug&gt;</code> mapping you can rebind.</p>
+        <p>Want your whole config instead? That is what Shim is for.</p></div>
     </div>
   </section>
 
   <div class="shim">
     <img src="images/png/shim-180.png" alt="" width="96" height="96">
     <div><h2>And Shim, for the single file</h2>
-    <p>Shim is nvim alone in a native window with <b>your own config</b>: no tree, no panels, instant. Open it for the file you want to edit now, and switch between your nvim configs from a menu. It installs with Trim.</p></div>
+    <p>Shim is Neovim alone in a native window with <b>your own config</b>: no tree, no panels, instant. Open it for the file you want to edit now, and switch between your Neovim configs from a menu. It installs with Trim.</p></div>
   </div>
 
   <section class="install">
     <h2>Install</h2>
     <div class="cmd"><code><b>$</b> brew install --cask optionull/tap/trim</code><button type="button" data-copy="brew install --cask optionull/tap/trim">Copy</button></div>
     <div class="links"><a class="btn primary" href="getting-started/">Read the docs</a><a class="btn" href="https://github.com/optionull/trim">View on GitHub</a></div>
+    <p class="made">Trim is one of <a href="https://optionull.app/">optionull's</a> small, native, open-source Mac apps.</p>
   </section>
 
-  <footer><span>Trim and Shim are MIT licensed.</span><a href="https://optionull.app/">optionull</a><a href="reference/">Reference</a><a href="troubleshooting/">Troubleshooting</a><span class="sp">Made by Martijn Laarman</span></footer>
+  <footer><span>Trim and Shim are MIT licensed.</span><a href="https://optionull.app/">optionull.app</a><a href="reference/">Reference</a><a href="troubleshooting/">Troubleshooting</a><span class="sp">Made by Martijn Laarman</span></footer>
 </div>
 <script>
   document.querySelectorAll('[data-copy]').forEach(function (b) {
@@ -154,6 +265,68 @@
       var t = b.textContent; b.textContent = 'Copied'; setTimeout(function () { b.textContent = t; }, 1400);
     });
   });
+
+  // The language carousel: a language and a feature choose one picture; it advances by itself until someone touches it.
+  (function () {
+    var langs = {
+      swift: { name: 'Swift', server: 'sourcekit-lsp', repo: 'apple/swift-nio', feats: ['hover', 'completion'] },
+      rust: { name: 'Rust', server: 'rust-analyzer', repo: 'tokio-rs/tokio' },
+      csharp: { name: 'C#', server: 'Roslyn', repo: 'dotnet/roslyn' },
+      typescript: { name: 'TypeScript', server: 'TypeScript 7', repo: 'vuejs/core' },
+      go: { name: 'Go', server: 'gopls', repo: 'cli/cli' }
+    };
+    var feats = { hover: 'documentation on hover', completion: 'completion with documentation', usages: 'every usage, in a list' };
+    var order = Object.keys(langs), featOrder = Object.keys(feats);
+    var stage = document.getElementById('stage'), cap = document.getElementById('cap');
+    var state = { lang: 'swift', feat: 'hover' }, auto = true, timer = null;
+    var imgs = {};
+    function has(l, f) { return !langs[l].feats || langs[l].feats.indexOf(f) >= 0; }
+    order.forEach(function (l) {
+      featOrder.filter(function (f) { return has(l, f); }).forEach(function (f) {
+        var im = document.createElement('img');
+        im.alt = langs[l].name + ' in Trim on ' + langs[l].repo + ': ' + feats[f];
+        im.width = 1148; im.height = 808; im.decoding = 'async';
+        im.dataset.src = 'images/shots/lsp-' + l + '-' + f + '.png';
+        stage.appendChild(im); imgs[l + '-' + f] = im;
+      });
+    });
+    function show() {
+      if (!has(state.lang, state.feat)) state.feat = 'hover';
+      Object.keys(imgs).forEach(function (k) { imgs[k].classList.remove('on'); });
+      var im = imgs[state.lang + '-' + state.feat];
+      if (!im.src) im.src = im.dataset.src;
+      im.classList.add('on');
+      cap.innerHTML = '<b>' + langs[state.lang].server + '</b> on <b>' + langs[state.lang].repo + '</b>: ' + feats[state.feat];
+      document.querySelectorAll('[data-lang]').forEach(function (b) { b.setAttribute('aria-selected', b.dataset.lang === state.lang); });
+      document.querySelectorAll('[data-feat]').forEach(function (b) {
+        b.setAttribute('aria-selected', b.dataset.feat === state.feat);
+        b.disabled = !has(state.lang, b.dataset.feat);
+      });
+    }
+    function next() {
+      var feats = featOrder.filter(function (f) { return has(state.lang, f); });
+      var fi = feats.indexOf(state.feat) + 1;
+      if (fi < feats.length) { state.feat = feats[fi]; }
+      else { state.feat = 'hover'; state.lang = order[(order.indexOf(state.lang) + 1) % order.length]; }
+      show();
+    }
+    function stop() { auto = false; if (timer) { clearInterval(timer); timer = null; } }
+    document.querySelectorAll('[data-lang]').forEach(function (b) { b.addEventListener('click', function () { stop(); state.lang = b.dataset.lang; show(); }); });
+    document.querySelectorAll('[data-feat]').forEach(function (b) { b.addEventListener('click', function () { stop(); state.feat = b.dataset.feat; show(); }); });
+    show();
+    // Start moving once the carousel is in view, and not at all for people who ask for less motion.
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if ('IntersectionObserver' in window && !reduce) {
+      new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting && auto && !timer) timer = setInterval(next, 5200);
+          else if (!e.isIntersecting && timer) { clearInterval(timer); timer = null; }
+        });
+      }, { threshold: 0.4 }).observe(stage);
+    }
+    // The next pictures are fetched while the first is looked at.
+    setTimeout(function () { Object.keys(imgs).forEach(function (k) { if (!imgs[k].src) imgs[k].src = imgs[k].dataset.src; }); }, 2500);
+  })();
 </script>
 </body>
 </html>
