@@ -1181,6 +1181,16 @@ struct FrameCheck {
             guard buildPane.tab == .output, buildPane.terminal?.isHidden == false, list.isHidden else {
                 fail("the Output tab does not show the terminal")
             }
+            // With the keyboard in the build pane the tab commands step through Problems and Output.
+            shell.focus(.terminal)
+            guard shell.modes.surface == .terminal else { fail("the build pane did not take the keyboard") }
+            shell.nextTab(nil)
+            guard buildPane.tab == .problems
+            else { fail("next tab in the build pane did not wrap to Problems: \(buildPane.tab)") }
+            shell.previousTab(nil)
+            guard buildPane.tab == .output
+            else { fail("previous tab in the build pane did not go to Output: \(buildPane.tab)") }
+            step("in the build pane the tab commands step between Problems and Output")
             // The minimize button puts the pane away, and the code has its room; ⌘J brings it back.
             buildPane.onMinimize?()
             shell.view.layoutSubtreeIfNeeded()
@@ -1412,6 +1422,39 @@ struct FrameCheck {
             guard pane.current === first, !first.terminal.isHidden, second.terminal.isHidden
             else { fail("the tabs do not switch between the outputs") }
             step("several runs have a tab each, and the tabs switch between their outputs")
+            // The tab commands go to the pane's tabs while it has the keyboard, not to the file tabs.
+            let fileTab = shell.tabs.first(where: \.current)?.id
+            shell.nextTab(nil)
+            guard pane.selection == .session(second.id), shell.tabs.first(where: \.current)?.id == fileTab
+            else { fail("next tab in the Run pane did not go to its next tab: \(pane.selection)") }
+            shell.nextTab(nil)
+            guard pane.selection == .list else { fail("next tab did not wrap to the list") }
+            shell.previousTab(nil)
+            guard pane.selection == .session(second.id) else { fail("previous tab did not wrap to the last output") }
+            shell.previousTab(nil)
+            guard pane.selection == .session(first.id), shell.tabs.first(where: \.current)?.id == fileTab
+            else { fail("previous tab did not step back through the Run pane's tabs") }
+            step("in the Run pane the tab commands step through its tabs, not the file tabs")
+            // The pane can be resized by dragging the strip between it and the code, and double-click sizes it back.
+            guard let host = shell.view else { fail("no view") }
+            host.layoutSubtreeIfNeeded()
+            guard !host.slotDivider.isHidden else { fail("no strip to resize the pane by") }
+            let wide = host.slotDivider.vertical
+            let sizeBefore = wide ? pane.frame.width : pane.frame.height
+            let grip = NSPoint(x: host.slotDivider.frame.midX, y: host.slotDivider.frame.midY)
+            host.drag(slotTo: NSPoint(x: grip.x - (wide ? 120 : 0), y: grip.y - (wide ? 0 : 80)))
+            host.layoutSubtreeIfNeeded()
+            let after = wide ? pane.frame.width : pane.frame.height
+            guard after > sizeBefore + 40
+            else { fail("dragging the strip did not make the pane bigger: \(sizeBefore) -> \(after)") }
+            let editorSpace = wide ? host.editor.frame.width : host.editor.frame.height
+            host.slotFraction = 0.2
+            host.layoutSubtreeIfNeeded()
+            let least = wide ? pane.frame.width : pane.frame.height
+            guard least < after, (wide ? host.editor.frame.width : host.editor.frame.height) > editorSpace
+            else { fail("a smaller share did not give the code its room back") }
+            host.slotFraction = RunPlacement.fraction
+            step("the pane is resized by dragging the strip between it and the code")
             // A failure shows its exit code.
             shell.runInRunPane(RunEntry(
                 title: "broken",

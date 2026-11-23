@@ -75,6 +75,16 @@ enum PaneLayout {
         set { UserDefaults.standard.set(Double(newValue), forKey: "sidebarWidth") }
     }
 
+    /// How much of the grid's column the build and Run pane take (dragged by the strip between them and the code).
+    static let slotRange: ClosedRange<CGFloat> = 0.2 ... 0.75
+    static var slotFraction: CGFloat {
+        get {
+            let stored = UserDefaults.standard.double(forKey: "slotFraction")
+            return stored == 0 ? RunPlacement.fraction : min(max(stored, slotRange.lowerBound), slotRange.upperBound)
+        }
+        set { UserDefaults.standard.set(Double(newValue), forKey: "slotFraction") }
+    }
+
     static var sidebarVisible: Bool {
         get { UserDefaults.standard.object(forKey: "sidebarVisible") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "sidebarVisible") }
@@ -110,6 +120,28 @@ final class DividerView: NSView {
     /// The sidebar `distance` wider (or narrower) than `width`: what a drag from that width comes to.
     func mouseDragged(from width: CGFloat, by distance: CGFloat) {
         host?.sidebarWidth = width + distance
+    }
+}
+
+/// The strip between the code and the build or Run pane: drag it to size the pane, double-click to size it back.
+final class SlotDividerView: NSView {
+    weak var host: FrameView?
+    var vertical = true
+
+    override var mouseDownCanMoveWindow: Bool { false }
+    override var isFlipped: Bool { true }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: vertical ? .resizeLeftRight : .resizeUpDown)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 { host?.slotFraction = RunPlacement.fraction }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let host else { return }
+        host.drag(slotTo: host.convert(event.locationInWindow, from: nil))
     }
 }
 
@@ -152,6 +184,29 @@ final class FrameView: NSView {
     }
 
     let divider = DividerView()
+    let slotDivider = SlotDividerView()
+    /// The share of the grid's column the pane takes (kept), and the column it was laid out in.
+    var slotFraction = PaneLayout.slotFraction {
+        didSet {
+            slotFraction = min(max(slotFraction, PaneLayout.slotRange.lowerBound), PaneLayout.slotRange.upperBound)
+            if persisting { PaneLayout.slotFraction = slotFraction }
+            needsLayout = true
+        }
+    }
+
+    private var slotColumn = NSRect.zero
+    private var slotRight = true
+
+    /// A drag of the strip to `point`: the pane is as big as reaches from there to the column's far edge.
+    func drag(slotTo point: NSPoint) {
+        guard slotColumn.width > 0 else { return }
+        if slotRight {
+            slotFraction = (slotColumn.maxX - point.x) / slotColumn.width
+        } else {
+            slotFraction = (slotColumn.maxY - point.y) / slotColumn.height
+        }
+    }
+
     /// Zen: the sidebar, the tabs, the status bar and the build pane are out of the way and the text is in the middle.
     /// Only
     /// the layout changes (what is shown when it is over is as it was).
@@ -223,6 +278,8 @@ final class FrameView: NSView {
         divider.host = self
         addSubview(sidebar)
         addSubview(divider)
+        slotDivider.host = self
+        addSubview(slotDivider)
         addSubview(editor)
         addSubview(overlay)
         addSubview(statusBar)
@@ -283,17 +340,37 @@ final class FrameView: NSView {
                 )
             }
         }
+        slotDivider.isHidden = true
         if let terminal = [terminal, runView].compactMap({ $0 }).first(where: { !$0.isHidden }), !zen {
+            slotColumn = column
             switch RunPlacement.for(width: bounds.width) {
             case .right:
-                let width = max(RunPlacement.leastWidth, (column.width * RunPlacement.fraction).rounded())
+                slotRight = true
+                let width = max(RunPlacement.leastWidth, (column.width * slotFraction).rounded())
                 terminal.frame = NSRect(x: column.maxX - width, y: column.minY, width: width, height: column.height)
                 column.size.width -= width + gap
+                slotDivider.vertical = true
+                slotDivider.frame = NSRect(
+                    x: terminal.frame.minX - gap - 2,
+                    y: terminal.frame.minY,
+                    width: gap + 4,
+                    height: terminal.frame.height
+                )
             case .bottom:
-                let height = max(RunPlacement.leastHeight, (column.height * RunPlacement.fraction).rounded())
+                slotRight = false
+                let height = max(RunPlacement.leastHeight, (column.height * slotFraction).rounded())
                 terminal.frame = NSRect(x: column.minX, y: column.maxY - height, width: column.width, height: height)
                 column.size.height -= height + gap
+                slotDivider.vertical = false
+                slotDivider.frame = NSRect(
+                    x: terminal.frame.minX,
+                    y: terminal.frame.minY - gap - 2,
+                    width: terminal.frame.width,
+                    height: gap + 4
+                )
             }
+            slotDivider.isHidden = false
+            window?.invalidateCursorRects(for: slotDivider)
         }
         let tabsShown = !zen && Tabs.isShown(count: tabStrip.tabs.count, placement: tabsPlacement)
         let stripHeight = TabsView.stripHeight(for: statusBar.look)
@@ -1514,12 +1591,36 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
     @objc func nextTab(_: Any?) { stepTab(1) }
     @objc func previousTab(_: Any?) { stepTab(-1) }
 
+    /// The tab commands (Control-Tab, ⇧⌘[ and ⇧⌘], ⌘W) go to the tabs of the pane the keyboard is in: Problems and
+    /// Output
+    /// in the build pane, Run and the outputs in the Run pane; anywhere else, to the file tabs.
     private func stepTab(_ step: Int) {
+        if modes.surface == .terminal, let pane = runPane, !pane.isHidden {
+            let order: [BuildPane.Tab] = [.problems, .output]
+            let index = order.firstIndex(of: pane.tab) ?? 0
+            let next = order[(index + step + order.count) % order.count]
+            pane.select(next)
+            window.makeFirstResponder(pane.focusView)
+            return
+        }
+        if modes.surface == .run, let pane = runListPane, !pane.isHidden, !pane.editing {
+            let order: [RunPaneView.Selection] = [.list] + pane.sessions.map { .session($0.id) }
+            let index = order.firstIndex(of: pane.selection) ?? 0
+            pane.select(order[(index + step + order.count) % order.count])
+            focus(.run)
+            return
+        }
         guard let id = Tabs.neighbor(of: tabs.first { $0.current }?.id, in: tabs, by: step) else { return }
         selectTab(id)
     }
 
     @objc func closeCurrentTab(_: Any?) {
+        if modes.surface == .run, let pane = runListPane, !pane.isHidden {
+            // A tab of the Run pane closes its run; the list stays.
+            if let session = pane.current { pane.onClose?(session) }
+            return
+        }
+        if modes.surface == .terminal, runPane?.isHidden == false { return }
         if let current = tabs.first(where: \.current) { closeTab(current.id) }
     }
 
@@ -1763,7 +1864,8 @@ final class FrameWindowController: NSObject, NSWindowDelegate, NSMenuItemValidat
             .rawValue ? .on : .off
         case #selector(chooseTabsMax(_:)): item.state = (item.representedObject as? Int) == app.tabsMax ? .on : .off
         case #selector(toggleTabsAutoclose(_:)): item.state = app.tabsAutoclose ? .on : .off
-        case #selector(nextTab(_:)), #selector(previousTab(_:)), #selector(closeCurrentTab(_:)): return !tabs.isEmpty
+        case #selector(nextTab(_:)), #selector(previousTab(_:)), #selector(closeCurrentTab(_:)):
+            return !tabs.isEmpty || modes.surface == .run || modes.surface == .terminal
         case #selector(showOpenFiles(_:)): return tabs.count > 1 || tabPicker != nil
         default: break
         }
