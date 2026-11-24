@@ -325,6 +325,56 @@ struct RendererTests {
         #expect(!ink(row: 1, cols: 6 ..< 20), "not as wide as at twice the size")
     }
 
+    @Test(
+        "a card (altfont, blend 98, 97, 96) is a sunken block: rounded at its first and last row, the fill inside, a line in the special colour along the bottom"
+    )
+    func card() throws {
+        let canvas = try Canvas(cols: 24, rows: 8)
+        var builder = ScreenBuilder(cols: 24, rows: 8)
+        let fill = 0x303040
+        for (id, blend) in [(5, 98), (6, 97), (7, 96)] {
+            var attrs: [String: MessagePackValue] = [
+                "altfont": .bool(true),
+                "blend": .int(Int64(blend)),
+                "background": .int(Int64(fill)),
+            ]
+            if blend == 96 { attrs["special"] = .int(Int64(0x33DD88)) }
+            builder.highlight(id, attrs)
+        }
+        builder.window(grid: 2, row: 0, col: 0, cols: 24, rows: 8)
+        builder.text(String(repeating: " ", count: 16), grid: 2, row: 2, col: 4, hl: 5)
+        builder.text(String(repeating: " ", count: 16), grid: 2, row: 3, col: 4, hl: 6)
+        builder.text(String(repeating: " ", count: 16), grid: 2, row: 4, col: 4, hl: 6)
+        builder.text(String(repeating: " ", count: 16), grid: 2, row: 5, col: 4, hl: 7)
+        try canvas.render(Frame(screen: builder.screen))
+        let left = 4 * canvas.cellWidth, right = 20 * canvas.cellWidth
+        let top = 2 * canvas.cellHeight, bottom = 6 * canvas.cellHeight
+        #expect(canvas.pixel(x: left, y: top) == background, "the top corners are rounded away")
+        #expect(canvas.pixel(x: right - 1, y: bottom - 1) == background, "so are the bottom ones")
+        #expect(
+            canvas.pixel(x: left, y: top + 3 * canvas.cellHeight / 2) != background,
+            "the sides of the middle rows are not"
+        )
+        func close(_ a: Int, _ b: Int) -> Bool {
+            abs((a >> 16) - (b >> 16)) < 12 && abs(((a >> 8) & 0xFF) - ((b >> 8) & 0xFF)) < 12 &&
+                abs((a & 0xFF) - (b & 0xFF)) < 12
+        }
+        #expect(
+            close(canvas.pixel(x: (left + right) / 2, y: 4 * canvas.cellHeight + canvas.cellHeight / 2), fill),
+            "the fill, away from the edges"
+        )
+        #expect(
+            !close(canvas.pixel(x: (left + right) / 2, y: top + 3), fill),
+            "the top row is shaded darker near its top edge"
+        )
+        let line = ((bottom - 8) ..< bottom).contains { y in
+            let colour = canvas.pixel(x: (left + right) / 2, y: y)
+            return (colour >> 8) & 0xFF > 0xB0 && (colour >> 16) & 0xFF < 0x60
+        }
+        #expect(line, "the line along the bottom edge")
+        #expect(Set(canvas.cell(row: 1, col: 10)) == [background], "nothing above the card")
+    }
+
     // MARK: Day 4: cursor and colours
 
     /// A window with "abc" at the top left and the cursor on the "b".

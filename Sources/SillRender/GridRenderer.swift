@@ -80,6 +80,9 @@ struct RectInstance {
     static let dotted: UInt32 = 3
     static let dashed: UInt32 = 4
     static let border: UInt32 = 5
+    static let cardTop: UInt32 = 6
+    static let cardMiddle: UInt32 = 7
+    static let cardBottom: UInt32 = 8
 }
 
 struct GlyphInstance {
@@ -468,6 +471,7 @@ public final class GridRenderer {
         var built = Row(version: buffer.rowVersions[row], covers: covers, backgrounds: [], glyphs: [], decorations: [])
         let cols = buffer.cols
         var col = 0
+        let cardFill = cardFill(buffer, row: row, style: style)
         while col < cols {
             let hl = buffer[row, col].hl
             var end = col + 1
@@ -493,9 +497,13 @@ public final class GridRenderer {
                 col = end
                 continue
             }
+            // A card's cells have the block's fill, drawn by the card's own rounded shape (below), so what is under it
+            // is the
+            // page; any other background inside a card (a diff's added line) is a plain rect.
+            if highlight.card != nil, background == cardFill { background = style.background }
             if covers || background != style.background {
                 var color = Self.color(background)
-                // (`blend` on a marked run is a size or a box, not a transparency.)
+                // (`blend` on a marked run is a size, a box or a card, not a transparency.)
                 color.w = highlight.altfont ? 1 : 1 - Float(highlight.blend) / 100
                 built.backgrounds.append(RectInstance(origin: [x, 0], size: [width, cellHeight], color: color))
             }
@@ -504,7 +512,50 @@ public final class GridRenderer {
             col = end
         }
         appendBoxes(buffer, row: row, style: style, to: &built)
+        appendCards(buffer, row: row, style: style, to: &built)
         return built
+    }
+
+    /// The fill of a row's card: the background of its first card cell, or nil when the row has none.
+    private func cardFill(_ buffer: GridBuffer, row: Int, style: Style) -> Int? {
+        for col in 0 ..< buffer.cols {
+            if let highlight = style.highlights[buffer[row, col].hl], highlight.card != nil {
+                return highlight.background ?? style.background
+            }
+        }
+        return nil
+    }
+
+    /// A card's row: one rounded, shaded rect over the stretch of its cells, in the card's fill, and along the bottom
+    /// row's
+    /// bottom edge a line in its special colour (inset from the corners).
+    private func appendCards(_ buffer: GridBuffer, row: Int, style: Style, to built: inout Row) {
+        var col = 0
+        while col < buffer.cols {
+            guard let first = style.highlights[buffer[row, col].hl], let edge = first.card else {
+                col += 1
+                continue
+            }
+            var end = col + 1
+            while end < buffer.cols, style.highlights[buffer[row, end].hl]?.card != nil {
+                end += 1
+            }
+            let kind = edge == .top ? RectInstance.cardTop : edge == .middle ? RectInstance.cardMiddle : RectInstance
+                .cardBottom
+            let x = Float(col) * cellWidth, width = Float(end - col) * cellWidth
+            built.backgrounds.append(RectInstance(
+                origin: [x, 0], size: [width, cellHeight], color: Self.color(first.background ?? style.background),
+                kind: kind, thickness: Float(scale)
+            ))
+            if edge == .bottom, let special = first.special {
+                let inset = 10 * Float(scale), line = 2 * Float(scale)
+                built.decorations.append(RectInstance(
+                    origin: [x + inset, cellHeight - line - Float(scale)], size: [max(width - inset * 2, 0), line],
+                    color: Self.color(special)
+                ))
+            }
+            col = end
+        }
     }
 
     /// A rounded outline round each stretch of cells whose highlight is a box (inline code): one outline for the

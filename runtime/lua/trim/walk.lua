@@ -44,6 +44,14 @@ end
 
 local levels = { ok = 'TrimWalkOk', warn = 'TrimWalkWarn', err = 'TrimWalkErr' }
 
+--- The cursor's line in the window that shows `buf` (0 when none does).
+function M.cursor_line(buf)
+  local win = vim.fn.bufwinid(buf)
+  if win < 0 then return 0 end
+  return api.nvim_win_get_cursor(win)[1]
+end
+
+
 --- How wide the cards are: the window's text area, to a readable limit.
 function M.card_width(buf)
   local win = vim.fn.bufwinid(buf)
@@ -122,6 +130,9 @@ function M.render(path, json)
       if open == nil then open = total <= walkcard.OPEN_LIMIT end
       if not open then card = walkcard.lines(item, width, false) end
       set(number, 0, { virt_lines = card })
+      -- The directive is the card's source: its text is hidden (the line stays, as the card's top margin) and shows, to
+      -- edit, while the cursor is on the line.
+      if #text > 0 then set(number, 0, { end_col = #text, conceal = '', priority = 300 }) end
       cards[#cards + 1] = { line = number, key = key, open = open, total = total }
       if item.kind == 'code' and item.path then
         jumps[#jumps + 1] = { line = number, path = item.path, from = item.from, to = item.to }

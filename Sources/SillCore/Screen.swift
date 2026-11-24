@@ -123,10 +123,26 @@ public struct Highlight: Sendable, Equatable {
 
     /// How many times the size a run is drawn at: 1, or with `altfont` twice, or as `blend` says (50 is 1.5 times, 25
     /// is 1.25 times; `blend` is nothing else on text).
-    public var scale: Float { altfont && !boxed ? (blend > 0 ? 1 + Float(blend) / 100 : 2) : 1 }
+    public var scale: Float { altfont && !boxed && card == nil ? (blend > 0 ? 1 + Float(blend) / 100 : 2) : 1 }
 
     /// A box round the run's cells (inline code): `altfont` with a `blend` of 100.
     public var boxed: Bool { altfont && blend == 100 }
+
+    /// A row of a card (a sunken, rounded block drawn over several rows): `altfont` with a `blend` of 98 for its top
+    /// row,
+    /// 97 for one in the middle and 96 for its bottom row. The cells' background is the block's fill, and the bottom
+    /// row's
+    /// special colour is a line along its bottom edge.
+    public enum CardRow: Sendable { case top, middle, bottom }
+    public var card: CardRow? {
+        guard altfont else { return nil }
+        switch blend {
+        case 98: return .top
+        case 97: return .middle
+        case 96: return .bottom
+        default: return nil
+        }
+    }
 
     public init() {}
 }

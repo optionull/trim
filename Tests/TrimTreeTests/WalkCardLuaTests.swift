@@ -106,8 +106,37 @@ struct WalkCardLuaTests {
         end
         assert(rows[2]:find('98', 1, true) and rows[3]:find('99', 1, true), 'numbers: ' .. rows[2] .. ' / ' .. rows[3])
         assert(not rows[4]:find('%d%d'), 'a continuation row has no number: ' .. rows[4])
-        assert(rows[4]:find('▎   ', 1, true) or rows[4]:find('^▎%s+  %S'), 'indented: ' .. rows[4])
+        assert(rows[4]:find('^%s+  %S'), 'indented: ' .. rows[4])
         assert(rows[#rows - 1]:find('100', 1, true), 'the last line is 100: ' .. rows[#rows - 1])
+        """)
+    }
+
+    @Test(
+        "a card's rows are marked for the grid: its header the first row, its body the middle and its bottom edge the last, in the freshness colour"
+    )
+    func rows() throws {
+        try check("""
+        local card = require('trim.walkcard')
+        local item = { kind = 'code', heading = 'R', path = '/tmp/x.lua', from = 1, to = 2, level = 'warn', badge = 'changed', code = 'local a = 1\\nreturn a' }
+        local lines = card.lines(item, 50, true)
+        local function blends(line)
+          local out = {}
+          for _, chunk in ipairs(line) do
+            local hl = vim.api.nvim_get_hl(0, { name = chunk[2], link = false })
+            assert(hl.altfont, chunk[2] .. ' is not marked for the grid')
+            out[hl.blend] = true
+          end
+          return out
+        end
+        local head, middle, last = blends(lines[1]), blends(lines[2]), blends(lines[#lines])
+        assert(head[98] and not head[97] and not head[96], 'header is the top row')
+        assert(middle[97] and not middle[98] and not middle[96], 'the body is the middle')
+        assert(last[96] and not last[97], 'the last row is the bottom')
+        local edge = vim.api.nvim_get_hl(0, { name = last and lines[#lines][#lines[#lines]][2], link = false })
+        local warn = vim.api.nvim_get_hl(0, { name = 'DiagnosticWarn', link = false }).fg
+        assert(edge.sp == warn, 'the bottom edge is in the freshness colour')
+        local normal = vim.api.nvim_get_hl(0, { name = 'Normal', link = false })
+        assert(vim.api.nvim_get_hl(0, { name = 'TrimCardBody', link = false }).bg ~= normal.bg, 'the fill is not the page')
         """)
     }
 }

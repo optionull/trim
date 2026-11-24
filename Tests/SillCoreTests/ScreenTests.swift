@@ -107,6 +107,14 @@ struct HitTests {
         #expect(plain.scale == 1.5)
         plain.blend = 100
         #expect(plain.scale == 1 && plain.boxed)
+        var card = Highlight()
+        card.altfont = true
+        for (blend, edge) in [(98, Highlight.CardRow.top), (97, .middle), (96, .bottom)] {
+            card.blend = blend
+            #expect(card.card == edge && card.scale == 1 && !card.boxed)
+        }
+        card.blend = 95
+        #expect(card.card == nil && card.scale == 1.95)
         var float = Highlight()
         float.blend = 40
         #expect(float.scale == 1 && !float.boxed, "a float's blend is not a size")

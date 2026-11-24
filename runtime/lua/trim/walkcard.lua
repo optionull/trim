@@ -1,7 +1,8 @@
--- The cards of a walkthrough: the code (or the change) an anchor points at, as a tinted block of virtual lines under the
--- line that anchors it. A card has a header bar (what, where, whether it is still true), an accent stripe in the colour of
--- that answer, the code with its own line numbers, wrapped to the width it is given at word boundaries, and is open or
--- closed to a peek of its first lines.
+-- The cards of a walkthrough: the code (or the change) an anchor points at, as a sunken, rounded block of virtual lines
+-- under the line that anchors it. A card has a header row (what, where, whether it is still true), the code with its own
+-- line numbers wrapped to the width it is given at word boundaries, and a bottom edge in the colour of that answer; it is
+-- open or closed to a peek of its first lines. The grid draws the block from the rows' highlights: `altfont` with a
+-- `blend` of 98 (the first row), 97 (the middle) and 96 (the last), and the last row's special colour along its edge.
 local M = {}
 local api = vim.api
 
@@ -19,46 +20,58 @@ end
 
 local tint = 0
 local codes = {}
+--- What marks a row of the block to the grid (Highlight.card there).
+local ROW = { T = 98, M = 97, B = 96 }
 
---- The groups, from the colour scheme: a tint a little off the background for the card, a stronger one for its header.
+local function luminance(c)
+  return (bit.band(bit.rshift(c, 16), 255) * 0.3 + bit.band(bit.rshift(c, 8), 255) * 0.59 + bit.band(c, 255) * 0.11) / 255
+end
+
+--- A group for one row kind of the block: the colours given, the sunken fill, and the marker.
+local function row_group(name, kind, opts)
+  opts.bg = opts.bg or tint
+  opts.altfont = true
+  opts.blend = ROW[kind]
+  api.nvim_set_hl(0, name, opts)
+end
+
+--- The groups, from the colour scheme: a fill darker than the page, so the block is set into it.
 function M.define()
   local normal = api.nvim_get_hl(0, { name = 'Normal', link = false })
   local bg, fg = normal.bg or 0x101010, normal.fg or 0xe0e0e0
-  tint = mix(bg, fg, 0.05)
-  local head = mix(bg, fg, 0.1)
+  tint = mix(bg, 0x000000, luminance(bg) < 0.5 and 0.3 or 0.06)
   local muted = mix(bg, fg, 0.5)
-  api.nvim_set_hl(0, 'TrimCardBody', { fg = fg, bg = tint })
-  api.nvim_set_hl(0, 'TrimCardHead', { fg = fg, bg = head })
-  api.nvim_set_hl(0, 'TrimCardTitle', { fg = fg, bg = head, bold = true })
-  api.nvim_set_hl(0, 'TrimCardMeta', { fg = muted, bg = head })
-  api.nvim_set_hl(0, 'TrimCardGutter', { fg = mix(bg, fg, 0.32), bg = tint })
-  api.nvim_set_hl(0, 'TrimCardMore', { fg = muted, bg = tint, italic = true })
   local add = api.nvim_get_hl(0, { name = 'DiffAdd', link = false })
   local del = api.nvim_get_hl(0, { name = 'DiffDelete', link = false })
-  api.nvim_set_hl(0, 'TrimCardAdd', { fg = add.fg or 0x7ee787, bg = add.bg or mix(tint, 0x2ea043, 0.25) })
-  api.nvim_set_hl(0, 'TrimCardDel', { fg = del.fg or 0xff7b72, bg = del.bg or mix(tint, 0xf85149, 0.25) })
-  api.nvim_set_hl(0, 'TrimCardErr', { fg = api.nvim_get_hl(0, { name = 'DiagnosticError', link = false }).fg or fg, bg = tint })
-  -- The accent stripe (on the body and on the header) and the chip, in the colour of whether the code is still as written.
+  local err = api.nvim_get_hl(0, { name = 'DiagnosticError', link = false }).fg or fg
+  row_group('TrimCardHead', 'T', { fg = fg })
+  row_group('TrimCardTitle', 'T', { fg = fg, bold = true })
+  row_group('TrimCardMeta', 'T', { fg = muted })
+  row_group('TrimCardBody', 'M', { fg = fg })
+  row_group('TrimCardGutter', 'M', { fg = mix(bg, fg, 0.3) })
+  row_group('TrimCardMore', 'M', { fg = muted, italic = true })
+  row_group('TrimCardErr', 'M', { fg = err })
+  row_group('TrimCardAdd', 'M', { fg = add.fg or 0x7ee787, bg = add.bg or mix(tint, 0x2ea043, 0.25) })
+  row_group('TrimCardDel', 'M', { fg = del.fg or 0xff7b72, bg = del.bg or mix(tint, 0xf85149, 0.25) })
+  -- The chip in the header, and the bottom edge, in the colour of whether the code is still as written.
+  row_group('TrimCardEdge', 'B', { fg = fg, sp = mix(bg, fg, 0.18) })
   for _, level in ipairs({ { 'Ok', 'DiagnosticOk' }, { 'Warn', 'DiagnosticWarn' }, { 'Err', 'DiagnosticError' } }) do
     local colour = api.nvim_get_hl(0, { name = level[2], link = false }).fg or fg
-    api.nvim_set_hl(0, 'TrimCardBar' .. level[1], { fg = colour, bg = tint })
-    api.nvim_set_hl(0, 'TrimCardHeadBar' .. level[1], { fg = colour, bg = head })
-    api.nvim_set_hl(0, 'TrimCard' .. level[1], { fg = colour, bg = head, bold = true })
+    row_group('TrimCard' .. level[1], 'T', { fg = colour, bold = true })
+    row_group('TrimCardEdge' .. level[1], 'B', { fg = fg, sp = colour })
   end
-  api.nvim_set_hl(0, 'TrimCardBar', { fg = mix(bg, fg, 0.3), bg = tint })
-  api.nvim_set_hl(0, 'TrimCardHeadBar', { fg = mix(bg, fg, 0.3), bg = head })
-  -- Syntax colours were made against the old tint.
-  for name, spec in pairs(codes) do api.nvim_set_hl(0, name, { fg = spec[1], bg = tint, bold = spec[2], italic = spec[3] }) end
+  -- Syntax colours were made against the old fill.
+  for name, spec in pairs(codes) do row_group(name, 'M', { fg = spec[1], bold = spec[2], italic = spec[3] }) end
 end
 M.define()
 api.nvim_create_autocmd('ColorScheme', { group = api.nvim_create_augroup('TrimWalkCard', { clear = true }), callback = M.define })
 
---- The group for a syntax colour on the card's tint.
+--- The group for a syntax colour on the card's fill.
 local function code_group(c, bold, italic)
   local name = ('TrimCardC%06x%s%s'):format(c or 0, bold and 'b' or '', italic and 'i' or '')
   if not codes[name] then
     codes[name] = { c, bold, italic }
-    api.nvim_set_hl(0, name, { fg = c, bg = tint, bold = bold, italic = italic })
+    row_group(name, 'M', { fg = c, bold = bold, italic = italic })
   end
   return name
 end
@@ -135,11 +148,12 @@ end
 
 local levels = { ok = 'Ok', warn = 'Warn', err = 'Err' }
 
---- A line of the card: the stripe, the gutter, the chunks and the padding that makes it `width` cells.
-local function body(bar, gutter, chunks, cells, inner, hl)
-  local line = { { '▎', bar }, { gutter, 'TrimCardGutter' } }
+--- A line of the card: a cell of padding, the gutter, the chunks and the padding that makes it `width` cells.
+local function body(edge, gutter, chunks, cells, inner, hl)
+  -- (The grid takes a row's shape from its first cell, so the bottom row is all of the bottom edge's highlight.)
+  local line = { { ' ', edge or 'TrimCardBody' }, { gutter, edge or 'TrimCardGutter' } }
   for _, chunk in ipairs(chunks) do line[#line + 1] = chunk end
-  line[#line + 1] = { string.rep(' ', inner - cells) .. ' ', hl or 'TrimCardBody' }
+  line[#line + 1] = { string.rep(' ', inner - cells) .. ' ', hl or edge or 'TrimCardBody' }
   return line
 end
 
@@ -147,7 +161,6 @@ end
 --- header, a peek of its first rows and how many more there are. Returns the lines and how many rows the content has.
 function M.lines(item, width, open)
   local level = levels[item.level]
-  local bar = 'TrimCardBar' .. (level or '')
   local digits = (item.kind == 'code' and item.from) and #tostring((item.to or item.from) + 1) or 0
   local gutter_width = digits > 0 and digits + 1 or 1
   local inner = width - 1 - gutter_width - 1
@@ -186,8 +199,8 @@ function M.lines(item, width, open)
   local where = item.path and ('%s:%d-%d'):format(item.relative or item.path, item.from, item.to) or ''
   local badge = item.badge or ''
   local function head(with_where)
-    -- The stripe, a space, the title and fill, what is on the right, a space.
-    local used = 2 + width_of(title) + 1
+    -- A space, the title and fill, what is on the right, a space.
+    local used = 1 + width_of(title) + 1
     local right = {}
     if with_where and where ~= '' then right[#right + 1] = { where, 'TrimCardMeta' } end
     if badge ~= '' then right[#right + 1] = { (#right > 0 and '  ' or '') .. badge, 'TrimCard' .. (level or 'Meta') } end
@@ -196,10 +209,7 @@ function M.lines(item, width, open)
   end
   local right, fill = head(true)
   if fill < 1 then right, fill = head(false) end
-  local top = {
-    { '▎', 'TrimCardHeadBar' .. (level or '') }, { ' ', 'TrimCardHead' }, { title, 'TrimCardTitle' },
-    { string.rep(' ', math.max(fill, 1)), 'TrimCardHead' },
-  }
+  local top = { { ' ', 'TrimCardHead' }, { title, 'TrimCardTitle' }, { string.rep(' ', math.max(fill, 1)), 'TrimCardHead' } }
   for _, chunk in ipairs(right) do top[#top + 1] = chunk end
   top[#top + 1] = { ' ', 'TrimCardHead' }
   local lines = { top }
@@ -208,13 +218,14 @@ function M.lines(item, width, open)
     local number = rows[i][3]
     local gutter = ' '
     if digits > 0 then gutter = number and (string.rep(' ', digits - #tostring(number)) .. number .. ' ') or string.rep(' ', digits + 1) end
-    lines[#lines + 1] = body(bar, gutter, rows[i][1], rows[i][2], inner, rows[i][4])
+    lines[#lines + 1] = body(nil, gutter, rows[i][1], rows[i][2], inner, rows[i][4])
   end
   if limit < #rows then
     local more = ('⋯ %d more line%s   za to open'):format(#rows - limit, #rows - limit == 1 and '' or 's')
-    lines[#lines + 1] = body(bar, string.rep(' ', gutter_width), { { more, 'TrimCardMore' } }, width_of(more), inner)
+    lines[#lines + 1] = body(nil, string.rep(' ', gutter_width), { { more, 'TrimCardMore' } }, width_of(more), inner)
   end
-  lines[#lines + 1] = body(bar, string.rep(' ', gutter_width), {}, 0, inner)
+  -- The bottom edge: an empty row, with a line along its bottom in the colour of whether the code is as written.
+  lines[#lines + 1] = body('TrimCardEdge' .. (level or ''), string.rep(' ', gutter_width), {}, 0, inner)
   return lines, #rows
 end
 

@@ -38,10 +38,12 @@ on the first item. Fenced blocks sit on a tint with their language named. This a
 
 ## Cards
 
-Under each `@code` (and `@diff`) is a card: a tinted block with a header bar (the symbol, the file and lines, and a chip that
-says whether the code is still as written), the code highlighted in your scheme with its own line numbers, wrapped to the window at word boundaries, and for a diff
-the added and removed lines coloured. A card longer than 14 rows opens as a peek (its first four rows and how many more);
-`za` opens or closes the card the cursor is at, `zR` and `zM` open and close all of them. Cards are as wide as the window and
+Under each `@code` (and `@diff`) is a card: a sunken, rounded block set into the page, with a header row (the symbol, the
+file and lines, and a chip that says whether the code is still as written), the code highlighted in your scheme with its own
+line numbers and wrapped to the window at word boundaries, and for a diff the added and removed lines coloured. A line along the
+card's bottom edge is in the colour of whether the code is as written (green, amber, red). The `@code` line itself is hidden
+behind its card and shows, to edit, when the cursor is on it. A card longer than 14 rows opens as a peek (its first four rows and
+how many more); `za` opens or closes the card the cursor is at, `zR` and `zM` open and close all of them. Cards are as wide as the window and
 are drawn again when it is resized.
 
 ## Read it like nvim
