@@ -52,10 +52,10 @@ function M.apply(buf, ns, lines, front_end)
         while true do
           local first, last = text:find('`[^`\n]+`', from)
           if not first then break end
-          -- The backticks stay, as spaces inside the box: its padding.
+          -- The backticks stay, as spaces inside the box: its padding (drawn in the box's own highlight, not Conceal's).
           pcall(api.nvim_buf_set_extmark, buf, ns, number - 1, first - 1, { end_col = last, hl_group = 'TrimMdCode', priority = 200 })
-          pcall(api.nvim_buf_set_extmark, buf, ns, number - 1, first - 1, { end_col = first, conceal = ' ', priority = 210 })
-          pcall(api.nvim_buf_set_extmark, buf, ns, number - 1, last - 1, { end_col = last, conceal = ' ', priority = 210 })
+          pcall(api.nvim_buf_set_extmark, buf, ns, number - 1, first - 1, { end_col = first, conceal = ' ', hl_group = 'TrimMdCode', priority = 210 })
+          pcall(api.nvim_buf_set_extmark, buf, ns, number - 1, last - 1, { end_col = last, conceal = ' ', hl_group = 'TrimMdCode', priority = 210 })
           from = last + 1
         end
       end
