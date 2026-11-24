@@ -35,9 +35,8 @@ struct MdStyleLuaTests {
         local lines = { '---', 'by: `x`', '---', '# Title', 'Some `code` here', '## Step', '```', '# not a heading `no`', '```', 'after `two` and `more`' }
         vim.cmd('enew')
         vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
-        local ns = vim.api.nvim_create_namespace('t')
-        md.apply(0, ns, lines, 3)
-        local marks = vim.api.nvim_buf_get_extmarks(0, ns, 0, -1, { details = true })
+        md.apply(0, lines, 3)
+        local marks = vim.api.nvim_buf_get_extmarks(0, md.ns, 0, -1, { details = true })
         local function on(row) local out = {} for _, m in ipairs(marks) do if m[2] == row then out[#out + 1] = m end end return out end
         assert(#on(1) == 0, 'front matter is left alone')
         local title = on(3)
@@ -49,7 +48,10 @@ struct MdStyleLuaTests {
         assert(#code == 3, 'a box and two backticks: ' .. #code)
         assert(vim.api.nvim_get_hl(0, { name = 'TrimMdCode' }).blend == 100, 'a box is blend 100')
         assert(vim.api.nvim_get_hl(0, { name = 'TrimMdH2' }).blend == 50, 'steps are 1.5 times')
-        assert(#on(7) == 0 and #on(6) == 0 and #on(8) == 0, 'fenced lines are left alone')
+        for _, row in ipairs({ 6, 7, 8 }) do
+          for _, m in ipairs(on(row)) do assert(m[4].line_hl_group == 'TrimMdFence' and not m[4].conceal, 'fenced lines only get the tint') end
+        end
+        assert(#on(7) == 1, 'the fenced heading is not a heading')
         assert(#on(9) == 6, 'two spans, three marks each')
         """)
     }

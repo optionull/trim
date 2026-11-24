@@ -81,4 +81,33 @@ struct WalkCardLuaTests {
         assert(#lines == 1 + 4 + 1, 'header, hunk, -, +, context, footer: ' .. #lines)
         """)
     }
+
+    @Test(
+        "a long line wraps at word boundaries with a hanging indent, and the gutter has the source's own line numbers"
+    )
+    func wrapAndNumbers() throws {
+        try check("""
+        local card = require('trim.walkcard')
+        local words = { 'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'theta', 'iota', 'kappa', 'lambda', 'omicron' }
+        local item = { kind = 'code', heading = 'W', path = '/tmp/x.txt', from = 98, to = 100, code = 'first\\n' .. table.concat(words, ' ') .. '\\nlast' }
+        local lines = card.lines(item, 36, true)
+        local rows = {}
+        for _, line in ipairs(lines) do
+          local t = ''
+          for _, chunk in ipairs(line) do t = t .. chunk[1] end
+          rows[#rows + 1] = t
+        end
+        -- Header, first, the long line over several rows, last, the closing row.
+        assert(#rows >= 6, 'wrapped: ' .. #rows)
+        for _, word in ipairs(words) do
+          local whole = false
+          for _, row in ipairs(rows) do if row:find(word, 1, true) then whole = true end end
+          assert(whole, word .. ' was cut')
+        end
+        assert(rows[2]:find('98', 1, true) and rows[3]:find('99', 1, true), 'numbers: ' .. rows[2] .. ' / ' .. rows[3])
+        assert(not rows[4]:find('%d%d'), 'a continuation row has no number: ' .. rows[4])
+        assert(rows[4]:find('▎   ', 1, true) or rows[4]:find('^▎%s+  %S'), 'indented: ' .. rows[4])
+        assert(rows[#rows - 1]:find('100', 1, true), 'the last line is 100: ' .. rows[#rows - 1])
+        """)
+    }
 }

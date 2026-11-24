@@ -27,10 +27,19 @@ backticks are its padding), a border rather than a tint so it never looks like a
 line above the title; move the cursor into it and all of it opens. A walkthrough opens with the cursor on the title, past
 the front matter. The same styling applies to any markdown file you edit in Trim.
 
+## Tables, callouts, checklists
+
+Away from the cursor, a Markdown table is drawn as an aligned grid (columns aligned as the separator row says, cells wrapped
+when the table is wider than the window, `**bold**`, `*italic*`, `` `code` `` and links applied) and a callout
+(`> [!warning] text`; also note, tip, important, caution, danger, risk, question, verified, asserted) as a tinted block with an
+accent bar in its colour and its kind named; a plain `>` quote has a quiet bar. Move the cursor onto one and it is source
+again, so editing is never in the way. Checklist items are boxes (☐ ☑), done items struck through, with a count (`2 of 4`)
+on the first item. Fenced blocks sit on a tint with their language named. This applies to every markdown file you edit.
+
 ## Cards
 
 Under each `@code` (and `@diff`) is a card: a tinted block with a header bar (the symbol, the file and lines, and a chip that
-says whether the code is still as written), the code highlighted in your scheme and wrapped to the window, and for a diff
+says whether the code is still as written), the code highlighted in your scheme with its own line numbers, wrapped to the window at word boundaries, and for a diff
 the added and removed lines coloured. A card longer than 14 rows opens as a peek (its first four rows and how many more);
 `za` opens or closes the card the cursor is at, `zR` and `zM` open and close all of them. Cards are as wide as the window and
 are drawn again when it is resized.

@@ -98,7 +98,7 @@ function M.render(path, json)
   if (model.stale or 0) > 0 then meta[#meta + 1] = { ('  ·  %d need a look'):format(model.stale), 'TrimWalkWarn' } end
   set(title_line or (front_end + 1), 0, { virt_lines = { meta }, virt_lines_above = true })
   -- Headings in bigger type and inline code in a box, as in any markdown buffer.
-  require('trim.mdstyle').apply(buf, ns, lines, front_end)
+  require('trim.mdstyle').apply(buf, lines, front_end)
   M.front(buf)
   for number, text in ipairs(lines) do
     local item = at[number]
@@ -110,13 +110,6 @@ function M.render(path, json)
       set(number, 0, { end_col = #text, hl_group = 'TrimWalkHint', virt_text = { { '   ↵ run', 'TrimWalkMeta' } }, priority = 10 })
     elseif text:match('^>') then
       set(number, 0, { end_col = #text, hl_group = 'TrimWalkMeta', priority = 5 })
-    end
-    local prefix, box = text:match('^(%s*[-*]%s)%[([ xX])%]')
-    if prefix then
-      set(number, #prefix, {
-        end_col = #prefix + 3, virt_text = { { box == ' ' and '☐ ' or '☑ ', box == ' ' and 'TrimWalkMeta' or 'TrimWalkOk' } },
-        virt_text_pos = 'overlay', conceal = nil,
-      })
     end
     if item and (item.kind == 'code' or item.kind == 'diff') then
       local key = (item.heading or '') .. '#' .. (seen[item.heading or ''] or 0)

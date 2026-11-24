@@ -3161,7 +3161,12 @@ struct TrimCheck {
         func drawn() async -> String {
             await lua("""
             local out = {}
-            for _, m in ipairs(vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace('trim_walk'), 0, -1, { details = true })) do
+            local marks = {}
+            for _, name in ipairs({ 'trim_walk', 'trim_md' }) do
+              for _, m in ipairs(vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace(name), 0, -1, { details = true })) do marks[#marks + 1] = m end
+            end
+            for _, m in ipairs(marks) do
+              if m[4].conceal and m[4].conceal ~= '' then out[#out + 1] = m[4].conceal end
               for _, key in ipairs({ 'virt_text', 'virt_lines' }) do
                 for _, row in ipairs(m[4][key] or {}) do
                   local chunks = key == 'virt_lines' and row or { row }
@@ -3278,10 +3283,10 @@ struct TrimCheck {
         step("an anchor whose code changed since it was stamped is marked, and counted in the header")
         // A card folds to a peek of its first rows and opens again.
         await keys("Go@code src/Pricing.cs:1-11<Esc>")
-        await waitAsync("the long card drawn") {
-            let text = await drawn()
-            return text.contains("Pricing.cs:1-11") && !text.contains("more lines")
-        }
+        await waitAsync("the long card drawn") { await drawn().contains("Pricing.cs:1-11") }
+        // (A narrow window wraps it past the limit, and it opens as a peek: open everything to start from there.)
+        await keys("zR")
+        await waitAsync("every card open") { await drawn().contains("more lines") == false }
         // One card closes (zc) and opens again (za); zM closes every card, zR opens every card.
         await keys("zc")
         await waitAsync("the card folded to a peek") { await drawn().contains("more lines") }
@@ -3292,6 +3297,19 @@ struct TrimCheck {
         await keys("zR")
         await waitAsync("every card open") { await drawn().contains("more lines") == false }
         step("za folds a card to a peek (its first rows and how many more) and opens it again; zM and zR do every card")
+        // A table and a callout are drawn, and are source while the cursor is in them.
+        _ = await lua("""
+        vim.api.nvim_buf_set_lines(0, -1, -1, false, { '', '| Dough | Water |', '|---|---:|', '| rye | 80% |', '', '> [!note] Mind the gap', '> second line' })
+        """)
+        await waitAsync("the table and the callout drawn") {
+            let text = await drawn()
+            return text.contains("┬") && text.contains("Mind the gap")
+        }
+        _ = await lua("vim.fn.search('| rye')")
+        await waitAsync("the table as source under the cursor") { await drawn().contains("┬") == false }
+        step(
+            "a table is a grid and a callout a block, drawn away from the cursor; the one the cursor is in shows its source"
+        )
         _ = try? await shell.session.channel.lua("vim.cmd('only'); vim.cmd('silent! %bwipeout!')")
     }
 
