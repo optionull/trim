@@ -14,6 +14,8 @@ M.ns = api.nvim_create_namespace('trim_md')
 --- Buffer -> its blocks ({ first, last } lines) and the one the cursor was in when it was drawn.
 M.blocks = {}
 M.inside = {}
+--- Buffer -> its Mermaid diagrams by the line of their opening fence ({ id, rows, last }), when the app drew them.
+M.diagrams = {}
 --- How often the buffer was drawn again (for a test of scrolling).
 M.stats = { restyle = 0 }
 
@@ -41,6 +43,7 @@ function M.define()
   api.nvim_set_hl(0, 'TrimMdStepNo', { fg = mix(bg, heading.fg or title.fg or fg, 0.55), bold = true, altfont = true, blend = 50 })
   api.nvim_set_hl(0, 'TrimMdRunPlay', { fg = ok.fg or 0x7ee787, bold = true })
   api.nvim_set_hl(0, 'TrimMdRunName', { bold = true })
+  api.nvim_set_hl(0, 'TrimMdDiagram', { fg = fg })
   api.nvim_set_hl(0, 'TrimMdFence', { bg = mix(bg, fg, 0.055) })
   api.nvim_set_hl(0, 'TrimMdFenceLabel', { fg = mix(bg, fg, 0.5), bg = mix(bg, fg, 0.055), italic = true })
   api.nvim_set_hl(0, 'TrimMdBoxOpen', { fg = mix(bg, fg, 0.55) })
@@ -91,6 +94,16 @@ function M.show(set, first, last, front_end, drawn)
   end
 end
 
+--- The rows that hold a diagram's picture: each a margin and the character that names this slice of it (the grid draws
+--- the slice there).
+function M.diagram_rows(diagram)
+  local rows = {}
+  for slice = 0, math.min(diagram.rows or 1, 64) - 1 do
+    rows[#rows + 1] = { { '  ' }, { vim.fn.nr2char(0x100000 + diagram.id * 64 + slice), 'TrimMdDiagram' } }
+  end
+  return rows
+end
+
 --- Decorates `lines` (1-based, of buffer `buf`): headings, inline code, checklists, tables, callouts and quotes, fenced
 --- blocks; outside the front matter (lines 1 to `front_end`, when there is any). `opts.steps` numbers the `##` headings
 --- (a walkthrough's steps); `@ask` lines are question blocks.
@@ -117,15 +130,42 @@ function M.apply(buf, lines, front_end, opts)
     if marker then
       end_list()
       local label
+      local drawn_diagram = false
       if not fence then
         fence = marker
         local language = text:match('^%s*```(%S+)') or text:match('^%s*~~~(%S+)') or ''
-        if language ~= '' then label = { { '  ' .. language, 'TrimMdFenceLabel' } } end
+        local diagram = language == 'mermaid' and opts.diagrams and opts.diagrams[number] or nil
+        if diagram and diagram.id and diagram.last and diagram.last > number and diagram.last <= #lines then
+          -- A diagram the app drew: rows that hold its picture under the fence; the fence itself is hidden unless the
+          -- cursor is in it (then it is source, and the picture is under it).
+          M.blocks[buf][#M.blocks[buf] + 1] = { first = number, last = diagram.last }
+          -- The picture's rows go under the line before the fence: the fence's own lines can be hidden (the markdown
+          -- highlights hide a fence's delimiters), and a hidden line takes its virtual rows with it.
+          local rows = M.diagram_rows(diagram)
+          if number - 1 > (front_end or 0) then
+            set(number - 1, 0, { virt_lines = rows, priority = 200 })
+          elseif diagram.last < #lines then
+            set(diagram.last + 1, 0, { virt_lines = rows, virt_lines_above = true, priority = 200 })
+          end
+          if cursor < number or cursor > diagram.last then
+            for line = number, diagram.last - 1 do set(line, 0, { conceal_lines = '' }) end
+            set(diagram.last, 0, { end_col = #lines[diagram.last], conceal = '', priority = 300 })
+            fence = nil
+            number = diagram.last + 1
+            drawn_diagram = true
+          end
+        elseif diagram and diagram.message then
+          label = { { '  diagram: ' .. diagram.message, 'TrimMdFenceLabel' } }
+        elseif language ~= '' then
+          label = { { '  ' .. language, 'TrimMdFenceLabel' } }
+        end
       else
         fence = nil
       end
-      set(number, 0, { line_hl_group = 'TrimMdFence', priority = 5, virt_text = label })
-      number = number + 1
+      if not drawn_diagram then
+        set(number, 0, { line_hl_group = 'TrimMdFence', priority = 5, virt_text = label })
+        number = number + 1
+      end
     elseif fence then
       set(number, 0, { line_hl_group = 'TrimMdFence', priority = 5 })
       number = number + 1
@@ -234,7 +274,7 @@ function M.restyle(buf)
   if not api.nvim_buf_is_loaded(buf) then return end
   M.stats.restyle = M.stats.restyle + 1
   local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
-  M.apply(buf, lines, front_range(lines), { steps = is_walk(buf) })
+  M.apply(buf, lines, front_range(lines), { steps = is_walk(buf), diagrams = M.diagrams[buf] })
   M.inside[buf] = M.block_at(buf, cursor_line(buf))
 end
 

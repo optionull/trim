@@ -2,6 +2,7 @@ import AppKit
 import CoreText
 import Metal
 import SillCore
+import TrimDiagram
 
 /// What one frame draws: a screen, the grids terminal panes cover, and the cursor.
 public struct Frame: Sendable {
@@ -624,6 +625,14 @@ public final class GridRenderer {
                 col += 1 // The right half of a double-width cell before this run.
                 continue
             }
+            if let (id, slice) = DiagramStore.decode(text) {
+                // A row of a diagram: its slice of the picture, from here to the right (the cells after it are blank).
+                flush()
+                emitDiagram(id: id, slice: slice, col: col, to: &built)
+                col += 1
+                segmentStart = col
+                continue
+            }
             if wide {
                 flush()
                 emit(text, col: col, cells: 2)
@@ -663,6 +672,23 @@ public final class GridRenderer {
                 atlasSize: [region.width, region.height], color: color, colored: region.colored ? 1 : 0
             ))
         }
+    }
+
+    /// The slice of diagram `id` that row `slice` of its block shows, at the cell `col`.
+    private func emitDiagram(id: Int, slice: Int, col: Int, to built: inout Row) {
+        guard let entry = DiagramStore.shared.entry(id),
+              let region = atlas.imageRegion(id: id, entry: entry) else { return }
+        // The picture was drawn for some scale; where the screen's is another it is stretched to the same size in
+        // points.
+        let ratio = Float(scale) / Float(entry.image.scale)
+        let sliceHeight = (cellHeight / ratio).rounded()
+        let top = Float(slice) * sliceHeight
+        guard top < region.height else { return }
+        let height = min(sliceHeight, region.height - top)
+        built.glyphs.append(GlyphInstance(
+            origin: [Float(col) * cellWidth, 0], size: [region.width * ratio, height * ratio],
+            atlasOrigin: [region.x, region.y + top], atlasSize: [region.width, height], color: [1, 1, 1, 1], colored: 1
+        ))
     }
 
     private func shape(_ text: String, _ highlight: Highlight) -> [ShapedGlyph] {

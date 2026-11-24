@@ -175,4 +175,44 @@ struct MdBlocksLuaTests {
         assert(not hidden and text == '', 'the source while the cursor is on it: ' .. text)
         """)
     }
+
+    @Test(
+        "a diagram the app drew is rows of slice characters under its hidden fence, source under the cursor, and a note when it could not be drawn"
+    )
+    func diagram() throws {
+        try check("""
+        local md = require('trim.mdstyle')
+        vim.cmd('enew')
+        local lines = { '# T', '', '```mermaid', 'graph TD', '  A-->B', '```', 'after', '', '```mermaid', 'nonsense', '```' }
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        local diagrams = { [3] = { line = 3, last = 6, kind = 'diagram', id = 7, rows = 3 }, [9] = { line = 9, last = 11, kind = 'diagram', message = 'no library' } }
+        md.apply(0, lines, 0, { diagrams = diagrams })
+        local marks = vim.api.nvim_buf_get_extmarks(0, md.ns, 0, -1, { details = true })
+        local hidden, rows, note = {}, nil, nil
+        for _, m in ipairs(marks) do
+          if m[4].conceal_lines then hidden[#hidden + 1] = m[2] + 1 end
+          if m[4].virt_lines and m[2] + 1 == 2 then rows = m[4].virt_lines end
+          if m[4].virt_text and m[2] + 1 == 9 then note = m[4].virt_text[1][1] end
+        end
+        table.sort(hidden)
+        assert(vim.inspect(hidden) == vim.inspect({ 3, 4, 5 }), 'the fence is hidden down to its closing line: ' .. vim.inspect(hidden))
+        assert(rows and #rows == 3, 'three rows for the picture, under the line before the fence')
+        for slice = 0, 2 do
+          assert(rows[slice + 1][2][1] == vim.fn.nr2char(0x100000 + 7 * 64 + slice), 'row ' .. slice .. ' names slice ' .. slice)
+        end
+        assert(note and note:find('no library', 1, true), 'a diagram that could not be drawn stays source, with the reason: ' .. tostring(note))
+        assert(#md.blocks[0] == 1, 'only the drawn one is a block')
+        -- The cursor in the fence: source, with the picture still under it.
+        vim.api.nvim_win_set_cursor(0, { 4, 0 })
+        md.apply(0, lines, 0, { diagrams = diagrams })
+        marks = vim.api.nvim_buf_get_extmarks(0, md.ns, 0, -1, { details = true })
+        local shown = 0
+        for _, m in ipairs(marks) do
+          assert(not m[4].conceal_lines, 'the fence is source while the cursor is in it')
+          if m[4].virt_lines and m[2] + 1 == 2 then shown = #m[4].virt_lines end
+        end
+        assert(shown == 3, 'and the picture is under it')
+        """)
+    }
 }

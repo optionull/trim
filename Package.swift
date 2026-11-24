@@ -35,7 +35,7 @@ var targets: [Target] = [
     .testTarget(name: "SillAgentTests", dependencies: ["SillAgent"]),
     // The Metal grid: glyph atlas, instanced passes, and the render thread that draws screens.
     .target(
-        name: "SillRender", dependencies: ["SillCore"],
+        name: "SillRender", dependencies: ["SillCore", "TrimDiagram"],
         linkerSettings: [.linkedFramework("Metal"), .linkedFramework("QuartzCore"), .linkedFramework("CoreText")]
     ),
     .testTarget(name: "SillRenderTests", dependencies: ["SillRender", "SillCore", "SillNvim", messagePack]),

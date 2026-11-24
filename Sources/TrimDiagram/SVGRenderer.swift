@@ -14,6 +14,19 @@ public struct DiagramImage: Sendable {
     public var size: CGSize
     public var scale: CGFloat
     public var regions: [DiagramRegion]
+
+    public init(
+        pixelWidth: Int, pixelHeight: Int, bytesPerRow: Int, pixels: Data, size: CGSize, scale: CGFloat,
+        regions: [DiagramRegion]
+    ) {
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.bytesPerRow = bytesPerRow
+        self.pixels = pixels
+        self.size = size
+        self.scale = scale
+        self.regions = regions
+    }
 }
 
 public struct DiagramRegion: Sendable, Equatable {
@@ -21,6 +34,12 @@ public struct DiagramRegion: Sendable, Equatable {
     /// What it is in the diagram: the element's class (`node`, `actor`, `edge-label`...).
     public var kind: String
     public var rect: CGRect
+
+    public init(id: String, kind: String, rect: CGRect) {
+        self.id = id
+        self.kind = kind
+        self.rect = rect
+    }
 }
 
 public enum SVGRender {
@@ -917,16 +936,23 @@ enum SVGPath {
             var seenDot = false, seenExponent = false
             while index < characters.count {
                 let c = characters[index]
-                if c.isNumber { text.append(c) } else if c == "." {
-                    if seenDot || seenExponent { break }
+                let afterExponent = text.last == "e" || text.last == "E"
+                switch c {
+                case _ where c.isNumber:
+                    text.append(c)
+                case "." where !seenDot && !seenExponent:
                     seenDot = true
                     text.append(c)
-                } else if c == "-" || c == "+",
-                          text.isEmpty || (text.last == "e" || text.last == "E") { text.append(c) }
-                else if c == "e" || c == "E", !text.isEmpty, !seenExponent {
+                case "-", "+":
+                    guard text.isEmpty || afterExponent else { return Double(text) }
+                    text.append(c)
+                case "e", "E":
+                    guard !text.isEmpty, !seenExponent else { return Double(text) }
                     seenExponent = true
                     text.append(c)
-                } else { break }
+                default:
+                    return Double(text)
+                }
                 index += 1
             }
             return Double(text)

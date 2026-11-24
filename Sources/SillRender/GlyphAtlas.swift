@@ -4,6 +4,7 @@
 import AppKit
 import CoreText
 import Metal
+import TrimDiagram
 
 /// Rasterised glyphs in two textures: coverage masks (r8, coloured by the shader) and colour glyphs (BGRA, drawn as
 /// they are). Used on one thread only: the render thread, or a test.
@@ -37,6 +38,8 @@ final class GlyphAtlas {
     /// Changes when the atlas is cleared; anything holding regions from before must drop them.
     private(set) var generation = 0
     private var regions: [Key: Region] = [:]
+    /// Diagrams, by id and the serial of the picture the id then held.
+    private var imageRegions: [Int: (serial: Int, region: Region)] = [:]
     private var coveragePacker: Packer
     private var colorPacker: Packer
     private let maxHeight = 8192
@@ -121,6 +124,27 @@ final class GlyphAtlas {
         return region
     }
 
+    /// A diagram in the colour atlas, uploaded the first time it is asked for; nil when it is wider or taller than the
+    /// atlas can hold.
+    func imageRegion(id: Int, entry: DiagramStore.Entry) -> Region? {
+        if let known = imageRegions[id], known.serial == entry.serial { return known.region }
+        let image = entry.image
+        guard image.pixelWidth <= color.width, image.pixelHeight <= maxHeight,
+              let origin = place(width: image.pixelWidth, height: image.pixelHeight, colored: true) else { return nil }
+        image.pixels.withUnsafeBytes { pointer in
+            color.replace(
+                region: MTLRegionMake2D(origin.x, origin.y, image.pixelWidth, image.pixelHeight), mipmapLevel: 0,
+                withBytes: pointer.baseAddress!, bytesPerRow: image.bytesPerRow
+            )
+        }
+        let region = Region(
+            x: Float(origin.x), y: Float(origin.y), width: Float(image.pixelWidth), height: Float(image.pixelHeight),
+            colored: true
+        )
+        imageRegions[id] = (entry.serial, region)
+        return region
+    }
+
     /// Shapes a run, with ligatures.
     func shape(_ text: String, bold: Bool, italic: Bool) -> [ShapedGlyph] {
         shapeRunText(text, font: font, bold: bold, italic: italic)
@@ -128,6 +152,7 @@ final class GlyphAtlas {
 
     func clear() {
         regions.removeAll()
+        imageRegions.removeAll()
         coveragePacker = Packer(width: coverage.width, height: coverage.height)
         colorPacker = Packer(width: color.width, height: color.height)
         generation += 1

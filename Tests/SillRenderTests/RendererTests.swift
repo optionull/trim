@@ -5,6 +5,7 @@ import SillCore
 import SillNvim
 @testable import SillRender
 import Testing
+import TrimDiagram
 
 /// Renders screens offscreen and reads the pixels back.
 @MainActor
@@ -408,6 +409,52 @@ struct RendererTests {
         let y = 3 * canvas.cellHeight + 2
         let colour = canvas.pixel(x: 18 * canvas.cellWidth, y: y)
         #expect((colour >> 8) & 0xFF > 0x50, "green to the end of the row: \(String(colour, radix: 16))")
+    }
+
+    @Test(
+        "a diagram is drawn from its rows: each row's cell names a slice, the last is partial, rows past it show nothing"
+    )
+    func diagramRows() throws {
+        let canvas = try Canvas(cols: 24, rows: 8)
+        let width = 6 * canvas.cellWidth, height = canvas.cellHeight * 5 / 2
+        // Opaque green, premultiplied BGRA, at this canvas's scale.
+        var pixels = Data(count: width * height * 4)
+        pixels.withUnsafeMutableBytes { bytes in
+            for i in 0 ..< width * height {
+                bytes[i * 4] = 0x40
+                bytes[i * 4 + 1] = 0xC8
+                bytes[i * 4 + 2] = 0x20
+                bytes[i * 4 + 3] = 0xFF
+            }
+        }
+        let image = DiagramImage(
+            pixelWidth: width, pixelHeight: height, bytesPerRow: width * 4, pixels: pixels,
+            size: CGSize(width: Double(width) / 2, height: Double(height) / 2), scale: canvas.scale, regions: []
+        )
+        let id = DiagramStore.shared.register(image, key: "renderer-test-\(UUID().uuidString)")
+        var builder = ScreenBuilder(cols: 24, rows: 8)
+        builder.window(grid: 2, row: 0, col: 0, cols: 24, rows: 7)
+        for slice in 0 ..< 4 {
+            let character = try #require(DiagramStore.character(id: id, slice: slice))
+            builder.text(String(character), grid: 2, row: 1 + slice, col: 2)
+        }
+        try canvas.render(Frame(screen: builder.screen))
+        func green(row: Int, col: Int) -> Bool {
+            let colour = canvas.pixel(x: col * canvas.cellWidth + 4, y: row * canvas.cellHeight + canvas.cellHeight / 4)
+            return (colour >> 8) & 0xFF > 0xA0 && (colour >> 16) & 0xFF < 0x60
+        }
+        #expect(green(row: 1, col: 2) && green(row: 1, col: 6), "the first slice, across the picture's width")
+        #expect(green(row: 2, col: 2), "the second")
+        #expect(green(row: 3, col: 2), "the third, half a row")
+        let belowHalf = canvas.pixel(x: 2 * canvas.cellWidth + 4, y: 3 * canvas.cellHeight + canvas.cellHeight * 3 / 4)
+        #expect(belowHalf == background, "the picture ends half way down its last row")
+        #expect(!green(row: 4, col: 2), "a row past the picture's end shows nothing")
+        #expect(!green(row: 1, col: 9), "and nothing beyond the picture's width")
+        // A character that names no diagram is no picture.
+        #expect(DiagramStore.decode("a") == nil && DiagramStore.decode(String(DiagramStore.character(
+            id: id,
+            slice: 1
+        )!))?.slice == 1)
     }
 
     // MARK: Day 4: cursor and colours

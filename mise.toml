@@ -24,6 +24,10 @@ run = "scripts/nvim.sh"
 description = "Check the toolchain: Xcode selected, its licence, the Metal toolchain, Zig, nvim"
 run = "scripts/doctor.sh"
 
+[tasks.mermaider]
+description = "Build Vendor/Mermaider/mermaider.dylib (Mermaider's native library) from $MERMAIDER_SRC"
+run = "scripts/mermaider.sh"
+
 [tasks.ghostty]
 description = "Build Vendor/GhosttyKit.xcframework from Ghostty at $GHOSTTY_COMMIT"
 run = "scripts/ghostty.sh"

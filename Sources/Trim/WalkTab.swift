@@ -1,7 +1,9 @@
 import AppKit
 import MessagePack
 import SillCore
+import SillEditor
 import SillNvim
+import TrimDiagram
 import TrimRun
 import TrimTree
 import TrimWalk
@@ -49,15 +51,23 @@ extension TrimWindowController {
         ))
     }
 
-    /// The buffer's text (`{path, text}` from `trim.walk`): its anchors found, their code, what changed since, and the
-    /// diffs.
+    /// The buffer's text (`{path, text, cols, theme}` from `trim.walk`): its anchors found, their code, what changed
+    /// since, the diffs,
+    /// and its Mermaid diagrams drawn in the editor's colours, for the width it has.
     func walkModel(_ payload: String) {
         guard let data = payload.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String],
-              let path = object["path"], let text = object["text"] else { return }
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let path = object["path"] as? String, let text = object["text"] as? String else { return }
         let root = workspace
+        let metrics = EditorFont.metrics
+        let request = DiagramRequest(
+            cols: object["cols"] as? Int ?? 80, theme: object["theme"] as? [String: String] ?? [:],
+            scale: Double(window.backingScaleFactor), cellWidth: Double(metrics.width),
+            cellHeight: Double(metrics.height)
+        )
         Task { [weak self] in
-            let string = await Task.detached { Self.walkModelJSON(text: text, path: path, root: root) }.value
+            let string = await Task
+                .detached { Self.walkModelJSON(text: text, path: path, root: root, diagrams: request) }.value
             guard let self, let string else { return }
             _ = try? await session.channel.lua(
                 "require('trim.walk').render(...)", args: [.string(path), .string(string)]
@@ -65,12 +75,22 @@ extension TrimWindowController {
         }
     }
 
-    nonisolated static func walkModelJSON(text: String, path: String, root: String) -> String? {
-        let model = walkModel(text: text, path: path, root: root)
+    nonisolated static func walkModelJSON(
+        text: String,
+        path: String,
+        root: String,
+        diagrams: DiagramRequest? = nil
+    ) -> String? {
+        let model = walkModel(text: text, path: path, root: root, diagrams: diagrams)
         return (try? JSONSerialization.data(withJSONObject: model)).flatMap { String(data: $0, encoding: .utf8) }
     }
 
-    nonisolated static func walkModel(text: String, path: String, root: String) -> [String: Any] {
+    nonisolated static func walkModel(
+        text: String,
+        path: String,
+        root: String,
+        diagrams: DiagramRequest? = nil
+    ) -> [String: Any] {
         let walk = Walkthrough(text)
         let folder = (path as NSString).deletingLastPathComponent
         let resolver = AnchorResolver(root: root, folder: folder)
@@ -121,6 +141,71 @@ extension TrimWindowController {
         if let commit = walk.commit { meta.append("at " + commit) }
         if let created = walk.created { meta.append(created) }
         meta.append("\(walk.steps.count) steps")
+        if let diagrams {
+            for fence in MermaidFences.find(in: text) {
+                items.append(diagramItem(fence, diagrams))
+            }
+        }
         return ["title": walk.title, "meta": meta.joined(separator: " · "), "stale": stale, "items": items]
+    }
+}
+
+/// What drawing a walkthrough's diagrams needs to know of the window: the width in cells, the editor's colours and the
+/// grid.
+struct DiagramRequest: Sendable {
+    var cols: Int
+    var theme: [String: String]
+    var scale: Double
+    var cellWidth: Double
+    var cellHeight: Double
+}
+
+extension TrimWindowController {
+    /// Mermaider's native library, loaded the first time a diagram is drawn; nil when it is not there.
+    nonisolated static let mermaid = MermaidLibrary.locate()
+
+    /// The most rows a diagram can take (what a character names): taller is drawn smaller.
+    nonisolated static let diagramRowLimit = DiagramStore.slices
+
+    /// The model's item for one Mermaid block: the id of its picture and how many rows it takes, or why there is none
+    /// (the block
+    /// then stays as it is, source).
+    nonisolated static func diagramItem(_ fence: MermaidFence, _ request: DiagramRequest) -> [String: Any] {
+        var item: [String: Any] = ["line": fence.first, "last": fence.last, "kind": "diagram"]
+        let themeKey = request.theme.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+        let key = "\(request.scale)|\(request.cols)|\(Int(request.cellHeight))|\(themeKey)|\(fence.source)"
+        let store = DiagramStore.shared
+        var id = store.id(forKey: key)
+        if id == nil {
+            guard let library = mermaid else {
+                item["message"] = "the Mermaider library is not installed"
+                return item
+            }
+            do {
+                var options: [String: Any] = request.theme
+                options["transparent"] = true
+                let svg = try library.renderSVG(fence.source, options: options)
+                let width = max(Double(request.cols - 4) * request.cellWidth, 120)
+                var image = try SVGRender.image(svg: svg, scale: request.scale, maxWidth: width)
+                // Taller than a character can name: drawn smaller, to fit.
+                let limit = Double(diagramRowLimit) * request.cellHeight
+                if Double(image.size.height) > limit {
+                    image = try SVGRender.image(
+                        svg: svg,
+                        scale: request.scale,
+                        maxWidth: width * limit / Double(image.size.height)
+                    )
+                }
+                id = store.register(image, key: key)
+            } catch {
+                item["message"] = "\(error)"
+                return item
+            }
+        }
+        guard let id, let entry = store.entry(id) else { return item }
+        let rowPixels = request.cellHeight * request.scale
+        item["id"] = id
+        item["rows"] = min(diagramRowLimit, Int((Double(entry.image.pixelHeight) / rowPixels).rounded(.up)))
+        return item
     }
 }

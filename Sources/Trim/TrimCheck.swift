@@ -5,6 +5,7 @@ import SillAgent
 import SillCore
 import SillEditor
 import SillRender
+import TrimDiagram
 import TrimModes
 import TrimRun
 import TrimTree
@@ -3310,6 +3311,42 @@ struct TrimCheck {
         step(
             "a table is a grid and a callout a block, drawn away from the cursor; the one the cursor is in shows its source"
         )
+        // A Mermaid diagram is drawn from the walkthrough's text: its fence is hidden, its picture is rows of the grid
+        // (Mermaider's
+        // native library, drawn by TrimDiagram), and the cursor in the fence shows the source with the picture still
+        // there.
+        if TrimWindowController.mermaid == nil {
+            step("(diagrams not checked: Mermaider's library is not built; `MERMAIDER_SRC=... mise run mermaider`)")
+        } else {
+            func screenRows() -> [String] {
+                let screen = shell.editor.screen
+                guard let grid = screen.grids[screen.cursorGrid] else { return [] }
+                return (0 ..< grid.rows).map { row in (0 ..< grid.cols).map { grid[row, $0].text.isEmpty ? " " : grid[
+                    row,
+                    $0
+                ].text }.joined() }
+            }
+            func pictureRows() -> Int {
+                screenRows().count { $0.unicodeScalars.contains { $0.value >= DiagramStore.base } }
+            }
+            _ = await lua("""
+            vim.api.nvim_buf_set_lines(0, -1, -1, false, { '', '```mermaid', 'graph LR', '  Xnode --> Ynode', '```', 'after the diagram' })
+            vim.cmd('normal! G')
+            """)
+            await wait("the diagram's rows on the screen") { pictureRows() >= 2 }
+            guard !screenRows().contains(where: { $0.contains("graph LR") })
+            else { fail("the diagram's source shows beside its picture") }
+            guard screenRows().contains(where: { $0.contains("after the diagram") })
+            else { fail("the text after the diagram is not on the screen") }
+            let rows = pictureRows()
+            _ = await lua("vim.fn.search('graph LR')")
+            await wait("the fence as source under the cursor") { screenRows().contains { $0.contains("graph LR") } }
+            guard pictureRows() == rows
+            else { fail("the picture changed when the source was shown: \(rows) rows, then \(pictureRows())") }
+            step(
+                "a ```mermaid block is drawn as a picture in the editor (rows of the grid), its source shows under the cursor"
+            )
+        }
         // Scrolling a long walkthrough does not redraw its blocks, reset its front matter or move the code beside it at
         // every
         // step the cursor is carried along: that waits for the scrolling to stop (a table opening under the cursor
@@ -4195,6 +4232,14 @@ struct TrimCheck {
             ## The dough knows its water
             Hydration is a ratio, so the water for a batch is the flour times it.
 
+            ```mermaid
+            flowchart LR
+              Flour --> Dough
+              Water --> Dough
+              Dough --> Loaf
+              Oven --> Loaf
+            ```
+
             | Dough | Hydration |
             |---|---|
             | sourdough | 75% |
@@ -4265,6 +4310,19 @@ struct TrimCheck {
         _ = try? await ctrl.session.channel.lua("vim.api.nvim_input(...)", args: [.string("gg]]")])
         try? await Task.sleep(for: .seconds(2))
         snap("walkthrough")
+        // A diagram drawn from the walkthrough's own text.
+        _ = try? await ctrl.session.channel.lua("vim.cmd('silent! /The dough knows'); vim.cmd('normal! zt')")
+        if TrimWindowController.mermaid != nil {
+            await wait("the diagram's rows on the screen") {
+                let screen = ctrl.editor.screen
+                guard let grid = screen.grids[screen.cursorGrid] else { return false }
+                return (0 ..< grid.rows).contains { row in
+                    (0 ..< grid.cols).contains { DiagramStore.decode(grid[row, $0].text) != nil }
+                }
+            }
+        }
+        try? await Task.sleep(for: .seconds(0.8))
+        snap("walkthrough-diagram")
         // The last step: a change, a checklist and a command to run.
         _ = try? await ctrl.session.channel.lua("vim.cmd('silent! /Before you merge'); vim.cmd('normal! zt')")
         try? await Task.sleep(for: .seconds(1.5))

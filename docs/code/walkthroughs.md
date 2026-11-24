@@ -16,6 +16,19 @@ The last step of a review: a change as a card, a checklist with its count, and a
 
 ![A walkthrough's last step: a diff card, a checklist, and a run line](../images/shots/walkthrough-review.png)
 
+## Diagrams
+
+A ```` ```mermaid ```` block is drawn as a diagram, in the editor's own colours, right in the document: flowcharts, sequence, class,
+state, ER, Gantt, pie and the rest of what Mermaid has. The block itself is hidden while the cursor is away and is source
+(with the picture still under it) when you go into it.
+
+![A flowchart drawn from a mermaid block in a walkthrough](../images/shots/walkthrough-diagram.png)
+
+Diagrams are made by [Mermaider](https://mermaider.nullean.net), a .NET Mermaid renderer, as a native library
+(`Trim.app/Contents/Frameworks/mermaider.dylib`, no .NET runtime and no browser) and drawn by Trim itself, so they follow the
+colour scheme and scroll with the text. Without the library a diagram stays source with a note saying so. To build it from a
+Mermaider checkout that has `src/Mermaider.Native`: `MERMAIDER_SRC=~/Projects/mermaider mise run mermaider`.
+
 ## Open one
 
 `<leader>W`, View ▸ Walkthroughs… (⌃⌘W) or `:TrimWalk` lists the repository's walkthroughs: the ones agents write into
@@ -74,7 +87,7 @@ A walkthrough is Markdown. After a few lines of front matter (`by`, `for`, `mode
 - **`@ask Why is the total not cached?`** marks a question worth asking.
 - **`- [ ] Reviewed`** checklists you tick with `x`; the file keeps the state.
 - **`@run Tests: dotnet test`** offers a command to run.
-- Fenced blocks, shown as highlighted code (Mermaid diagrams are drawn as diagrams in a later release).
+- Fenced blocks, shown on a tint with their language. A ```` ```mermaid ```` block is drawn as a diagram (below).
 
 Anchors survive edits because a symbol is found by its declaration, not a line number. When the walkthrough is *stamped*, each
 anchor records a fingerprint of its code and the commit; a step whose code changed since is marked **changed since written**

@@ -68,6 +68,18 @@ function M.cursor_line(buf)
 end
 
 
+--- The colours a diagram is drawn in: the scheme's own (page, text, the heading colour as accent, comments as muted).
+function M.theme()
+  local function colour(name, key, fallback)
+    local value = api.nvim_get_hl(0, { name = name, link = false })[key]
+    return ('#%06x'):format(value or fallback)
+  end
+  return {
+    bg = colour('Normal', 'bg', 0x1a1b26), fg = colour('Normal', 'fg', 0xc0caf5), accent = colour('Title', 'fg', 0x7aa2f7),
+    muted = colour('Comment', 'fg', 0x565f89),
+  }
+end
+
 --- How wide the cards are: the window's text area, to a readable limit.
 function M.card_width(buf)
   local win = vim.fn.bufwinid(buf)
@@ -111,7 +123,12 @@ function M.render(path, json)
   api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
   local steps, jumps, cards, seen, at = {}, {}, {}, {}, {}
-  for _, item in ipairs(model.items or {}) do at[item.line] = item end
+  local diagrams = {}
+  for _, item in ipairs(model.items or {}) do
+    at[item.line] = item
+    if item.kind == 'diagram' then diagrams[item.line] = item end
+  end
+  require('trim.mdstyle').diagrams[buf] = diagrams
   local function set(line, col, opts) pcall(api.nvim_buf_set_extmark, buf, ns, line - 1, col, opts) end
   -- The front matter collapses to nothing (open while the cursor is in it) and leaves one quiet line above the title.
   local front_end, title_line = M.front_range(lines), nil
@@ -123,7 +140,7 @@ function M.render(path, json)
   if (model.stale or 0) > 0 then meta[#meta + 1] = { ('  ·  %d need a look'):format(model.stale), 'TrimWalkWarn' } end
   set(title_line or (front_end + 1), 0, { virt_lines = { meta }, virt_lines_above = true })
   -- Headings in bigger type and inline code in a box, as in any markdown buffer.
-  require('trim.mdstyle').apply(buf, lines, front_end, { steps = true })
+  require('trim.mdstyle').apply(buf, lines, front_end, { steps = true, diagrams = diagrams })
   M.front(buf)
   for number, text in ipairs(lines) do
     local item = at[number]
@@ -261,6 +278,7 @@ local function request(tell, buf)
     if not api.nvim_buf_is_loaded(buf) then return end
     tell('trim_walk_model', vim.json.encode({
       path = api.nvim_buf_get_name(buf), text = table.concat(api.nvim_buf_get_lines(buf, 0, -1, false), '\n'),
+      cols = M.card_width(buf), theme = M.theme(),
     }))
   end))
 end

@@ -59,6 +59,14 @@ codesign --force --sign - "$frame/Contents/Resources/nvim/bin/nvim"
 mkdir -p "$frame/Contents/Helpers"
 cp "$products/trim-cli" "$frame/Contents/Helpers/trim"
 codesign --force --sign - "$frame/Contents/Helpers/trim"
+# Mermaider's native library, when it is built (`mise run mermaider`): Trim draws ```mermaid diagrams with it, and without it a
+# diagram stays source.
+rm -rf "$frame/Contents/Frameworks"
+if [ -f "$root/Vendor/Mermaider/mermaider.dylib" ]; then
+  mkdir -p "$frame/Contents/Frameworks"
+  cp "$root/Vendor/Mermaider/mermaider.dylib" "$frame/Contents/Frameworks/mermaider.dylib"
+  codesign --force --sign - "$frame/Contents/Frameworks/mermaider.dylib"
+fi
 codesign --force --sign - "$frame"
 echo "bundle: $frame"
 for wanted in fonts/SymbolsNerdFontMono-Regular.ttf fonts/LICENSE ../Helpers/trim nvim/bin/nvim nvim/LICENSE.txt runtime/plugin/trim.lua runtime/pack/trim/start/tokyonight.nvim/colors/tokyonight-night.lua treesitter/parser/c_sharp.so; do
