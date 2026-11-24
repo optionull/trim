@@ -39,7 +39,10 @@ public enum WalkCommands {
         func absolute(_ path: String) -> String { path.hasPrefix("/") ? path : cwd + "/" + path }
         func resolver(for file: String) -> AnchorResolver {
             let here = (file as NSString).deletingLastPathComponent
-            return AnchorResolver(root: root.map(absolute) ?? TrimFolder.worktreeRoot(for: here), folder: here)
+            // A walkthrough in `.trim/` lives at the repository's main worktree, whichever worktree it explains: its
+            // anchors are read in the worktree the tool is run in.
+            let reads = file.contains("/\(TrimFolder.name)/") ? cwd : here
+            return AnchorResolver(root: root.map(absolute) ?? TrimFolder.worktreeRoot(for: reads), folder: here)
         }
         switch (group, args.dropFirst().first) {
         case ("walk", "check"):

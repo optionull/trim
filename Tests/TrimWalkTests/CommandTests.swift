@@ -125,4 +125,30 @@ struct CommandTests {
         #expect(trim(["walk", "format"], in: root).out.first == WalkSkill.text)
         #expect(trim(["nonsense"], in: root).code == 2)
     }
+
+    @Test("a walkthrough in .trim is checked against the worktree the tool is run in, not the one the folder is in")
+    func privateReadsFromTheCurrentWorktree() throws {
+        let main = try repo()
+        defer { try? FileManager.default.removeItem(atPath: main) }
+        // Another checkout of the same code, where Pricing is different.
+        let other = NSTemporaryDirectory() + "trimcmd-other-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: other + "/src", withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: other) }
+        try "public class Pricing\n{\n    public int Vat() => 3;\n}\n".write(
+            toFile: other + "/src/Pricing.cs",
+            atomically: true,
+            encoding: .utf8
+        )
+        for arguments in [
+            ["init", "-q", "-b", "main"],
+            ["add", "."],
+            ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x"],
+        ] {
+            _ = Git.run(arguments, in: other)
+        }
+        let made = try #require(trim(["walk", "new", "Vat"], in: main).out.first)
+        try "Intro.\n\n## Vat\nIt is three.\n@code Pricing.Vat\n".write(toFile: made, atomically: true, encoding: .utf8)
+        #expect(trim(["walk", "check", made], in: main).code == 1, "in the folder's own worktree Vat does not exist")
+        #expect(trim(["walk", "check", made], in: other).code == 0, "run from the worktree that has it, it does")
+    }
 }
