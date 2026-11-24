@@ -15,7 +15,6 @@ struct Timeout: Error, CustomStringConvertible {
 actor Harness {
     let session = EditorSession()
     private(set) var latest: ScreenUpdate?
-    private(set) var focusRequests: [Int] = []
     private var collector: Task<Void, Never>?
 
     static func start(
@@ -41,7 +40,6 @@ actor Harness {
 
     private func record(_ update: ScreenUpdate) {
         latest = update
-        if let pane = update.focusPane { focusRequests.append(pane) }
     }
 
     func keys(_ keys: String) async {
@@ -76,7 +74,7 @@ actor Harness {
             .map { "grid \($0.key): win \($0.value.win) \($0.value.kind) at \($0.value.row),\($0.value.col) " +
                 "\($0.value.width)x\($0.value.height)\($0.value.hidden ? " hidden" : "")"
             }
-        return "cursor grid \(screen.cursorGrid), panes \(screen.panes), placements [\(placements.joined(separator: "; "))]"
+        return "cursor grid \(screen.cursorGrid), placements [\(placements.joined(separator: "; "))]"
     }
 }
 

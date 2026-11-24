@@ -39,22 +39,6 @@ struct ScreenTests {
         #expect(buffer[0, 4].hl == 3)
     }
 
-    @Test("a pane is drawn only while its window is shown")
-    func paneFollowsItsWindow() {
-        var screen = Screen()
-        screen.apply(.gridResize(grid: 4, width: 20, height: 10))
-        screen.apply(.winPos(grid: 4, win: 1001, row: 0, col: 21, width: 20, height: 10))
-        #expect(screen.paneRects.isEmpty)
-        screen.apply(.notification(method: "sill_panes", args: [.array([.array([.int(1001), .int(7)])])]))
-        #expect(screen.paneRects == [PaneRect(pane: 7, win: 1001, grid: 4, row: 0, col: 21, width: 20, height: 10)])
-        screen.apply(.winHide(grid: 4))
-        #expect(screen.paneRects.isEmpty)
-        screen.apply(.winPos(grid: 4, win: 1001, row: 1, col: 21, width: 20, height: 9))
-        #expect(screen.paneRects.first?.row == 1)
-        screen.apply(.winClose(grid: 4))
-        #expect(screen.paneRects.isEmpty)
-    }
-
     @Test("windows draw before floats and the message grid, which go by compindex")
     func drawOrder() {
         var screen = Screen()

@@ -17,23 +17,14 @@ public struct SillSettings: Equatable, Sendable {
     public var size: Double = 13
     public var lineHeight: Double = 1.2
     public var smoothScroll = true
-    public var chrome = true
     /// The explorer, editor windows and panel as rounded islands on a darker canvas.
     public var islands = true
     /// The shell's window with its title bar (its buttons); without it the window moves by its margin.
     public var shellTitleBar = false
     public var nvimConfig = NvimConfig.sill
-    public var agent = "claude"
-    public var heedAgent = "claude"
-    /// sill's tools an agent may use without asking (`build`, …).
-    public var agentAllow: [String] = []
-    /// What the editor shows (the file, the last selection, the basket) given to an agent with each prompt, by sill's
-    /// hooks.
-    public var editorContext = true
     public var dotnet = ""
     /// The folders whose git checkouts Home lists (asked for when sill first starts).
     public var roots: [String] = []
-    public var heedControl = ""
     /// Other keys for sill's own panes' commands, by the command's name (`[keys]`, `review.keep = "Y"`).
     public var keyBindings: [String: [String]] = [:]
 
@@ -45,27 +36,20 @@ public struct SillSettings: Equatable, Sendable {
     public var environment: [String: String] {
         var environment = [
             "SILL_SMOOTH_SCROLL": smoothScroll ? "1" : "0",
-            "SILL_CHROME": chrome ? "1" : "0",
             "SILL_NVIM_CONFIG": nvimConfig == .yours ? "1" : "0",
-            "SILL_AGENT": agent,
-            "SILL_HEED_AGENT": heedAgent,
-            "SILL_MCP_ALLOW": agentAllow.joined(separator: ","),
         ]
         if !dotnet.isEmpty { environment["SILL_DOTNET"] = dotnet }
         if !roots.isEmpty { environment["SILL_ROOTS"] = roots.joined(separator: ":") }
-        if !heedControl.isEmpty { environment["HEED_CONTROL"] = heedControl }
         return environment
     }
 
     /// Each setting: where it is in the file and the variable it stands for, in the window's order.
     public static let keys: [(path: [String], variable: String?)] = [
         (["editor", "font"], nil), (["editor", "size"], nil), (["editor", "line_height"], nil),
-        (["editor", "smooth_scroll"], "SILL_SMOOTH_SCROLL"), (["window", "chrome"], "SILL_CHROME"),
+        (["editor", "smooth_scroll"], "SILL_SMOOTH_SCROLL"),
         (["window", "islands"], nil), (["shell", "title_bar"], nil),
-        (["nvim", "config"], "SILL_NVIM_CONFIG"), (["agents", "command"], "SILL_AGENT"),
-        (["agents", "heed_agent"], "SILL_HEED_AGENT"), (["agents", "allow"], "SILL_MCP_ALLOW"),
-        (["agents", "editor_context"], nil), (["home", "roots"], "SILL_ROOTS"),
-        (["dotnet", "path"], "SILL_DOTNET"), (["heed", "control"], "HEED_CONTROL"),
+        (["nvim", "config"], "SILL_NVIM_CONFIG"), (["home", "roots"], "SILL_ROOTS"),
+        (["dotnet", "path"], "SILL_DOTNET"),
     ]
 }
 
@@ -126,7 +110,6 @@ public enum SettingsLoader {
         number(["editor", "size"], 6 ... 72) { settings.size = $0 }
         number(["editor", "line_height"], 1 ... 2) { settings.lineHeight = $0 }
         bool(["editor", "smooth_scroll"]) { settings.smoothScroll = $0 }
-        bool(["window", "chrome"]) { settings.chrome = $0 }
         bool(["window", "islands"]) { settings.islands = $0 }
         bool(["shell", "title_bar"]) { settings.shellTitleBar = $0 }
         string(["nvim", "config"]) { text in
@@ -136,16 +119,6 @@ public enum SettingsLoader {
                 problem(["nvim", "config"], "should be \"yours\" or \"sill\"")
             }
         }
-        string(["agents", "command"]) { settings.agent = $0 }
-        string(["agents", "heed_agent"]) { settings.heedAgent = $0 }
-        if let found = value(["agents", "allow"]) {
-            if let items = found.array, items.allSatisfy({ $0.string != nil }) {
-                settings.agentAllow = items.compactMap(\.string)
-            } else {
-                problem(["agents", "allow"], "should be a list of strings, like [\"build\"]")
-            }
-        }
-        bool(["agents", "editor_context"]) { settings.editorContext = $0 }
         if let found = value(["home", "roots"]) {
             if let items = found.array, items.allSatisfy({ $0.string != nil }) {
                 settings.roots = items.compactMap(\.string)
@@ -154,7 +127,6 @@ public enum SettingsLoader {
             }
         }
         string(["dotnet", "path"]) { settings.dotnet = $0 }
-        string(["heed", "control"]) { settings.heedControl = $0 }
 
         // `[keys]`: a command's name, its pane and its verb (`review.keep`, so `[keys.review]` and `keep` too), and a key
         // or a list of them in nvim's notation.
@@ -224,8 +196,6 @@ public enum SettingsLoader {
     # smooth_scroll = true
 
     [window]
-    # The explorer, the panel, the activity and status bars. false is nvim alone. (SILL_CHROME)
-    # chrome = true
     # The explorer, each editor window and the panel as rounded islands on a darker canvas; false is flat panels.
     # islands = true
 
@@ -240,17 +210,6 @@ public enum SettingsLoader {
     # (SILL_NVIM_CONFIG)
     # config = "sill"
 
-    [agents]
-    # The agent sill starts in a terminal pane for Send to agent. (SILL_AGENT)
-    # command = "claude"
-    # The agent heed starts when sill hands it work. (SILL_HEED_AGENT)
-    # heed_agent = "claude"
-    # sill's tools an agent may use without asking, like "build". (SILL_MCP_ALLOW)
-    # allow = []
-    # With each prompt to an agent sill's hooks reach, what the editor shows: the file and line, the lines selected
-    # last (in the last ten minutes), the basket open; only what changed since the session's last prompt.
-    # editor_context = true
-
     [home]
     # The folders whose git checkouts Home lists, most recently active first; asked for when sill first starts.
     # (SILL_ROOTS, separated by colons)
@@ -259,10 +218,6 @@ public enum SettingsLoader {
     [dotnet]
     # The dotnet to use; empty finds it (DOTNET_ROOT, your shell's PATH, the usual places). (SILL_DOTNET)
     # path = ""
-
-    [heed]
-    # heed's control socket; empty is heed's own place. (HEED_CONTROL)
-    # control = ""
 
     [keys]
     # Other keys for the commands of sill's own panes (Home, the summary, the review, Run, …), by the command's
