@@ -429,7 +429,9 @@ public final class GridRenderer {
         // On a scaled row the cursor is as many times as wide and tall, at that many times the column.
         let factor = inside ? cellHighlight.scale : 1
         var x = Float(placement.col + col) * cellWidth, y = Float(placement.row + row) * cellHeight
-        if factor != 1 { x = Float(placement.col) * cellWidth + Float(col) * factor * cellWidth }
+        if let offsets = Self.columnOffsets(buffer, row: row, highlights: screen.highlights), col < offsets.count {
+            x = (Float(placement.col) + offsets[col]) * cellWidth
+        }
         let cellWidth = cellWidth * factor, cellHeight = cellHeight * factor
         var cellForeground = cellHighlight.foreground ?? screen.defaultForeground
         var cellBackground = cellHighlight.background ?? screen.defaultBackground
@@ -467,10 +469,35 @@ public final class GridRenderer {
         }
     }
 
+    /// For the row being built: where each column starts, in cells, when some of its cells are scaled (each takes its
+    /// scale's
+    /// width, so what follows a scaled run starts after it, not under it); nil for an ordinary row.
+    private var offsets: [Float]?
+
+    /// Where column `col` of the row being built starts, in points of pixels from the grid's left.
+    private func columnX(_ col: Int) -> Float {
+        guard let offsets else { return Float(col) * cellWidth }
+        return offsets[min(max(col, 0), offsets.count - 1)] * cellWidth
+    }
+
+    /// The column offsets of a row with scaled cells: the running sum of their scales; nil when none is.
+    static func columnOffsets(_ buffer: GridBuffer, row: Int, highlights: [Int: Highlight]) -> [Float]? {
+        var result: [Float] = [0]
+        var scaled = false
+        for col in 0 ..< buffer.cols {
+            let scale = highlights[buffer[row, col].hl]?.scale ?? 1
+            if scale != 1 { scaled = true }
+            result.append(result[col] + scale)
+        }
+        return scaled ? result : nil
+    }
+
     /// Instances for one row, positioned from the row's top-left corner.
     private func buildRow(_ buffer: GridBuffer, row: Int, style: Style, covers: Bool) -> Row {
         var built = Row(version: buffer.rowVersions[row], covers: covers, backgrounds: [], glyphs: [], decorations: [])
         let cols = buffer.cols
+        offsets = Self.columnOffsets(buffer, row: row, highlights: style.highlights)
+        defer { offsets = nil }
         var col = 0
         let cardFill = cardFill(buffer, row: row, style: style)
         var overCard: [RectInstance] = []
@@ -484,16 +511,21 @@ public final class GridRenderer {
             var foreground = highlight.foreground ?? style.foreground
             var background = highlight.background ?? style.background
             if highlight.reverse { swap(&foreground, &background) }
-            let x = Float(col) * cellWidth, width = Float(end - col) * cellWidth
+            let x = columnX(col), width = columnX(end) - columnX(col)
             if highlight.scale != 1 {
                 // A scaled run: `scale` cells to a character, from a font that many times the size, over this row and
                 // the blank one under it (its underline there too).
                 let scale = highlight.scale
+                if covers || background != style.background {
+                    var color = Self.color(background)
+                    color.w = highlight.altfont ? 1 : 1 - Float(highlight.blend) / 100
+                    built.backgrounds.append(RectInstance(origin: [x, 0], size: [width, cellHeight], color: color))
+                }
                 appendScaledGlyphs(
                     buffer, row: row, cols: col ..< end, highlight: highlight, color: foreground, to: &built
                 )
                 appendDecorations(
-                    highlight, x: x, width: min(width * scale, Float(cols) * cellWidth - x), foreground: foreground,
+                    highlight, x: x, width: min(width, Float(cols) * cellWidth - x), foreground: foreground,
                     to: &built, factor: scale
                 )
                 col = end
@@ -550,7 +582,7 @@ public final class GridRenderer {
             }
             let kind = edge == .top ? RectInstance.cardTop : edge == .middle ? RectInstance.cardMiddle : RectInstance
                 .cardBottom
-            let x = Float(col) * cellWidth, width = Float(end - col) * cellWidth
+            let x = columnX(col), width = columnX(end) - columnX(col)
             built.backgrounds.append(RectInstance(
                 origin: [x, 0], size: [width, cellHeight], color: Self.color(first.background ?? style.background),
                 kind: kind, thickness: Float(scale)
@@ -583,8 +615,8 @@ public final class GridRenderer {
             let inset = Float(scale)
             let color = Self.color(first.special ?? first.foreground ?? style.foreground)
             built.decorations.append(RectInstance(
-                origin: [Float(col) * cellWidth + inset, inset],
-                size: [Float(end - col) * cellWidth - inset * 2, cellHeight - inset * 2], color: color,
+                origin: [columnX(col) + inset, inset],
+                size: [columnX(end) - columnX(col) - inset * 2, cellHeight - inset * 2], color: color,
                 kind: RectInstance.border, thickness: lineThickness
             ))
             col = end
@@ -612,7 +644,7 @@ public final class GridRenderer {
         func emit(_ text: String, col: Int, cells: Int) {
             let region = atlas.region(text: text, bold: highlight.bold, italic: highlight.italic, cellCount: cells)
             built.glyphs.append(GlyphInstance(
-                origin: [Float(col) * cellWidth, 0], size: [region.width, region.height],
+                origin: [columnX(col), 0], size: [region.width, region.height],
                 atlasOrigin: [region.x, region.y], atlasSize: [region.width, region.height], color: color,
                 colored: region.colored ? 1 : 0
             ))
@@ -662,7 +694,7 @@ public final class GridRenderer {
             let wide = col + 1 < buffer.cols && buffer[row, col + 1].text.isEmpty
             let cells = wide ? 2 : 1
             defer { col += cells }
-            let x = Float(cols.lowerBound) * cellWidth + Float(col - cols.lowerBound) * scale * cellWidth
+            let x = columnX(col)
             guard !text.isEmpty, text != " ", x + Float(cells) * scale * cellWidth <= limit else { continue }
             let region = atlas.region(
                 text: text, bold: highlight.bold, italic: highlight.italic, cellCount: cells, factor: CGFloat(scale)
@@ -686,7 +718,7 @@ public final class GridRenderer {
         guard top < region.height else { return }
         let height = min(sliceHeight, region.height - top)
         built.glyphs.append(GlyphInstance(
-            origin: [Float(col) * cellWidth, 0], size: [region.width * ratio, height * ratio],
+            origin: [columnX(col), 0], size: [region.width * ratio, height * ratio],
             atlasOrigin: [region.x, region.y + top], atlasSize: [region.width, height], color: [1, 1, 1, 1], colored: 1
         ))
     }

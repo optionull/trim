@@ -120,6 +120,43 @@ struct HitTests {
         #expect(float.scale == 1 && !float.boxed, "a float's blend is not a size")
     }
 
+    @Test("on a row of several scaled runs and ordinary text, a click lands on the cell it is over")
+    func mixedRow() {
+        var screen = Screen()
+        screen.apply(.gridResize(grid: 1, width: 40, height: 10))
+        screen.apply(.gridResize(grid: 2, width: 40, height: 9))
+        screen.apply(.winPos(grid: 2, win: 1000, row: 0, col: 0, width: 40, height: 9))
+        screen.apply(.hlAttrDefine(
+            id: 7,
+            rgbAttrs: ["altfont": .bool(true), "blend": .int(50)],
+            ctermAttrs: [:],
+            info: []
+        ))
+        screen.apply(.hlAttrDefine(
+            id: 8,
+            rgbAttrs: ["altfont": .bool(true), "blend": .int(50), "bold": .bool(true)],
+            ctermAttrs: [:],
+            info: []
+        ))
+        // "ab" ordinary (columns 0, 1), "XY" scaled 1.5 (cells 2, 3), "Z" scaled 1.5 in another colour (cell 4), "cd"
+        // ordinary.
+        screen.apply(.gridLine(grid: 2, row: 2, colStart: 0, cells: [
+            GridCellData(text: "a", hlId: 0, repeats: 1), GridCellData(text: "b", hlId: 0, repeats: 1),
+            GridCellData(text: "X", hlId: 7, repeats: 1), GridCellData(text: "Y", hlId: 7, repeats: 1),
+            GridCellData(text: "Z", hlId: 8, repeats: 1), GridCellData(text: "c", hlId: 0, repeats: 1),
+            GridCellData(text: "d", hlId: 0, repeats: 1),
+        ]))
+        #expect(screen.hit(row: 2, col: 1) == (2, 2, 1))
+        #expect(
+            screen.hit(row: 2, col: 2) == (2, 2, 2) && screen.hit(row: 2, col: 3) == (2, 2, 2),
+            "X spans screen columns 2 to 3.5"
+        )
+        #expect(screen.hit(row: 2, col: 4) == (2, 2, 3), "Y spans 3.5 to 5")
+        #expect(screen.hit(row: 2, col: 6) == (2, 2, 4), "Z spans 5 to 6.5")
+        #expect(screen.hit(row: 2, col: 7) == (2, 2, 5), "c after the scaled cells")
+        #expect(screen.hit(row: 3, col: 7) == (2, 3, 7), "another row is as it was")
+    }
+
     @Test("on a double-height row a click lands on the cell it is over: two screen columns to a cell")
     func doubleRow() {
         var screen = Screen()

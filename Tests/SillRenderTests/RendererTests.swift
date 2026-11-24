@@ -457,6 +457,40 @@ struct RendererTests {
         )!))?.slice == 1)
     }
 
+    @Test("a scaled line of several runs lays them end to end, and what follows it starts after it, not under it")
+    func scaledRunsEndToEnd() throws {
+        let canvas = try Canvas(cols: 30, rows: 6)
+        var builder = ScreenBuilder(cols: 30, rows: 6)
+        // The two runs are the same size but differ in colour, as a heading's parts do (a number, the title, a
+        // highlight).
+        builder.highlight(5, ["altfont": .bool(true), "foreground": .int(0xF0F0F0)])
+        builder.highlight(6, ["altfont": .bool(true), "foreground": .int(0xF0F0F0), "bold": .bool(true)])
+        builder.window(grid: 2, row: 0, col: 0, cols: 30, rows: 5)
+        builder.text("MM", grid: 2, row: 1, col: 0, hl: 5)
+        builder.text("MM", grid: 2, row: 1, col: 2, hl: 6)
+        builder.text("ab", grid: 2, row: 1, col: 4)
+        try canvas.render(Frame(screen: builder.screen))
+        func ink(_ col: Int) -> Bool { canvas.cell(row: 1, col: col).contains(foreground) }
+        // Four scaled letters, two cells each: screen columns 0 to 7. The ordinary "ab" after them: columns 8 and 9.
+        for col in 0 ..< 8 {
+            #expect(ink(col), "the scaled letters fill column \(col)")
+        }
+        #expect(ink(8) && ink(9), "the ordinary text starts after the scaled text")
+        #expect(!ink(10), "and ends where it ends")
+    }
+
+    @Test("a scaled run has its background under it, wherever the cursor line or a selection puts one")
+    func scaledBackground() throws {
+        let canvas = try Canvas(cols: 20, rows: 6)
+        var builder = ScreenBuilder(cols: 20, rows: 6)
+        builder.highlight(5, ["altfont": .bool(true), "background": .int(0x204060)])
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
+        builder.text("  ", grid: 2, row: 1, col: 0, hl: 5)
+        try canvas.render(Frame(screen: builder.screen))
+        let colour = canvas.pixel(x: 2 * canvas.cellWidth, y: canvas.cellHeight + 3)
+        #expect(colour == 0x204060, "two scaled cells are four columns of background: \(String(colour, radix: 16))")
+    }
+
     // MARK: Day 4: cursor and colours
 
     /// A window with "abc" at the top left and the cursor on the "b".

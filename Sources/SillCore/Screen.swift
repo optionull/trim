@@ -631,10 +631,22 @@ public struct Screen: Sendable {
                 col >= placement.col && col < placement.col + placement.width
         }
         guard let (grid, placement) = hit else { return (1, row, col) }
-        // A scaled row has `scale` cells to a character: the screen column is that many times the grid's.
         let local = row - placement.row
-        let scale = rowScale(grid: grid, row: local)
-        return (grid, local, scale == 1 ? col - placement.col : Int(Float(col - placement.col) / scale))
+        return (grid, local, gridColumn(grid: grid, row: local, screenColumn: col - placement.col))
+    }
+
+    /// The grid column a screen column (in unscaled cells) is over. On a row with scaled cells each takes its scale's
+    /// width, so
+    /// the screen column is found by walking the cells.
+    public func gridColumn(grid: Int, row: Int, screenColumn: Int) -> Int {
+        guard rowScale(grid: grid, row: row) != 1, let buffer = grids[grid] else { return screenColumn }
+        var start: Float = 0
+        for column in 0 ..< buffer.cols {
+            let width = highlights[buffer[row, column].hl]?.scale ?? 1
+            if Float(screenColumn) < start + width { return column }
+            start += width
+        }
+        return buffer.cols - 1
     }
 
     /// How many times the size a row of a grid is drawn at (the largest of its text's `scale`), 1 for an ordinary row.
