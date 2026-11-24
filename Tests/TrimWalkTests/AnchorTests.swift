@@ -173,4 +173,51 @@ struct DiscoveryTests {
             "the line is added once"
         )
     }
+
+    @Test(
+        "Type.member is found inside that type, not in another type's member of the same name, and not at all when the type lacks it"
+    )
+    func containerOfAMember() throws {
+        let root = NSTemporaryDirectory() + "trimanchors-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: root + "/src", withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        // A names B in a comment and has an open of its own first; B's open is much further down a long type.
+        let a = "// B is the window\nclass A {\n    func open(folder: String) {\n        print(folder)\n    }\n}\n"
+        var b = "final class B {\n"
+        for i in 0 ..< 100 {
+            b += "    var field\(i) = \(i)\n"
+        }
+        b += "    func open(file: String) {\n        print(file)\n    }\n    func close() {}\n}\nextension B {\n    func reopen() { open(file: \"x\") }\n}\n"
+        // One file with two types: the member is in the second, the first is empty.
+        try "struct C {}\nstruct D {\n    func open() {}\n}\n".write(
+            toFile: root + "/src/CD.swift",
+            atomically: true,
+            encoding: .utf8
+        )
+        try a.write(toFile: root + "/src/A.swift", atomically: true, encoding: .utf8)
+        try b.write(toFile: root + "/src/B.swift", atomically: true, encoding: .utf8)
+        for arguments in [
+            ["init", "-q", "-b", "main"],
+            ["add", "."],
+            ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x"],
+        ] {
+            _ = Git.run(arguments, in: root)
+        }
+        let resolver = AnchorResolver(root: root)
+        func found(_ name: String) -> ResolvedAnchor? {
+            if case let .found(anchor) = resolver.resolve(.symbol(name, lines: nil)) { return anchor }
+            return nil
+        }
+        let opened = try #require(found("A.open"))
+        #expect(opened.path.hasSuffix("A.swift") && opened.text.first?.contains("folder") == true, "A's own open")
+        let other = try #require(found("B.open"))
+        #expect(
+            other.path.hasSuffix("B.swift") && other.text.first?.contains("file: String") == true,
+            "B's, 100 lines into its type"
+        )
+        #expect(found("B.reopen")?.path.hasSuffix("B.swift") == true, "a member in an extension of the type")
+        #expect(found("C.open") == nil, "C is declared in the file that has D's open: not C's")
+        #expect(found("D.open")?.path.hasSuffix("CD.swift") == true)
+        #expect(found("A.close") == nil, "A is declared and has no close, and B's close is not an answer")
+    }
 }

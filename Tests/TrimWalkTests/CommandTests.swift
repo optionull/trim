@@ -154,4 +154,66 @@ struct CommandTests {
         #expect(trim(["walk", "check", made], in: main).code == 1, "in the folder's own worktree Vat does not exist")
         #expect(trim(["walk", "check", made], in: other).code == 0, "run from the worktree that has it, it does")
     }
+
+    @Test(
+        "resolve says where each anchor lands, with its first line, and exits 1 when one is not found; check warns when two land together"
+    )
+    func resolveCommand() throws {
+        let root = try repo()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try "# R\n\nIntro.\n\n## Tax\nIt.\n@code Pricing.Tax\n@code src/Pricing.cs:1-3\n".write(
+            toFile: root + "/r.walk.md", atomically: true, encoding: .utf8
+        )
+        let landed = trim(["walk", "resolve", "r.walk.md"], in: root)
+        #expect(landed.code == 0 && landed.out.count == 2)
+        #expect(
+            landed.out[0].contains("Pricing.Tax -> src/Pricing.cs:") && landed.out[0].contains("Tax"),
+            "\(landed.out)"
+        )
+        #expect(landed.out[1].contains("src/Pricing.cs:1-3"))
+        try "# R\n\nIntro.\n\n## Tax\nIt.\n@code Pricing.Gone\n".write(
+            toFile: root + "/g.walk.md",
+            atomically: true,
+            encoding: .utf8
+        )
+        let gone = trim(["walk", "resolve", "g.walk.md"], in: root)
+        #expect(gone.code == 1 && gone.out.first?.contains("NOT FOUND") == true, "\(gone.out)")
+        let json = trim(["walk", "resolve", "r.walk.md", "--json"], in: root).out.joined(separator: "\n")
+        #expect(json.contains("\"path\" : \"src/Pricing.cs\"") && json.contains("\"anchor\" : \"Pricing.Tax\""))
+        // Two anchors, two ways of naming the same lines.
+        try "# R\n\nIntro.\n\n## Tax\nIt.\n@code Pricing.Tax\n\n## Again\nMore.\n@code Pricing.Tax lines 1-50\n".write(
+            toFile: root + "/d.walk.md", atomically: true, encoding: .utf8
+        )
+        let twice = trim(["walk", "check", "d.walk.md"], in: root)
+        #expect(twice.out.contains { $0.contains("lands on the same code as") } == true, "\(twice.out)")
+    }
+
+    @Test("stamp leaves a recorded fingerprint alone, and --refresh records it again with the current commit")
+    func stampRefresh() throws {
+        let root = try repo()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try "# S\n\nIntro.\n\n## Tax\nIt.\n@code Pricing.Tax\n".write(
+            toFile: root + "/s.walk.md",
+            atomically: true,
+            encoding: .utf8
+        )
+        #expect(trim(["walk", "stamp", "s.walk.md"], in: root).out == ["stamped s.walk.md"])
+        let first = try String(contentsOfFile: root + "/s.walk.md", encoding: .utf8)
+        // The code moves on.
+        try "public class Pricing\n{\n    public int Tax() => 2;\n}\n".write(
+            toFile: root + "/src/Pricing.cs", atomically: true, encoding: .utf8
+        )
+        let before = trim(["walk", "check", "s.walk.md"], in: root).out
+        #expect(before.contains { $0.contains("changed since") } == true, "\(before)")
+        #expect(
+            trim(["walk", "stamp", "s.walk.md"], in: root).out == ["nothing to stamp"],
+            "a plain stamp keeps what is recorded"
+        )
+        #expect(trim(["walk", "stamp", "s.walk.md", "--refresh"], in: root).out == ["stamped s.walk.md"])
+        let after = trim(["walk", "check", "s.walk.md"], in: root).out
+        #expect(after.contains { $0.contains("changed since") } == false, "\(after)")
+        let refreshed = try String(contentsOfFile: root + "/s.walk.md", encoding: .utf8)
+        #expect(refreshed != first && refreshed.components(separatedBy: " #").count == first
+            .components(separatedBy: " #").count)
+    }
 }

@@ -17,14 +17,22 @@ public enum WalkSkill {
 
     ## Where to write it, and the loop
 
-    1. `trim walk new "<title>"` makes a skeleton in the repository's `.trim/walkthroughs/` (private, never committed) and
-       prints its path. Write a file that is meant to be committed anywhere in the repository instead (docs/, next to the
-       code).
-    2. Write it. Trim picks it up as soon as it is saved and shows it as new.
+    1. `trim walk new "<title>"` makes a skeleton and prints its path. It goes in the `.trim/walkthroughs/` of the
+       repository's main checkout, shared by all its worktrees (private, never committed); that is expected, whichever
+       worktree you are in. To write one that is meant to be committed, put the file anywhere in the repository instead
+       (docs/, next to the code).
+    2. Replace the skeleton: its placeholder paragraph, its `@code <...>` line and `for:` are examples. Keep the shape of the
+       front matter and the `# Title` line. Trim picks the file up as soon as it is saved and shows it as new.
     3. `trim walk check <file>` and fix everything it reports: anchors that are not found, diagrams of no known kind, steps
-       that show no code. Repeat until it says ok.
-    4. `trim walk stamp <file>` records what each anchor looked like now and the commit, so a later reader is told which steps
-       went stale. Never write fingerprints yourself.
+       that show no code, two anchors that land on the same code. Repeat until it says ok. `check` proves the anchors exist,
+       not that they mean what you wrote.
+    4. `trim walk resolve <file>` prints where each anchor lands: the file, the lines and the first line of code. Read every
+       line of it. If a symbol name occurs in more than one type (an `open` on two classes), qualify it with the type
+       (`TrimWindowController.open`) and look again; an anchor that lands on a different type's member is wrong even though
+       `check` is happy.
+    5. `trim walk stamp <file>` records what each anchor looked like now and the commit, so a later reader is told which steps
+       went stale. Never write fingerprints yourself. `trim walk stamp` leaves recorded fingerprints alone; after you have read
+       the steps `check` calls changed and found them still true, `trim walk stamp --refresh` records them again.
 
     ## The format
 
@@ -63,7 +71,7 @@ public enum WalkSkill {
 
     - **Title:** the first line after the front matter is `# Title`, a sentence a person would search for. Do not put `title:` in the front matter.
     - **Front matter:** `for` (solution, project or folder), `by` (you), `model`. `trim walk stamp` adds `commit` and `created`.
-    - **Steps:** each `## heading` is one step, in the order a person should read. 4 to 10 steps, one idea each. Open with
+    - **Steps:** each `## heading` is one step, in the order a person should read. 3 to 10 steps (the shapes below say how many suit each), one idea each. Open with
       the headline sentence, then the detail.
     - **Prose:** short and concrete: what the code does and why, what to notice, what connects it to the next step. Do not
       paste code into prose; anchor it.
@@ -72,7 +80,8 @@ public enum WalkSkill {
         shows only those lines of it, counted from its first.
       - A file and lines when there is no symbol: `@code appsettings.json:1-20` (relative to the walkthrough's folder or the
         repository's root).
-    - **Diagrams:** a ```` ```mermaid ```` fence, only when the picture carries weight: a sequence diagram for a call path, a
+    - **Diagrams:** a ```` ```mermaid ```` fence inside a step (give a diagram that frames the whole thing its own first step,
+      `## The shape of it`; do not put one before the first step), only when the picture carries weight: a sequence diagram for a call path, a
       state diagram for a lifecycle, a flowchart for a pipeline. Keep it under about 15 nodes. After it, `@link Node -> anchor`
       lines make nodes jump to code when chosen.
     - **Tables and callouts:** ordinary Markdown tables for comparisons (Trim draws them as aligned grids). Callouts are

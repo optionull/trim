@@ -26,6 +26,7 @@ description: "The :Trim commands."
 |---|---|
 | `trim walk new "<title>"` | A walkthrough skeleton in `.trim/walkthroughs`; prints its path. |
 | `trim walk check <file> [--json]` | Check anchors, diagrams and structure; exit 1 on errors. |
-| `trim walk stamp <file>` | Record each anchor's fingerprint and the commit. |
+| `trim walk resolve <file> [--json]` | Where each anchor lands: file, lines and the first line of code; exit 1 when one is not found. |
+| `trim walk stamp <file> [--refresh]` | Record each anchor's fingerprint and the commit; `--refresh` records them again, for steps re-read and found still true. |
 | `trim walk list [--json]`, `trim walk open <file>` | List the repository's walkthroughs; show one in Trim. |
 | `trim walk format`, `trim skill install` | Print or install the agent skill. |

@@ -5,7 +5,8 @@ import Foundation
 public enum WalkCommands {
     public static let usage = """
     usage: trim walk check <file> [--root <dir>] [--json]   check a walkthrough; exit 1 when it has errors
-           trim walk stamp <file> [--root <dir>]            record each anchor's fingerprint and the commit
+           trim walk resolve <file> [--root <dir>] [--json] where each anchor lands: file, lines and the first line of code
+           trim walk stamp <file> [--refresh] [--root <dir>] record each anchor's fingerprint and the commit (--refresh: again, all)
            trim walk new "<title>" [--for <path>]           make a skeleton in .trim/walkthroughs, print its path
            trim walk list [--json]                          the repository's walkthroughs
            trim walk open <file>                            show it in Trim
@@ -32,6 +33,7 @@ public enum WalkCommands {
             return found
         }
         let json = flag("--json")
+        let refresh = flag("--refresh")
         let root = value("--root")
         let folder = value("--dir")
         let target = value("--for")
@@ -63,6 +65,53 @@ public enum WalkCommands {
                     "\(errors) error\(errors == 1 ? "" : "s")")
             }
             return report.ok ? 0 : 1
+        case ("walk", "resolve"):
+            guard args.count == 3 else { err(usage); return 2 }
+            let file = absolute(args[2])
+            guard let text = try? String(contentsOfFile: file, encoding: .utf8)
+            else { err("no file \(args[2])"); return 2 }
+            let resolver = resolver(for: file)
+            struct Landing: Codable { var line: Int; var anchor: String; var path: String?; var from: Int?; var to: Int?
+                var by: String?; var first: String?; var problem: String?
+            }
+            var landings: [Landing] = []
+            for step in Walkthrough(text).steps {
+                for block in step.blocks {
+                    let anchored: (Walkthrough.Anchor, Int)? = switch block {
+                    case let .code(anchor, line), let .link(_, anchor, line): (anchor, line)
+                    default: nil
+                    }
+                    guard let (anchor, line) = anchored else { continue }
+                    switch resolver.resolve(anchor) {
+                    case let .found(found):
+                        let relative = found.path.hasPrefix(resolver.root + "/") ?
+                            String(found.path.dropFirst(resolver.root.count + 1)) : found.path
+                        landings.append(Landing(
+                            line: line, anchor: anchor.text, path: relative, from: found.lines.lowerBound,
+                            to: found.lines.upperBound, by: found.by,
+                            first: found.text.first?.trimmingCharacters(in: .whitespaces)
+                        ))
+                    case let .problem(message):
+                        landings.append(Landing(line: line, anchor: anchor.text, problem: message))
+                    }
+                }
+            }
+            if json {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                out((try? String(data: encoder.encode(landings), encoding: .utf8)) ?? "[]")
+            } else {
+                for landing in landings {
+                    if let problem = landing.problem {
+                        out("\(args[2]):\(landing.line): \(landing.anchor) -> NOT FOUND: \(problem)")
+                    } else if let path = landing.path, let from = landing.from, let to = landing.to {
+                        out(
+                            "\(args[2]):\(landing.line): \(landing.anchor) -> \(path):\(from)-\(to)   \(landing.first ?? "")"
+                        )
+                    }
+                }
+            }
+            return landings.contains { $0.problem != nil } ? 1 : 0
         case ("walk", "stamp"):
             guard args.count == 3 else { err(usage); return 2 }
             let file = absolute(args[2])
@@ -74,7 +123,8 @@ public enum WalkCommands {
                 text,
                 resolver: resolved,
                 commit: TrimFolder.head(for: resolved.root),
-                date: String(day)
+                date: String(day),
+                refresh: refresh
             )
             do { try stamped.write(toFile: file, atomically: true, encoding: .utf8) } catch {
                 err("cannot write \(args[2])"); return 2

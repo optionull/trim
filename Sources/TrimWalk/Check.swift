@@ -41,6 +41,8 @@ public enum WalkCheck {
             problems.append(.init(line: line, severity: severity, message: message))
         }
         var anchors = 0
+        // Where each code anchor landed, to say when two different ones land on the same code.
+        var landed: [String: (anchor: String, line: Int)] = [:]
         if walk.steps.isEmpty { add(1, "error", "no steps: a step is a line starting with `## `") }
         if walk.steps.count > 12 { add(walk.steps[12].line, "warning", "\(walk.steps.count) steps: 4 to 10 read best") }
         if !walk.hasHeading { add(
@@ -63,6 +65,14 @@ public enum WalkCheck {
                         if let recorded = walk.fingerprints[line], Walkthrough.fingerprint(found.text) != recorded {
                             add(line, "warning", "\(anchor.text) changed since the walkthrough was written")
                         }
+                        let place = "\(found.path):\(found.lines.lowerBound)-\(found.lines.upperBound)"
+                        if let other = landed[place], other.anchor != anchor.text {
+                            add(
+                                line, "warning",
+                                "\(anchor.text) lands on the same code as \(other.anchor) (line \(other.line)): one of them is not what you meant (`trim walk resolve` shows where each lands)"
+                            )
+                        }
+                        landed[place] = landed[place] ?? (anchor.text, line)
                     }
                 case let .link(node, anchor, line):
                     anchors += 1

@@ -87,6 +87,7 @@ Trim ships a command line tool for agents to write walkthroughs and check their 
 ```sh
 trim walk new "How an order reaches the database"   # a skeleton in .trim/walkthroughs, prints its path
 trim walk check .trim/walkthroughs/how-an-order.walk.md   # anchors found? diagrams valid? exit 1 on errors
+trim walk resolve .trim/walkthroughs/how-an-order.walk.md  # where does each anchor land? file:lines and the first line
 trim walk stamp .trim/walkthroughs/how-an-order.walk.md   # record each anchor's fingerprint and the commit
 trim walk open .trim/walkthroughs/how-an-order.walk.md    # show it in Trim
 trim walk list --json

@@ -86,30 +86,57 @@ public struct AnchorResolver: Sendable {
     }
 
     /// The declaration of `Pricing.Total` by text: a line naming `Total` as it is declared (followed by `(`, `<`, `{`,
-    /// `:`
-    /// or `=`), in a file that also names `Pricing` when there is a container.
+    /// `:` or `=`). With a container, it has to be inside the declaration of `Pricing` (a class, struct, extension...),
+    /// so
+    /// the `open` of one type is not taken for the `open` of another; for languages where the container is no type (a
+    /// Lua
+    /// table), a file that names it will do.
     private func byText(_ wanted: String) -> (String, Int, String)? {
         let parts = wanted.split(separator: ".").map(String.init)
         guard let name = parts.last, !name.isEmpty else { return nil }
         let escaped = NSRegularExpression.escapedPattern(for: name)
-        let pattern = "(class|struct|record|interface|enum|protocol|extension|fn|func|def|function|void|static|public|private|internal|protected|let|var|const)[^=;]*[^A-Za-z0-9_]\(escaped)[[:space:]]*[(<{:=]"
+        let pattern = "(class|struct|record|interface|enum|protocol|extension|actor|fn|func|def|function|void|static|public|private|internal|protected|let|var|const)[^=;]*[^A-Za-z0-9_]\(escaped)[[:space:]]*[(<{:=]"
         guard let out = Git.run(["grep", "-n", "-E", pattern], in: root) else { return nil }
+        var matches: [(path: String, number: Int)] = []
         for line in out.split(separator: "\n") {
             let pieces = line.split(separator: ":", maxSplits: 2).map(String.init)
             guard pieces.count == 3, let number = Int(pieces[1]) else { continue }
-            let full = root + "/" + pieces[0]
-            if parts.count == 1 { return (full, number, "text") }
-            if let text = try? String(contentsOfFile: full, encoding: .utf8), text.contains(parts[parts.count - 2]) {
-                return (full, number, "text")
+            matches.append((root + "/" + pieces[0], number))
+        }
+        if parts.count == 1 { return matches.first.map { ($0.path, $0.number, "text") } }
+        let container = parts[parts.count - 2]
+        let typeDeclaration = try? NSRegularExpression(
+            pattern: "(^|[^A-Za-z0-9_])(class|struct|actor|enum|protocol|extension|interface|record|trait|impl|object)[[:space:]]+\(NSRegularExpression.escapedPattern(for: container))([^A-Za-z0-9_]|$)"
+        )
+        // First, a declaration inside the container's own declaration (or one of its extensions).
+        var named: [(path: String, number: Int)] = []
+        var declared = false
+        for match in matches {
+            guard let text = try? String(contentsOfFile: match.path, encoding: .utf8) else { continue }
+            let lines = text.components(separatedBy: "\n")
+            guard text.contains(container) else { continue }
+            named.append(match)
+            for (index, text) in lines.enumerated() {
+                let range = NSRange(text.startIndex..., in: text)
+                guard typeDeclaration?.firstMatch(in: text, range: range) != nil else { continue }
+                declared = true
+                let end = Self.extent(of: lines, from: index + 1, limit: lines.count - index)
+                if match.number >= index + 1, match.number <= end { return (match.path, match.number, "text") }
             }
         }
-        return nil
+        // Else, where the container is no type that is declared (a Lua table), the first in a file that names it; where
+        // it
+        // is declared and has no such member, nothing: another type's member is not an answer.
+        if declared { return nil }
+        return named.first.map { ($0.path, $0.number, "text") }
     }
 
-    /// Where a declaration starting at `line` (1-based) ends: its braces closed, else its indentation back; at most 60.
-    public static func extent(of lines: [String], from line: Int) -> Int {
+    /// Where a declaration starting at `line` (1-based) ends: its braces closed, else its indentation back; at most
+    /// `limit`
+    /// lines (60 for what is shown).
+    public static func extent(of lines: [String], from line: Int, limit: Int = symbolLines) -> Int {
         var depth = 0, opened = false
-        let last = min(lines.count, line + symbolLines - 1)
+        let last = min(lines.count, line + limit - 1)
         for index in line ... last {
             let text = strip(lines[index - 1])
             for character in text where character == "{" || character == "}" {
