@@ -175,3 +175,11 @@ enum Git {
         return text.isEmpty ? nil : text
     }
 }
+
+/// What git says of a file's change, for a walkthrough's `@diff`.
+public enum WalkGit {
+    /// `git diff <base> -- <path>` from `root` (the worktree against `base`, `HEAD` when none): unified, no colours.
+    public static func diff(_ path: String, base: String?, in root: String) -> String? {
+        Git.run(["diff", "--no-color", "--unified=3", base ?? "HEAD", "--", path], in: root)
+    }
+}

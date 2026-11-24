@@ -6,19 +6,23 @@ import Testing
 struct TrimLinksTests {
     @Test("a link names a file, with a line and a column, or a folder")
     func parse() {
-        #expect(TrimLink.parse(URL(string: "frame://open?path=/a/b.cs&line=12&column=3")!) == .file(
+        #expect(TrimLink.parse(URL(string: "trim://open?path=/a/b.cs&line=12&column=3")!) == .file(
             path: "/a/b.cs",
             line: 12,
             column: 3
         ))
-        #expect(TrimLink.parse(URL(string: "frame://open?path=/a/b.cs")!) == .file(
+        #expect(TrimLink.parse(URL(string: "trim://open?path=/a/b.cs")!) == .file(
             path: "/a/b.cs",
             line: nil,
             column: nil
         ))
-        #expect(TrimLink.parse(URL(string: "frame://workspace?path=/a/folder")!) == .workspace(path: "/a/folder"))
-        #expect(TrimLink.parse(URL(string: "frame:///a/b.cs?line=7")!) == .file(path: "/a/b.cs", line: 7, column: nil))
-        #expect(TrimLink.parse(URL(string: "frame://open?path=/a/b.cs:12:3")!) == .file(
+        #expect(TrimLink.parse(URL(string: "trim://workspace?path=/a/folder")!) == .workspace(path: "/a/folder"))
+        #expect(TrimLink
+            .parse(URL(string: "trim://walkthrough?path=/a/b.walk.md")!) == .walkthrough(path: "/a/b.walk.md"))
+        #expect(TrimLink.parse(URL(string: "trim://walkthrough?path=relative.walk.md")!) == nil)
+        #expect(TrimLink.parse(URL(string: "frame://workspace?path=/a/folder")!) == nil, "the old scheme is gone")
+        #expect(TrimLink.parse(URL(string: "trim:///a/b.cs?line=7")!) == .file(path: "/a/b.cs", line: 7, column: nil))
+        #expect(TrimLink.parse(URL(string: "trim://open?path=/a/b.cs:12:3")!) == .file(
             path: "/a/b.cs",
             line: 12,
             column: 3
@@ -30,10 +34,10 @@ struct TrimLinksTests {
     )
     func files() {
         #expect(TrimLink.parse(URL(fileURLWithPath: "/a/b.cs")) == .file(path: "/a/b.cs", line: nil, column: nil))
-        #expect(TrimLink.parse(URL(string: "frame://open")!) == nil)
-        #expect(TrimLink.parse(URL(string: "frame://open?path=relative.cs")!) == nil)
+        #expect(TrimLink.parse(URL(string: "trim://open")!) == nil)
+        #expect(TrimLink.parse(URL(string: "trim://open?path=relative.cs")!) == nil)
         #expect(TrimLink.parse(URL(string: "https://example.com/a")!) == nil)
-        #expect(TrimLink.parse(URL(string: "frame://elsewhere?path=/a")!) == nil)
+        #expect(TrimLink.parse(URL(string: "trim://elsewhere?path=/a")!) == nil)
     }
 
     @Test("a file with no window on it is worked in at its repository's root")

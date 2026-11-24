@@ -35,6 +35,7 @@ toc:
       - file: run-and-build.md
       - file: problems.md
       - file: finding.md
+      - file: walkthroughs.md
   - folder: look
     children:
       - file: index.md

@@ -120,6 +120,13 @@ final class TrimApp: NSObject, NSApplicationDelegate {
             NSApp.activate(ignoringOtherApps: true)
         }
         switch link {
+        case let .walkthrough(path):
+            let real = RealPath.of(path)
+            let known = controllers.filter { real.hasPrefix(($0.tree?.rootPath ?? $0.workspace) + "/") }
+                .max { ($0.tree?.rootPath ?? $0.workspace).count < ($1.tree?.rootPath ?? $1.workspace).count }
+            let controller = known ?? open(folder: TrimLink.workspace(for: real))
+            forward(controller)
+            controller.openWalkthrough(real)
         case let .workspace(path):
             forward(open(folder: path))
         case let .file(path, line, column):
@@ -388,6 +395,10 @@ final class TrimApp: NSObject, NSApplicationDelegate {
         }
         maxItem.submenu = maxMenu
         tabsItem.submenu = tabsMenu
+        let walkItem = viewMenu.addItem(
+            withTitle: "Walkthroughs…", action: #selector(Window.showWalkthroughs(_:)), keyEquivalent: "w"
+        )
+        walkItem.keyEquivalentModifierMask = [.control, .command]
         viewMenu.addItem(withTitle: "Packages…", action: #selector(Window.showPackages(_:)), keyEquivalent: "")
         let themeItem = viewMenu.addItem(
             withTitle: "Colour Scheme…", action: #selector(Window.showThemePicker(_:)), keyEquivalent: "t"

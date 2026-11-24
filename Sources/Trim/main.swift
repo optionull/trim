@@ -175,6 +175,15 @@ final class TrimView: NSView {
         }
     }
 
+    /// The walkthrough pane: the same slot again.
+    var walkView: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let walkView { addSubview(walkView) }
+            needsLayout = true
+        }
+    }
+
     var terminal: NSView? {
         didSet {
             oldValue?.removeFromSuperview()
@@ -331,7 +340,7 @@ final class TrimView: NSView {
         // The grid's column, and the tabs in it: a strip over or under the grid, or a list at its right.
         var column = NSRect(x: x, y: top, width: frame.maxX - x, height: max(0, frame.maxY - top - barStrip))
         if zen {
-            for pane in [terminal, runView].compactMap({ $0 }) {
+            for pane in [terminal, runView, walkView].compactMap({ $0 }) {
                 pane.frame = NSRect(
                     x: -20000,
                     y: 0,
@@ -341,7 +350,7 @@ final class TrimView: NSView {
             }
         }
         slotDivider.isHidden = true
-        if let terminal = [terminal, runView].compactMap({ $0 }).first(where: { !$0.isHidden }), !zen {
+        if let terminal = [terminal, runView, walkView].compactMap({ $0 }).first(where: { !$0.isHidden }), !zen {
             slotColumn = column
             switch RunPlacement.for(width: bounds.width) {
             case .right:
@@ -544,6 +553,9 @@ final class TrimWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     var runEntries: [String: RunEntry] = [:]
     /// The Run pane, once wanted (a pane of its own, taking the build pane's slot while it is shown).
     var runListPane: RunPaneView?
+    /// The walkthrough pane (the same slot) and the walkthrough open in it.
+    var walkPane: WalkPaneView?
+    var walk: WalkState?
     var editingConfig: String?
     /// The origins the Run pane's pills have switched off.
     var runSourcesOff: Set<String> = []
@@ -895,6 +907,8 @@ final class TrimWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     vim.api.nvim_create_user_command('TrimFind', function() tell('trim_find', 'files') end, { desc = 'Find a file in the workspace' })
     vim.api.nvim_create_user_command('TrimGrep', function() tell('trim_find', 'grep') end, { desc = 'Find text in the workspace' })
     vim.keymap.set('n', '<Plug>(trim-theme)', function() tell('trim_theme_pick', '') end, { desc = 'Colour scheme' })
+    vim.keymap.set('n', '<Plug>(trim-walk)', function() tell('trim_walk', '') end, { desc = 'Walkthroughs' })
+    vim.api.nvim_create_user_command('TrimWalk', function(opts) tell('trim_walk', opts.args) end, { nargs = '?', complete = 'file', desc = 'Walkthroughs: choose one, or open a file' })
     vim.keymap.set('n', '<Plug>(trim-font)', function() tell('trim_font_pick', '') end, { desc = 'Font' })
     vim.api.nvim_create_user_command('TrimFont', function() tell('trim_font_pick', '') end, { desc = 'Choose the editor font: a mode with a preview as you move' })
     vim.api.nvim_create_user_command('TrimTheme', function(opts)
@@ -978,6 +992,10 @@ final class TrimWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
             }
             updateProgressToast()
             runPane?.loading = !lspProgress.isEmpty
+        case "trim_walk":
+            if let path = args.first?.stringValue, !path.isEmpty {
+                openWalkthrough(path.hasPrefix("/") ? path : workspace + "/" + path)
+            } else { showWalkthroughs(nil) }
         case "trim_run":
             switch args.first?.stringValue {
             case "build": buildDefault(nil)
@@ -1142,6 +1160,21 @@ final class TrimWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     func terminalGone() { modes.terminalHidden() }
     func runFocused() { modes.focused(.run) }
     func runGone() { modes.runHidden() }
+    func walkFocused() { modes.focused(.walk) }
+    func walkGone() { modes.walkHidden() }
+    /// The mode nvim is in inside the walkthrough changed: the status bar says it.
+    func setWalkMode(_ mode: String) {
+        guard modes.walkMode != mode else { return }
+        modes.walkMode = mode
+        refreshStatus()
+    }
+
+    /// Escape in the walkthrough: what the modes make of it (it leaves in normal mode, else it is nvim's).
+    func walkEscape() -> ModeEffect {
+        let effect = modes.escape(editorMode: editor.screen.mode, sidebarVisible: view.sidebarVisible)
+        if effect != .pass { apply(effect) }
+        return effect
+    }
 
     func focus(_ surface: Surface) {
         switch surface {
@@ -1149,6 +1182,8 @@ final class TrimWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
             if let pane = runPane { window.makeFirstResponder(pane.focusView) }
         case .run:
             if let pane = runListPane { window.makeFirstResponder(pane.focusView) }
+        case .walk:
+            if let pane = walkPane { window.makeFirstResponder(pane.focusView) }
         case .tree where view.sidebarVisible:
             if modes.treeMode == .filter { tree.focusFilter() } else { tree.focus() }
         case .tree, .editor: window.makeFirstResponder(editor)

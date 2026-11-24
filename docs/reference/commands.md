@@ -17,4 +17,15 @@ description: "The :Trim commands."
 | `:TrimRun [default\|build\|pick\|terminal\|close\|problems\|lsp\|zen]` | Run and build. |
 | `:TrimLsp [status\|restart\|stop] [name]` | Language servers. |
 | `:TrimPackages` | Packages. |
+| `:TrimWalk [file]` | Walkthroughs: choose one, or open a file. |
 | `:ShimConfig [name]` | (Shim) Switch nvim config. |
+
+## The `trim` tool
+
+| Command | What it does |
+|---|---|
+| `trim walk new "<title>"` | A walkthrough skeleton in `.trim/walkthroughs`; prints its path. |
+| `trim walk check <file> [--json]` | Check anchors, diagrams and structure; exit 1 on errors. |
+| `trim walk stamp <file>` | Record each anchor's fingerprint and the commit. |
+| `trim walk list [--json]`, `trim walk open <file>` | List the repository's walkthroughs; show one in Trim. |
+| `trim walk format`, `trim skill install` | Print or install the agent skill. |

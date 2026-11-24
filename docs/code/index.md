@@ -12,3 +12,4 @@ description: "Language servers, completion, run and build, problems and finding.
 | [Run and build](run-and-build.md) | F5 runs, ⇧⌘B builds, output in tabs. |
 | [Problems](problems.md) | One list of what is wrong, from servers and builds. |
 | [Finding](finding.md) | Files by name, text in files. |
+| [Walkthroughs](walkthroughs.md) | Agents explain code; Trim shows it beside the editor. |

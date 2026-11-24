@@ -216,6 +216,7 @@ extension TrimWindowController {
             return focusEditor()
         }
         runPane?.isHidden = true
+        hideWalkForSlot()
         if modes.surface == .terminal { terminalGone() }
         pane.isHidden = false
         view.needsLayout = true

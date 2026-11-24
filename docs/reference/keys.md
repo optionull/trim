@@ -24,6 +24,7 @@ description: "Trim's shortcuts and leader keys."
 | ⇧⌘R | Choose what to run. |
 | ⌘J, ⇧⌘J | Go into the run pane and back; close it. |
 | ⇧⌘M | Problems. |
+| ⌃⌘W | Walkthroughs. |
 | ⌘+, ⌘-, ⌘0 | Font size. |
 | ⌘, | Settings. |
 
@@ -40,6 +41,7 @@ Each is bound only where your config has nothing there.
 | `<leader>c` | Colour scheme. |
 | `<leader>F` | Font. |
 | `<leader>P` | Packages. |
+| `<leader>W` | Walkthroughs. |
 | `<leader>ff`, `<leader>fg` | Find files, find text. |
 | `<leader>rr`, `rb`, `rp`, `rt`, `rx`, `rq` | Run, build, choose, terminal, close, problems. |
 | `<leader>ls`, `lS`, `la`, `lr`, `lf`, `ld`, `ll`, `lR` | Symbols, workspace symbols, actions, rename, format, diagnostics, restart servers. |

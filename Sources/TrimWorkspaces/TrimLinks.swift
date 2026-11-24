@@ -1,14 +1,16 @@
 import Foundation
 
-/// What a `frame://` link, or a file handed to the app (`open -a Trim file.cs`), asks for: a file (at a line and
+/// What a `trim://` link, or a file handed to the app (`open -a Trim file.cs`), asks for: a file (at a line and
 /// column)
 /// or a folder to work in.
 public enum TrimLink: Equatable, Sendable {
     case file(path: String, line: Int?, column: Int?)
     case workspace(path: String)
+    /// A walkthrough to show: `trim://walkthrough?path=/abs/how-it-works.walk.md`.
+    case walkthrough(path: String)
 
-    /// `frame://open?path=/abs/file.cs&line=12&column=3`, `frame://workspace?path=/abs/folder`,
-    /// `frame:///abs/file.cs?line=12`,
+    /// `trim://open?path=/abs/file.cs&line=12&column=3`, `trim://workspace?path=/abs/folder`,
+    /// `trim:///abs/file.cs?line=12`,
     /// and a `file://` URL (a path with `:12:3` after it is a line and a column).
     public static func parse(_ url: URL) -> TrimLink? {
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
@@ -18,11 +20,14 @@ public enum TrimLink: Equatable, Sendable {
             let (path, line, column) = splitPosition(url.path)
             return .file(path: path, line: line, column: column)
         }
-        guard url.scheme == "frame" else { return nil }
+        guard url.scheme == "trim" else { return nil }
         switch url.host {
         case "workspace", "folder":
             guard let path = value("path"), path.hasPrefix("/") else { return nil }
             return .workspace(path: path)
+        case "walkthrough":
+            guard let path = value("path"), path.hasPrefix("/") else { return nil }
+            return .walkthrough(path: path)
         case "open", "file":
             guard let path = value("path"), path.hasPrefix("/") else { return nil }
             let (clean, line, column) = splitPosition(path)

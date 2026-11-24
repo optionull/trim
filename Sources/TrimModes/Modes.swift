@@ -15,6 +15,8 @@ public enum Surface: Equatable, Sendable {
     case terminal
     /// The Run pane: what can be run and the person's own configurations (its own pane, beside the build pane's slot).
     case run
+    /// The walkthrough pane: a document read in nvim's own modes (its buffer is a real one), beside the code.
+    case walk
     /// A list of choices over everything (the colour schemes, later the packages and the files): its own title says
     /// which.
     case list
@@ -158,6 +160,17 @@ public struct Modes: Equatable, Sendable {
     }
 
     /// The Run pane went away: the keyboard cannot be in it.
+    public mutating func walkHidden() {
+        if surface == .walk { surface = .editor }
+        if surface.isOverlay, beneathSwitcher == .walk { beneathSwitcher = .editor }
+        walkMode = "normal"
+    }
+
+    /// The mode nvim is in inside the walkthrough (`normal`, `insert`, `visual`, `cmdline_normal`...): Escape is its
+    /// own
+    /// anywhere but normal, and the label says it.
+    public var walkMode = "normal"
+
     public mutating func runHidden() {
         if surface == .run { surface = .editor }
         if surface.isOverlay, beneathSwitcher == .run { beneathSwitcher = .editor }
@@ -211,6 +224,11 @@ public struct Modes: Equatable, Sendable {
             return .focus(.editor)
         case .terminal, .run:
             return .pass
+        case .walk:
+            // In normal mode Escape leaves the walkthrough for the code; in any other it is nvim's (it ends the mode).
+            guard walkMode == "normal" else { return .pass }
+            surface = .editor
+            return .focus(.editor)
         case .editor:
             guard let target = editorEscape, sidebarVisible, editorMode == "normal" else { return .pass }
             surface = target
@@ -231,6 +249,7 @@ public struct Modes: Equatable, Sendable {
         case .tree: treeMode == .filter ? "FILTER" : "TREE"
         case .terminal: "BUILD"
         case .run: "RUN"
+        case .walk: walkMode == "normal" ? "WALK" : "WALK " + Self.name(ofEditorMode: walkMode)
         case .editor: Self.name(ofEditorMode: editorMode)
         }
     }
