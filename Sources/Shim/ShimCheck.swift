@@ -100,6 +100,21 @@ struct ShimCheck {
         guard name.map({ URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }) ==
             URL(fileURLWithPath: file).resolvingSymlinksInPath().path, line == 3
         else { fail("the open file was not kept: \(name ?? "nil") at \(line.map(String.init) ?? "nil")") }
+        // The config made a start screen (verify.sh): it must be gone, Shim's command line and messages being native.
+        // (Closed a moment after nvim starts: the config's plugins may load lazily on VimEnter.)
+        let shown = {
+            await (try? shell.session.channel.lua(
+                "local id = vim.g.shim_dashboard; return id and vim.api.nvim_buf_is_loaded(id) or false"
+            ))?.boolValue
+        }
+        guard await shown() != nil else { fail("the config made no start screen to close") }
+        var open = true
+        for _ in 0 ..< 30 where open {
+            open = await shown() ?? true
+            if open { try? await Task.sleep(for: .milliseconds(100)) }
+        }
+        guard !open else { fail("the config's start screen was left open") }
+        step("a start screen of the person's config is closed")
         step("switching to \(target.appName) restarts nvim in the same window, folder, file and line")
         await wait("the grid again") { shell.editor.screen.grids[1] != nil }
         do { _ = try await shell.session.channel.command("ShimConfig sill") } catch { fail("ShimConfig sill: \(error)")

@@ -15,7 +15,7 @@ passed=$(grep -c "Test run .*passed" $LOGS/test.log || true)
 grep "Test run" $LOGS/test.log
 [ "$passed" -ge 4 ] || { echo "only $passed suites passed"; exit 1; }
 mise run build 2>&1 | tail -1
-rm -rf /tmp/sill-shim-configs && mkdir -p /tmp/sill-shim-configs/alpha && echo 'vim.g.shim_marker = "alpha"' >/tmp/sill-shim-configs/alpha/init.lua
+rm -rf /tmp/sill-shim-configs && mkdir -p /tmp/sill-shim-configs/alpha && printf 'vim.g.shim_marker = "alpha"\n-- A start screen of the config'"'"'s own, which Shim must close (Shim draws no dashboards).\nvim.api.nvim_set_current_buf(vim.api.nvim_create_buf(true, true))\nvim.bo.filetype = "alpha"\nvim.g.shim_dashboard = vim.api.nvim_get_current_buf()\n' >/tmp/sill-shim-configs/alpha/init.lua
 out=$(cd /tmp && perl -e 'alarm 120; exec @ARGV or die' env SILL_SHIM_CHECK=1 XDG_CONFIG_HOME=/tmp/sill-shim-configs "$REPO/build/Shim.app/Contents/MacOS/Shim" 2>&1 | grep -E "^shim check" || true)
 echo "$out" | grep -q "^shim check: passed$" || { echo "$out"; echo "CHECK shim FAILED"; exit 1; }
 echo "shim check: passed"
