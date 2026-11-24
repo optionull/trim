@@ -14,6 +14,8 @@ M.ns = api.nvim_create_namespace('trim_md')
 --- Buffer -> its blocks ({ first, last } lines) and the one the cursor was in when it was drawn.
 M.blocks = {}
 M.inside = {}
+--- How often the buffer was drawn again (for a test of scrolling).
+M.stats = { restyle = 0 }
 
 --- A colour a fraction of the way from `a` to `b` (both 0xRRGGBB).
 local function mix(a, b, t)
@@ -230,9 +232,25 @@ end
 --- Draws `buf` again from its text.
 function M.restyle(buf)
   if not api.nvim_buf_is_loaded(buf) then return end
+  M.stats.restyle = M.stats.restyle + 1
   local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
   M.apply(buf, lines, front_range(lines), { steps = is_walk(buf) })
   M.inside[buf] = M.block_at(buf, cursor_line(buf))
+end
+
+--- How long after the window last scrolled before what waited for it is done (ms).
+M.SCROLL_PAUSE = 180
+
+local tops = {}
+--- Whether the window showing `buf` scrolled since `who` last asked (each asker has its own memory).
+function M.scrolled(buf, who)
+  local win = vim.fn.bufwinid(buf)
+  if win < 0 then return false end
+  local top = vim.fn.getwininfo(win)[1].topline
+  local key = (who or '') .. buf
+  local moved = tops[key] ~= nil and tops[key] ~= top
+  tops[key] = top
+  return moved
 end
 
 local timers = {}
@@ -262,12 +280,15 @@ function M.setup()
       if markdown(event.buf) and not is_walk(event.buf) then later(event.buf, 120) end
     end,
   })
-  -- Moving into or out of a table or callout shows its source or draws it.
+  -- Moving into or out of a table or callout shows its source or draws it. While the window is scrolling (the cursor is
+  -- being carried along) that waits for the scrolling to stop: a block opening under the cursor moves everything below it.
   api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
     group = group,
     callback = function(event)
       if not markdown(event.buf) or not M.blocks[event.buf] then return end
-      if M.block_at(event.buf, cursor_line(event.buf)) ~= M.inside[event.buf] then M.restyle(event.buf) end
+      local line = cursor_line(event.buf)
+      if M.block_at(event.buf, line) == M.inside[event.buf] then return end
+      if M.scrolled(event.buf, 'md') then later(event.buf, M.SCROLL_PAUSE) else M.restyle(event.buf) end
     end,
   })
   api.nvim_create_autocmd('WinResized', {

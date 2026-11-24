@@ -3310,6 +3310,42 @@ struct TrimCheck {
         step(
             "a table is a grid and a callout a block, drawn away from the cursor; the one the cursor is in shows its source"
         )
+        // Scrolling a long walkthrough does not redraw its blocks, reset its front matter or move the code beside it at
+        // every
+        // step the cursor is carried along: that waits for the scrolling to stop (a table opening under the cursor
+        // moves
+        // everything below it, in the middle of the scroll).
+        _ = await lua("""
+        local extra = {}
+        for i = 1, 14 do
+          vim.list_extend(extra, { '', '## Extra ' .. i, 'Prose with `code` and more words so the line wraps around the window edge a little bit.', '',
+            '| a | b |', '|---|---|', '| 1 | 2 |', '', '@code Pricing.Tax', '', '> [!note] A callout that has a little text in it.', '' })
+        end
+        vim.api.nvim_buf_set_lines(0, -1, -1, false, extra)
+        """)
+        try? await Task.sleep(for: .seconds(1.5))
+        _ = await lua("""
+        vim.cmd('normal! gg')
+        require('trim.walk').stats = { front = 0, follow = 0, show = 0, refresh = 0 }
+        require('trim.mdstyle').stats.restyle = 0
+        """)
+        for _ in 0 ..< 120 {
+            await keys("<C-e>")
+        }
+        try? await Task.sleep(for: .milliseconds(600))
+        let work = await lua("""
+        local w, m = require('trim.walk').stats, require('trim.mdstyle').stats
+        return vim.inspect({ restyle = m.restyle, front = w.front, show = w.show, top = vim.fn.line('w0') })
+        """)?.stringValue ?? "nil"
+        guard let restyle = work.firstMatch(of: /restyle = (\d+)/).flatMap({ Int($0.1) }),
+              let front = work.firstMatch(of: /front = (\d+)/).flatMap({ Int($0.1) }),
+              let top = work.firstMatch(of: /top = (\d+)/).flatMap({ Int($0.1) })
+        else { fail("no scroll statistics: \(work)") }
+        guard top > 40 else { fail("the walkthrough did not scroll: \(work)") }
+        guard restyle <= 4, front <= 4 else { fail("scrolling redrew too much (\(top) lines down): \(work)") }
+        step(
+            "scrolling a long walkthrough defers what the carried cursor would do at every step (blocks, front matter, the code beside it)"
+        )
         _ = try? await shell.session.channel.lua("vim.cmd('only'); vim.cmd('silent! %bwipeout!')")
     }
 

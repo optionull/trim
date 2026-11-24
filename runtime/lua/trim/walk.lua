@@ -6,6 +6,8 @@ local M = {}
 local api = vim.api
 local ns = api.nvim_create_namespace('trim_walk')
 local marks = api.nvim_create_namespace('trim_walk_code')
+--- How often the things done as the cursor moves ran (for a test of scrolling, which moves it).
+M.stats = { front = 0, follow = 0, show = 0, refresh = 0 }
 M.state = {}
 M.models = {}
 M.fold = {}
@@ -29,20 +31,34 @@ function M.front_range(lines)
 end
 
 local front_ns = api.nvim_create_namespace('trim_walk_front')
+M.front_inside = {}
+M.front_last = {}
 --- The front matter is hidden, and all of it shows while the cursor is in it.
 function M.front(buf)
+  M.stats.front = M.stats.front + 1
   if not api.nvim_buf_is_loaded(buf) then return end
   api.nvim_buf_clear_namespace(buf, front_ns, 0, -1)
   local last = M.front_range(api.nvim_buf_get_lines(buf, 0, -1, false))
+  M.front_last[buf] = last
+  M.front_inside[buf] = false
   if last == 0 then return end
   local current = api.nvim_get_current_buf() == buf and api.nvim_win_get_cursor(0)[1] or 0
-  if current >= 1 and current <= last then return end
+  if current >= 1 and current <= last then
+    M.front_inside[buf] = true
+    return
+  end
   for number = 1, last do
     pcall(api.nvim_buf_set_extmark, buf, front_ns, number - 1, 0, { conceal_lines = '' })
   end
 end
 
-local levels = { ok = 'TrimWalkOk', warn = 'TrimWalkWarn', err = 'TrimWalkErr' }
+--- As the cursor moves: the front matter changes only when the cursor goes into it or out of it.
+function M.front_cursor(buf)
+  local last = M.front_last[buf]
+  if not last or last == 0 then return end
+  local line = api.nvim_win_get_cursor(0)[1]
+  if (line <= last) ~= M.front_inside[buf] then M.front(buf) end
+end
 
 --- The cursor's line in the window that shows `buf` (0 when none does).
 function M.cursor_line(buf)
@@ -62,6 +78,7 @@ end
 
 --- Draws the buffer's last model again (the cards' width or open state changed).
 function M.refresh(buf)
+  M.stats.refresh = M.stats.refresh + 1
   local model = M.models[buf]
   if model then M.render(model.path, model.json) end
 end
@@ -160,6 +177,7 @@ end
 
 --- Shows lines of a file in the companion window beside the walkthrough (made when there is none), marked and in view.
 local function show(jump, enter)
+  M.stats.show = M.stats.show + 1
   local here = api.nvim_get_current_win()
   if not (M.win and api.nvim_win_is_valid(M.win)) or M.win == here then
     vim.cmd('rightbelow vsplit')
@@ -186,6 +204,7 @@ end
 
 --- Moves the companion to the code of the step the cursor is in, when one is open.
 function M.follow()
+  M.stats.follow = M.stats.follow + 1
   local state = M.state[api.nvim_get_current_buf()]
   if not state or not (M.win and api.nvim_win_is_valid(M.win)) then return end
   local jump = jump_for(state, api.nvim_win_get_cursor(0)[1])
@@ -290,9 +309,22 @@ function M.setup(tell)
     end,
   })
   api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
-    group = g, pattern = '*.walk.md', callback = function(event) M.front(event.buf) end,
+    group = g, pattern = '*.walk.md', callback = function(event) M.front_cursor(event.buf) end,
   })
-  api.nvim_create_autocmd('CursorMoved', { group = g, pattern = '*.walk.md', callback = M.follow })
+  -- The code beside follows the cursor, but not while the window scrolls (the cursor is being carried along): opening files
+  -- and moving marks in a second window each step is what a scroll would stutter on. It catches up when the scroll stops.
+  api.nvim_create_autocmd('CursorMoved', {
+    group = g, pattern = '*.walk.md',
+    callback = function(event)
+      if require('trim.mdstyle').scrolled(event.buf, 'follow') then
+        M.follow_timer = M.follow_timer or vim.uv.new_timer()
+        M.follow_timer:stop()
+        M.follow_timer:start(require('trim.mdstyle').SCROLL_PAUSE, 0, vim.schedule_wrap(M.follow))
+      else
+        M.follow()
+      end
+    end,
+  })
   -- The cards are as wide as the window: drawn again when it changes (or a split opens beside it).
   api.nvim_create_autocmd({ 'WinResized', 'WinNew', 'WinClosed' }, {
     group = g,
