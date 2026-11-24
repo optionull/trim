@@ -1,4 +1,5 @@
 import Foundation
+import TrimWalk
 
 /// How a checkout stands, for Home: its branch, its changes not committed and when they were last edited, the last
 /// commit, what an agent is doing in it, and the walkthroughs agents prepared for it (seen or not). Read only, off the

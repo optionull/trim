@@ -10,10 +10,14 @@ let hasGhostty = FileManager.default.fileExists(atPath: "\(root)/Vendor/GhosttyK
 let messagePack = Target.Dependency.product(name: "MessagePack", package: "MessagePack.swift")
 
 var targets: [Target] = [
+    // Walkthroughs: the Markdown an agent writes to explain code, its anchors, staleness and where the files live. Foundation
+    // only, so it is tested alone.
+    .target(name: "TrimWalk"),
+    .testTarget(name: "TrimWalkTests", dependencies: ["TrimWalk"]),
     // nvim over msgpack-RPC: the process, the transport and the redraw events. Lifted from Veil (MIT).
     .target(name: "SillNvim", dependencies: [messagePack]),
     // What the UI draws, built from redraw events: grids, their placement, and which windows are terminal panes.
-    .target(name: "SillCore", dependencies: ["SillNvim", "SillInput", messagePack]),
+    .target(name: "SillCore", dependencies: ["SillNvim", "SillInput", "TrimWalk", messagePack]),
     .testTarget(name: "SillCoreTests", dependencies: ["SillCore", "SillNvim", messagePack], exclude: ["Fixtures"]),
     // AppKit input in nvim's terms: key notation, mouse and IME.
     .target(name: "SillInput"),

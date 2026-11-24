@@ -1,5 +1,5 @@
-import SillCore
 import Testing
+@testable import TrimWalk
 
 @Suite("walkthroughs")
 struct WalkthroughTests {

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// A walkthrough: a Markdown file (`*.walk.md`, anywhere) an agent writes, or a person, to walk someone through code.
@@ -48,6 +49,13 @@ public struct Walkthrough: Equatable, Sendable {
         case trace(String, callers: Bool, depth: Int, line: Int)
         /// Something to run to see it work (`@run Tests: dotnet test`), from the checkout's root: a handoff's.
         case run(name: String, command: String, line: Int)
+        /// A fenced block: ```` ```mermaid ````, or code in any language, verbatim; `line` is the line of its opening
+        /// fence.
+        case fence(language: String, text: String, line: Int)
+        /// `@link Node -> anchor`: where a node of the diagram above it goes when it is chosen.
+        case link(node: String, anchor: Anchor, line: Int)
+        /// A checklist item (`- [ ] Reviewed the pricing change`), done or not; the file says which.
+        case task(String, done: Bool, line: Int)
     }
 
     public struct Step: Equatable, Sendable {
@@ -70,6 +78,10 @@ public struct Walkthrough: Equatable, Sendable {
     public var status: String?
     /// The checkout it is about, when an agent wrote it for one (a handoff): its root.
     public var worktree: String?
+    /// Who made it: the model, the commit it was written against (anchors are read as of it) and when.
+    public var model: String?
+    public var commit: String?
+    public var created: String?
     /// The fingerprint written after an anchor (`@code Pricing.Total #a1b2c3d`), by the anchor's line: what its code
     /// was when it was added, to say when it moved on.
     public var fingerprints: [Int: String] = [:]
@@ -78,6 +90,7 @@ public struct Walkthrough: Equatable, Sendable {
         var lines = source.components(separatedBy: "\n")
         var title = "", target: String?, base: String?, offset = 0
         var question: String?, by: String?, status: String?, worktree: String?
+        var model: String?, commit: String?, created: String?
         // Front matter.
         if lines.first?.trimmingCharacters(in: .whitespaces) == "---",
            let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" })
@@ -93,6 +106,9 @@ public struct Walkthrough: Equatable, Sendable {
                 case "by": by = parts[1]
                 case "status": status = parts[1]
                 case "worktree": worktree = parts[1]
+                case "model": model = parts[1]
+                case "commit": commit = parts[1]
+                case "created": created = parts[1]
                 default: break
                 }
             }
@@ -111,6 +127,26 @@ public struct Walkthrough: Equatable, Sendable {
         while index < lines.count {
             let line = lines[index], number = offset + index + 1
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                // A fenced block, verbatim to its closing fence: what is inside is never a heading or a directive.
+                let language = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces)
+                var body: [String] = []
+                var end = index + 1
+                while end < lines.count, !lines[end].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                    body.append(lines[end])
+                    end += 1
+                }
+                if steps.isEmpty {
+                    intro.append(contentsOf: lines[index ..< min(end + 1, lines.count)])
+                } else {
+                    flush()
+                    steps[steps.count - 1].blocks.append(.fence(
+                        language: String(language), text: body.joined(separator: "\n"), line: number
+                    ))
+                }
+                index = end + 1
+                continue
+            }
             if trimmed.hasPrefix("## ") {
                 flush()
                 steps.append(Step(title: String(trimmed.dropFirst(3)), blocks: [], line: number))
@@ -128,6 +164,18 @@ public struct Walkthrough: Equatable, Sendable {
                 if let anchor = Self.anchor(words.joined(separator: " ")) {
                     steps[steps.count - 1].blocks.append(.code(anchor, line: number))
                 }
+            } else if trimmed.hasPrefix("@link "), let arrow = trimmed.range(of: "->") {
+                flush()
+                let node = trimmed[trimmed.index(trimmed.startIndex, offsetBy: 6) ..< arrow.lowerBound]
+                    .trimmingCharacters(in: .whitespaces)
+                var words = String(trimmed[arrow.upperBound...]).split(separator: " ").map(String.init)
+                if let last = words.last, Self.isFingerprint(last) { words.removeLast() }
+                if !node.isEmpty, !steps.isEmpty, let anchor = Self.anchor(words.joined(separator: " ")) {
+                    steps[steps.count - 1].blocks.append(.link(node: node, anchor: anchor, line: number))
+                }
+            } else if let task = Self.task(trimmed), !steps.isEmpty {
+                flush()
+                steps[steps.count - 1].blocks.append(.task(task.text, done: task.done, line: number))
             } else if trimmed.hasPrefix("@trace ") {
                 flush()
                 let words = trimmed.dropFirst(7).split(separator: " ").map(String.init)
@@ -193,7 +241,39 @@ public struct Walkthrough: Equatable, Sendable {
         self.by = by
         self.status = status
         self.worktree = worktree
+        self.model = model
+        self.commit = commit
+        self.created = created
         self.fingerprints = fingerprints
+    }
+
+    /// `- [ ] text` or `- [x] text`.
+    static func task(_ line: String) -> (text: String, done: Bool)? {
+        for marker in ["- [ ] ", "* [ ] "] where line.hasPrefix(marker) {
+            return (String(line.dropFirst(marker.count)), false)
+        }
+        for marker in ["- [x] ", "- [X] ", "* [x] ", "* [X] "] where line.hasPrefix(marker) {
+            return (String(line.dropFirst(marker.count)), true)
+        }
+        return nil
+    }
+
+    /// What lines were, as a fingerprint: the first seven hex digits of their SHA-256 (what `@code ... #a1b2c3d`
+    /// holds).
+    public static func fingerprint(_ lines: [String]) -> String {
+        SHA256.hash(data: Data(lines.joined(separator: "\n").utf8)).map { String(format: "%02x", $0) }.joined()
+            .prefix(7).description
+    }
+
+    /// The source with the checklist item on `line` (1-based) ticked, or unticked when it was.
+    public static func toggling(_ source: String, taskAt line: Int) -> String {
+        var lines = source.components(separatedBy: "\n")
+        guard line >= 1, line <= lines.count else { return source }
+        let text = lines[line - 1]
+        guard let open = text.range(of: "[ ]") ?? text.range(of: "[x]") ?? text.range(of: "[X]"),
+              task(text.trimmingCharacters(in: .whitespaces)) != nil else { return source }
+        lines[line - 1] = text.replacingCharacters(in: open, with: text[open] == "[ ]" ? "[x]" : "[ ]")
+        return lines.joined(separator: "\n")
     }
 
     /// `#a1b2c3d`: seven or more hex digits after a `#`.
