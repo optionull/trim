@@ -9,7 +9,7 @@ struct SettingsTests {
         let (settings, problems) = SettingsLoader.decode(SettingsLoader.defaultSource)
         #expect(problems.isEmpty && settings == .default)
         let environment = SillSettings.default.environment
-        #expect(environment["SILL_AGENT"] == "claude" && environment["SILL_SMOOTH_SCROLL"] == "1")
+        #expect(environment["SILL_SMOOTH_SCROLL"] == "1" && environment["SILL_AGENT"] == nil)
         #expect(environment["SILL_NVIM_CONFIG"] == "0" && environment["SILL_DOTNET"] == nil)
     }
 
@@ -23,15 +23,16 @@ struct SettingsTests {
         [nvim]
         config = "sill"
         [agents]
-        allow = ["build"]
+        command = "claude"
+        [editor2]
         comand = "x"
         """)
         let read = try #require(settings)
         #expect(read.font == "Berkeley Mono" && read.size == 15 && read.nvimConfig == .sill)
         #expect(read.lineHeight == 1.2, "out of range keeps the default")
-        #expect(read.agentAllow == ["build"] && read.environment["SILL_MCP_ALLOW"] == "build")
         #expect(problems.map(\.description) == [
-            "editor.line_height: should be from 1 to 2", "agents.comand: is not a setting",
+            "editor.line_height: should be from 1 to 2", "agents.command: is not a setting",
+            "editor2.comand: is not a setting",
         ])
     }
 
@@ -64,10 +65,10 @@ struct SettingsTests {
 
     @Test("the environment sill started with wins over the file")
     func environment() {
-        let store = Settings(environment: ["SILL_AGENT": "echo"])
-        store.load("[agents]\ncommand = \"codex\"\nheed_agent = \"codex\"\n")
-        #expect(store.value("SILL_AGENT") == "echo" && store.overridden("SILL_AGENT"))
-        #expect(store.value("SILL_HEED_AGENT") == "codex" && !store.overridden("SILL_HEED_AGENT"))
+        let store = Settings(environment: ["SILL_SMOOTH_SCROLL": "1"])
+        store.load("[editor]\nsmooth_scroll = false\n[home]\nroots = [\"/a\"]\n")
+        #expect(store.value("SILL_SMOOTH_SCROLL") == "1" && store.overridden("SILL_SMOOTH_SCROLL"))
+        #expect(store.value("SILL_ROOTS") == "/a" && !store.overridden("SILL_ROOTS"))
     }
 
     @Test("setting a value: in place, else on its commented-out line, else added; comments kept")

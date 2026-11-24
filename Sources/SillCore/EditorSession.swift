@@ -2,11 +2,9 @@ import Foundation
 import MessagePack
 import SillNvim
 
-/// What the UI gets at every `flush`, and when sill's runtime asks for a terminal pane to take the keyboard.
+/// What the UI gets at every `flush`.
 public struct ScreenUpdate: Sendable {
     public var screen: Screen
-    /// The pane that asked for the keyboard (`i` in its placeholder window), if one did.
-    public var focusPane: Int?
 }
 
 /// One embedded nvim: starts it with sill's runtime on the runtimepath, attaches as a multigrid UI, and turns its
@@ -99,23 +97,14 @@ public actor EditorSession {
 
     private func apply(_ batch: [NvimEvent]) {
         for event in batch {
-            // sill's runtime notifies outside redraw, so no flush need follow: a focus request or a pane report goes
-            // out at once, with the last consistent screen.
+            // The front end's own notifications come outside redraw, in order, and never reach the screen.
             if case let .notification(method, args) = event {
-                if let frontEnd, method.hasPrefix(frontEnd.prefix) {
-                    frontEnd.handler(method, args)
-                } else if method == "sill_terminal" {
-                    continuation.yield(ScreenUpdate(screen: flushed, focusPane: args.first?.intValue))
-                } else if method.hasPrefix("sill_") {
-                    screen.apply(event)
-                    flushed.apply(event)
-                    continuation.yield(ScreenUpdate(screen: flushed, focusPane: nil))
-                }
+                if let frontEnd, method.hasPrefix(frontEnd.prefix) { frontEnd.handler(method, args) }
                 continue
             }
             if screen.apply(event) {
                 flushed = screen
-                continuation.yield(ScreenUpdate(screen: screen, focusPane: nil))
+                continuation.yield(ScreenUpdate(screen: screen))
             }
         }
     }
