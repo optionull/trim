@@ -30,10 +30,11 @@ public enum WalkSkill {
 
     ```markdown
     ---
-    title: How an order reaches the database
     for: Orders.slnx
     by: claude
     ---
+    # How an order reaches the database
+
     One or two sentences on what this explains and why it matters.
 
     ## The request comes in
@@ -60,7 +61,8 @@ public enum WalkSkill {
     @run Tests: dotnet test
     ```
 
-    - **Front matter:** `title` (a sentence a person would search for), `for` (solution, project or folder), `by` (you).
+    - **Title:** the first line after the front matter is `# Title`, a sentence a person would search for. Do not put `title:` in the front matter.
+    - **Front matter:** `for` (solution, project or folder), `by` (you), `model`. `trim walk stamp` adds `commit` and `created`.
     - **Steps:** each `## heading` is one step, in the order a person should read. 4 to 10 steps, one idea each. Open with
       the headline sentence, then the detail.
     - **Prose:** short and concrete: what the code does and why, what to notice, what connects it to the next step. Do not

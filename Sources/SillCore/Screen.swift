@@ -114,6 +114,10 @@ public struct Highlight: Sendable, Equatable {
     public var underdotted = false
     public var underdashed = false
     public var strikethrough = false
+    /// nvim's "alternative font": here, a double-height row. A line whose text has it is drawn at twice the size, over
+    /// its
+    /// own row and the blank one below (a virtual line the document adds), two cells to each character.
+    public var altfont = false
     /// How far a float's background lets what is under it show through, 0 (opaque) to 100.
     public var blend = 0
 
@@ -604,7 +608,21 @@ public struct Screen: Sendable {
                 col >= placement.col && col < placement.col + placement.width
         }
         guard let (grid, placement) = hit else { return (1, row, col) }
-        return (grid, row - placement.row, col - placement.col)
+        // A double-height row has two cells to a character: the screen column is twice the grid's.
+        let local = row - placement.row
+        let wide = isDoubleRow(grid: grid, row: local)
+        return (grid, local, wide ? (col - placement.col) / 2 : col - placement.col)
+    }
+
+    /// Whether a row of a grid is drawn at double height (some of its text has the `altfont` attribute).
+    public func isDoubleRow(grid: Int, row: Int) -> Bool {
+        guard let buffer = grids[grid], row >= 0, row < buffer.rows else { return false }
+        for col in 0 ..< buffer.cols
+            where buffer[row, col].hl != 0 && highlights[buffer[row, col].hl]?.altfont == true
+        {
+            return true
+        }
+        return false
     }
 
     /// Grids in drawing order: grid 1, the windows, then floats and the message grid by their compindex.
@@ -718,6 +736,7 @@ public struct Screen: Sendable {
             case "underline": highlight.underline = value.boolValue ?? false
             case "undercurl": highlight.undercurl = value.boolValue ?? false
             case "strikethrough": highlight.strikethrough = value.boolValue ?? false
+            case "altfont": highlight.altfont = value.boolValue ?? false
             case "underdouble": highlight.underdouble = value.boolValue ?? false
             case "underdotted": highlight.underdotted = value.boolValue ?? false
             case "underdashed": highlight.underdashed = value.boolValue ?? false

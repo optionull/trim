@@ -4,9 +4,11 @@ import Foundation
 /// A walkthrough: a Markdown file (`*.walk.md`, anywhere) an agent writes, or a person, to walk someone through code.
 ///
 ///     ---
-///     title: How an order reaches the database
+///     by: claude
 ///     for: Orders.slnx
 ///     ---
+///     # How an order reaches the database
+///
 ///     What this walkthrough covers.
 ///
 ///     ## The request comes in
@@ -71,6 +73,8 @@ public struct Walkthrough: Equatable, Sendable {
     /// What a review's changes are against: a git tree or commit (its `@diff`s compare it with the worktree).
     public var base: String?
     public var intro: String
+    /// Whether the title is a `# heading` in the text (what is written now), not a `title:` of the front matter.
+    public let hasHeading: Bool
     public var steps: [Step]
     /// A basket's question, who made it (you, or an agent) and where it stands (open, sent, concluded).
     public var question: String?
@@ -88,7 +92,7 @@ public struct Walkthrough: Equatable, Sendable {
 
     public init(_ source: String) {
         var lines = source.components(separatedBy: "\n")
-        var title = "", target: String?, base: String?, offset = 0
+        var title = "", heading = "", target: String?, base: String?, offset = 0
         var question: String?, by: String?, status: String?, worktree: String?
         var model: String?, commit: String?, created: String?
         // Front matter.
@@ -150,8 +154,8 @@ public struct Walkthrough: Equatable, Sendable {
             if trimmed.hasPrefix("## ") {
                 flush()
                 steps.append(Step(title: String(trimmed.dropFirst(3)), blocks: [], line: number))
-            } else if trimmed.hasPrefix("# "), steps.isEmpty, title.isEmpty {
-                title = String(trimmed.dropFirst(2))
+            } else if trimmed.hasPrefix("# "), steps.isEmpty, heading.isEmpty {
+                heading = String(trimmed.dropFirst(2))
             } else if steps.isEmpty {
                 intro.append(line)
             } else if trimmed.hasPrefix("@code ") {
@@ -232,7 +236,9 @@ public struct Walkthrough: Equatable, Sendable {
             index += 1
         }
         flush()
-        self.title = title.isEmpty ? (steps.first?.title ?? "Walkthrough") : title
+        // The `# heading` is the title; `title:` in the front matter is only read for files written before that.
+        self.title = !heading.isEmpty ? heading : !title.isEmpty ? title : (steps.first?.title ?? "Walkthrough")
+        hasHeading = !heading.isEmpty
         self.target = target
         self.base = base
         self.intro = intro.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)

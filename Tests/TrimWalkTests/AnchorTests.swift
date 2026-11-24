@@ -104,9 +104,8 @@ struct AnchorTests {
         let root = try fixture()
         defer { try? FileManager.default.removeItem(atPath: root) }
         let source = """
-        ---
-        title: Pricing
-        ---
+        # Pricing
+
         How a total is made.
 
         ## Total
@@ -134,10 +133,12 @@ struct AnchorTests {
         #expect(WalkCheck.run("no steps here", resolver: AnchorResolver(root: root)).problems.first?.message
             .hasPrefix("no steps") == true)
         let good = WalkCheck.run(
-            "Intro.\n\n## Tax\nIt is a fifth.\n@code Pricing.Tax",
+            "# Tax\n\nIntro.\n\n## Tax\nIt is a fifth.\n@code Pricing.Tax",
             resolver: AnchorResolver(root: root)
         )
         #expect(good.ok && good.problems.isEmpty && good.anchors == 1)
+        let untitled = WalkCheck.run("Intro.\n\n## Tax\nIt.\n@code Pricing.Tax", resolver: AnchorResolver(root: root))
+        #expect(untitled.ok && untitled.problems.contains { $0.message.hasPrefix("no `# Title`") })
         #expect(good.json().contains("\"ok\" : true"))
     }
 }

@@ -46,7 +46,10 @@ struct CommandTests {
         #expect(one.code == 0)
         let path = try #require(one.out.first)
         #expect(path.hasSuffix("/.trim/walkthroughs/how-pricing-works.walk.md"))
-        #expect(try String(contentsOfFile: path, encoding: .utf8).hasPrefix("---\ntitle: How pricing works"))
+        let written = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(written.hasPrefix("---\nfor:") && written.contains("\n# How pricing works\n") && !written
+            .contains("title:"))
+        #expect(Walkthrough(written).title == "How pricing works" && Walkthrough(written).hasHeading)
         #expect(trim(["walk", "new", "How pricing works"], in: root).out.first?
             .hasSuffix("how-pricing-works-2.walk.md") == true)
     }
@@ -55,15 +58,15 @@ struct CommandTests {
     func check() throws {
         let root = try repo()
         defer { try? FileManager.default.removeItem(atPath: root) }
-        try "Intro.\n\n## Tax\nIt is one.\n@code Pricing.Tax\n@code src/Gone.cs:1-3\n".write(
+        try "# Bad\n\nIntro.\n\n## Tax\nIt is one.\n@code Pricing.Tax\n@code src/Gone.cs:1-3\n".write(
             toFile: root + "/bad.walk.md",
             atomically: true,
             encoding: .utf8
         )
         let bad = trim(["walk", "check", "bad.walk.md"], in: root)
-        #expect(bad.code == 1 && bad.out.contains("bad.walk.md:6: error: no file src/Gone.cs") && bad.out
+        #expect(bad.code == 1 && bad.out.contains("bad.walk.md:8: error: no file src/Gone.cs") && bad.out
             .last == "1 error")
-        try "Intro.\n\n## Tax\nIt is one.\n@code Pricing.Tax\n".write(
+        try "# Good\n\nIntro.\n\n## Tax\nIt is one.\n@code Pricing.Tax\n".write(
             toFile: root + "/good.walk.md",
             atomically: true,
             encoding: .utf8

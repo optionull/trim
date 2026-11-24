@@ -257,6 +257,31 @@ struct RendererTests {
         #expect(canvas.pixel(x: 3 * canvas.cellWidth, y: 2 * canvas.cellHeight + 2) == background)
     }
 
+    @Test(
+        "a double-height row (altfont) draws its text twice the size over its row and the one below, two cells to a letter"
+    )
+    func doubleHeight() throws {
+        let canvas = try Canvas()
+        var builder = ScreenBuilder(cols: 20, rows: 6)
+        builder.highlight(5, ["altfont": .bool(true)])
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
+        builder.text("MM", grid: 2, row: 1, col: 0, hl: 5)
+        builder.text("MM", grid: 2, row: 4, col: 0)
+        try canvas.render(Frame(screen: builder.screen))
+        func ink(
+            row: Int,
+            cols: Range<Int>
+        ) -> Bool { cols.contains { canvas.cell(row: row, col: $0).contains(foreground) } }
+        #expect(
+            ink(row: 1, cols: 0 ..< 4) && ink(row: 2, cols: 0 ..< 4),
+            "the letters fill the row and the one under it"
+        )
+        #expect(!ink(row: 1, cols: 4 ..< 20) && !ink(row: 2, cols: 4 ..< 20), "two letters, two cells each")
+        #expect(!ink(row: 5, cols: 0 ..< 4), "an ordinary row stays in its row")
+        // The same text at the ordinary size is half as wide.
+        #expect(ink(row: 4, cols: 0 ..< 2) && !ink(row: 4, cols: 2 ..< 20))
+    }
+
     // MARK: Day 4: cursor and colours
 
     /// A window with "abc" at the top left and the cursor on the "b".

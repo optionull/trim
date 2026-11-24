@@ -16,6 +16,12 @@ for name, link in pairs({
 }) do
   api.nvim_set_hl(0, name, { link = link, default = true })
 end
+-- The document's title: the heading's colour, bold and underlined.
+do
+  local title = api.nvim_get_hl(0, { name = 'Title', link = false })
+  -- altfont is a double-height row to the app's grid: the line below (added in render) is its lower half.
+  api.nvim_set_hl(0, 'TrimWalkTitle', { fg = title.fg, bold = true, underline = true, altfont = true, default = true })
+end
 
 local groups = {}
 --- A highlight group for a colour and weight, made the first time it is asked for.
@@ -72,12 +78,33 @@ function M.render(path, json)
   local steps, jumps, at = {}, {}, {}
   for _, item in ipairs(model.items or {}) do at[item.line] = item end
   local function set(line, col, opts) pcall(api.nvim_buf_set_extmark, buf, ns, line - 1, col, opts) end
-  local meta = { { model.title or '', 'TrimWalkStep' }, { '  ' .. (model.meta or ''), 'TrimWalkMeta' } }
+  -- The front matter collapses to one quiet line above the title (the cursor on it shows the lines as they are).
+  local front_end, title_line = 0, nil
+  if lines[1] == '---' then
+    for number = 2, #lines do
+      if lines[number] == '---' then front_end = number break end
+    end
+  end
+  for number = front_end + 1, #lines do
+    if lines[number]:match('^# ') then title_line = number break end
+    if lines[number]:match('^## ') then break end
+  end
+  local meta = { { model.meta or '', 'TrimWalkMeta' } }
   if (model.stale or 0) > 0 then meta[#meta + 1] = { ('  ·  %d need a look'):format(model.stale), 'TrimWalkWarn' } end
-  set(1, 0, { virt_lines = { meta, { { '' } } }, virt_lines_above = true })
+  if front_end > 0 then
+    for number = 1, front_end do set(number, 0, { conceal_lines = '' }) end
+  end
+  set(title_line or (front_end + 1), 0, { virt_lines = { meta }, virt_lines_above = true })
+  if title_line then
+    set(title_line, 0, { end_col = #lines[title_line], hl_group = 'TrimWalkTitle', priority = 20 })
+    set(title_line, 0, { end_col = 2, conceal = '' })
+    set(title_line, 0, { virt_lines = { { { ' ' } } } })
+  end
   for number, text in ipairs(lines) do
     local item = at[number]
-    if text:match('^## ') then
+    if number == title_line then
+      -- drawn above
+    elseif text:match('^## ') then
       steps[#steps + 1] = number
       set(number, 0, { line_hl_group = 'TrimWalkStep', priority = 10 })
     elseif text:match('^@ask') then
@@ -247,6 +274,7 @@ function M.setup(tell)
       bind(tell, event.buf)
       if event.event == 'BufEnter' then
         vim.wo.wrap, vim.wo.linebreak, vim.wo.breakindent = true, true, true
+        vim.wo.conceallevel = 2
       end
       request(tell, event.buf)
     end,

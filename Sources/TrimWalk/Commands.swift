@@ -95,10 +95,11 @@ public enum WalkCommands {
             let by = ProcessInfo.processInfo.environment["TRIM_AGENT"] ?? "agent"
             let skeleton = """
             ---
-            title: \(title)
             for: \(target ?? ".")
             by: \(by)
             ---
+            # \(title)
+
             One or two sentences on what this explains and why it matters.
 
             ## First idea

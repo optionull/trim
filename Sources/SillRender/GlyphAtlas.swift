@@ -23,6 +23,8 @@ final class GlyphAtlas {
         let bold: Bool
         let italic: Bool
         let cellCount: Int
+        /// 1, or 2 for a double-height row: the glyph is drawn from a font twice the size, into cells twice the size.
+        let factor: Int
     }
 
     let device: MTLDevice
@@ -53,23 +55,26 @@ final class GlyphAtlas {
 
     var regionCount: Int { regions.count }
 
-    func region(text: String, bold: Bool, italic: Bool, cellCount: Int = 1) -> Region {
-        let key = Key(text: text, bold: bold, italic: italic, cellCount: cellCount)
+    func region(text: String, bold: Bool, italic: Bool, cellCount: Int = 1, factor: Int = 1) -> Region {
+        let key = Key(text: text, bold: bold, italic: italic, cellCount: cellCount, factor: factor)
         if let existing = regions[key] { return existing }
+        let size = factor == 1 ? font.pointSize : font.pointSize * CGFloat(factor)
+        let cell = CGSize(width: cellSize.width * CGFloat(factor), height: cellSize.height * CGFloat(factor))
 
         var drawFont = font
+        if factor != 1 { drawFont = NSFont(descriptor: font.fontDescriptor, size: size) ?? font }
         var traits: NSFontDescriptor.SymbolicTraits = []
         if bold { traits.insert(.bold) }
         if italic { traits.insert(.italic) }
         if !traits.isEmpty {
-            drawFont = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(traits), size: font.pointSize) ?? font
+            drawFont = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(traits), size: size) ?? font
         }
         let resolved = FontFallback.resolveFont(drawFont as CTFont, for: text) as NSFont
         let colored = CTFontGetSymbolicTraits(resolved as CTFont).contains(.traitColorGlyphs)
 
         // Single-cell glyphs may spill past their cell (ink wider than the advance: italics, Nerd Font icons); wide
         // ones (CJK, ligatures) are laid out at their advance; box drawing is exactly the cells.
-        let allocated = cellSize.width * CGFloat(cellCount)
+        let allocated = cell.width * CGFloat(cellCount)
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: resolved]))
         let scalar = text.unicodeScalars.count == 1 ? text.unicodeScalars.first?.value : nil
         let boxDrawn = scalar.map { (0x2500 ... 0x259F).contains($0) } ?? false
@@ -83,16 +88,16 @@ final class GlyphAtlas {
             let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
             width = max(allocated, ink.maxX)
         }
-        let pixelWidth = Int(ceil(width * scale)), pixelHeight = Int(ceil(cellSize.height * scale))
+        let pixelWidth = Int(ceil(width * scale)), pixelHeight = Int(ceil(cell.height * scale))
 
         guard let origin = place(width: pixelWidth, height: pixelHeight, colored: colored) else {
             // Full at the largest size: start over. Everything cached against the old atlas is dropped by generation.
             clear()
-            return region(text: text, bold: bold, italic: italic, cellCount: cellCount)
+            return region(text: text, bold: bold, italic: italic, cellCount: cellCount, factor: factor)
         }
         let bytes = rasterise(
             text: text, font: resolved, scalar: boxDrawn ? scalar : nil, width: pixelWidth, height: pixelHeight,
-            drawWidth: width, colored: colored
+            drawWidth: width, colored: colored, cell: cell
         )
         let texture = colored ? color : coverage
         let bytesPerRow = pixelWidth * (colored ? 4 : 1)
@@ -197,7 +202,8 @@ final class GlyphAtlas {
     /// Draws a glyph into bytes for its texture: a coverage mask (white text in an alpha-only context, as Ghostty's
     /// grayscale path does) or premultiplied BGRA for colour glyphs.
     private func rasterise(
-        text: String, font: NSFont, scalar: UInt32?, width: Int, height: Int, drawWidth: CGFloat, colored: Bool
+        text: String, font: NSFont, scalar: UInt32?, width: Int, height: Int, drawWidth: CGFloat, colored: Bool,
+        cell: CGSize
     ) -> [UInt8] {
         let bytesPerPixel = colored ? 4 : 1
         var bytes = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
@@ -218,14 +224,14 @@ final class GlyphAtlas {
             context.scaleBy(x: scale, y: scale)
 
             if let scalar, BoxDrawing.render(
-                scalar, ctx: context, cellWidth: drawWidth, cellHeight: cellSize.height, font: font
+                scalar, ctx: context, cellWidth: drawWidth, cellHeight: cell.height, font: font
             ) {
                 return
             }
             // The baseline sits so the font's line is centred in the (taller) cell.
             let descent = CTFontGetDescent(font), leading = CTFontGetLeading(font)
             let natural = CTFontGetAscent(font) + descent + leading
-            let baseline = descent + leading + (cellSize.height - natural) / 2
+            let baseline = descent + leading + (cell.height - natural) / 2
             let attributed = NSAttributedString(
                 string: text, attributes: [.font: font, .foregroundColor: NSColor.white]
             )

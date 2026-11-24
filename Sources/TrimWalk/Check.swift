@@ -43,6 +43,11 @@ public enum WalkCheck {
         var anchors = 0
         if walk.steps.isEmpty { add(1, "error", "no steps: a step is a line starting with `## `") }
         if walk.steps.count > 12 { add(walk.steps[12].line, "warning", "\(walk.steps.count) steps: 4 to 10 read best") }
+        if !walk.hasHeading { add(
+            1,
+            "warning",
+            "no `# Title` line: the title is the first heading, after the front matter"
+        ) }
         if walk.intro.isEmpty { add(1, "warning", "no introduction: a sentence or two on what this explains and why") }
         for step in walk.steps {
             var showsCode = false

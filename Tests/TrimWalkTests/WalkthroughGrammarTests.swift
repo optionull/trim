@@ -82,4 +82,14 @@ struct WalkthroughGrammarTests {
         #expect(one == Walkthrough.fingerprint(["let a = 1", "let b = 2"]))
         #expect(one != Walkthrough.fingerprint(["let a = 1", "let b = 3"]))
     }
+
+    @Test("the # heading is the title, whatever the front matter says, and a title: alone still works")
+    func headingIsTheTitle() {
+        let both = Walkthrough("---\ntitle: Old\nby: claude\n---\n# New\n\nIntro.\n\n## Step\n@code a.swift\n")
+        #expect(both.title == "New" && both.hasHeading && both.by == "claude")
+        #expect(both.intro == "Intro.", "the heading is not part of the introduction")
+        let legacy = Walkthrough("---\ntitle: Old\n---\nIntro.\n\n## Step\n")
+        #expect(legacy.title == "Old" && !legacy.hasHeading)
+        #expect(Walkthrough("## Only a step\n").title == "Only a step")
+    }
 }

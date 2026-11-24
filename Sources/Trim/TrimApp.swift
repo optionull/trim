@@ -123,7 +123,8 @@ final class TrimApp: NSObject, NSApplicationDelegate {
         switch link {
         case let .walkthrough(path):
             let real = RealPath.of(path)
-            func root(_ controller: TrimWindowController) -> String { controller.tree?.rootPath ?? controller.workspace }
+            func root(_ controller: TrimWindowController) -> String { controller.tree?.rootPath ?? controller.workspace
+            }
             var known = controllers.filter { real.hasPrefix(root($0) + "/") }.max { root($0).count < root($1).count }
             // A private walkthrough lives in the repository's main worktree, whichever worktree is open on it.
             if known == nil, let marker = real.range(of: "/\(TrimFolder.name)/") {

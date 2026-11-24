@@ -33,7 +33,7 @@ appears, and typing in the buffer redraws it.
 
 ## What a walkthrough contains
 
-A walkthrough is Markdown. Steps are `##` headings; around them:
+A walkthrough is Markdown. After a few lines of front matter (`by`, `for`, `model`; Trim shows them as one quiet line), the first line is the title as `# Heading`, drawn at double height. Steps are `##` headings; around them:
 
 - **Prose** with `**bold**`, `*italic*`, `` `code` ``, lists, tables and callouts (`> [!warning] ...`).
 - **`@code Pricing.Total`** shows that symbol's lines as they are now, highlighted in your colour scheme.

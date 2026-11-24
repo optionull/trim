@@ -3125,9 +3125,10 @@ struct TrimCheck {
         let file = folder + "/pricing.walk.md"
         let source = """
         ---
-        title: How a total is made
         by: claude
         ---
+        # How a total is made
+
         Totals are summed per line, tax is separate.
 
         ## The total
@@ -3188,7 +3189,7 @@ struct TrimCheck {
               await lua("return vim.bo.buflisted and vim.bo.filetype")?.stringValue == "markdown"
         else { fail("the walkthrough is not a listed markdown buffer like a file") }
         let text = await drawn()
-        guard text.contains("How a total is made"), text.contains("3 steps"), text.contains("Pricing.cs:5-8"),
+        guard text.contains("by claude"), text.contains("3 steps"), text.contains("Pricing.cs:5-8"),
               !text.contains("changed since"),
               text.contains("amount * 0.2m")
         else { fail("the walkthrough is not drawn: \(text)") }
@@ -4093,10 +4094,11 @@ struct TrimCheck {
             tour,
             """
             ---
-            title: How the oven and the dough meet
             by: claude
             model: claude-opus
             ---
+            # How the oven and the dough meet
+
             The oven heats to a temperature and the dough carries its own water. Nothing else decides when a loaf is ready.
 
             ## The oven heats

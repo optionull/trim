@@ -94,6 +94,24 @@ struct HitTests {
         #expect(screen.hit(row: 6, col: 40) == (4, 1, 2), "the float is on top")
         #expect(screen.hit(row: 23, col: 5) == (1, 23, 5), "the command line is grid 1")
     }
+
+    @Test("on a double-height row a click lands on the cell it is over: two screen columns to a cell")
+    func doubleRow() {
+        var screen = Screen()
+        screen.apply(.gridResize(grid: 1, width: 40, height: 10))
+        screen.apply(.gridResize(grid: 2, width: 40, height: 9))
+        screen.apply(.winPos(grid: 2, win: 1000, row: 0, col: 0, width: 40, height: 9))
+        screen.apply(.hlAttrDefine(id: 7, rgbAttrs: ["altfont": .bool(true)], ctermAttrs: [:], info: []))
+        screen.apply(.gridLine(
+            grid: 2,
+            row: 2,
+            colStart: 0,
+            cells: "Title".map { GridCellData(text: String($0), hlId: 7, repeats: 1) }
+        ))
+        #expect(screen.isDoubleRow(grid: 2, row: 2) && !screen.isDoubleRow(grid: 2, row: 3))
+        #expect(screen.hit(row: 2, col: 6) == (2, 2, 3), "the fourth letter spans screen columns 6 and 7")
+        #expect(screen.hit(row: 3, col: 6) == (2, 3, 6), "other rows are as they were")
+    }
 }
 
 @Suite("messages")
