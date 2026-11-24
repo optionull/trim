@@ -282,6 +282,49 @@ struct RendererTests {
         #expect(ink(row: 4, cols: 0 ..< 2) && !ink(row: 4, cols: 2 ..< 20))
     }
 
+    @Test(
+        "a boxed run (altfont, blend 100) is outlined in its special colour with its tint inside, and the text keeps its size"
+    )
+    func boxed() throws {
+        let canvas = try Canvas()
+        var builder = ScreenBuilder(cols: 20, rows: 6)
+        builder.highlight(6, [
+            "altfont": .bool(true), "blend": .int(100), "background": .int(0x202830), "special": .int(0xFF8800),
+        ])
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
+        builder.text("  ab  ", grid: 2, row: 2, col: 3, hl: 6)
+        try canvas.render(Frame(screen: builder.screen))
+        let top = 2 * canvas.cellHeight, bottom = 3 * canvas.cellHeight
+        let left = 3 * canvas.cellWidth, right = 9 * canvas.cellWidth
+        func orange(_ colour: Int) -> Bool { (colour >> 16) & 0xFF > 0xB0 && (colour >> 8) & 0xFF > 0x50 && colour &
+            0xFF < 0x50
+        }
+        let middle = top + canvas.cellHeight / 2
+        #expect((left ..< left + 6).contains { orange(canvas.pixel(x: $0, y: middle)) }, "the outline's left side")
+        #expect((right - 6 ..< right).contains { orange(canvas.pixel(x: $0, y: middle)) }, "the outline's right side")
+        #expect((top ..< top + 6).contains { orange(canvas.pixel(x: left + (right - left) / 2, y: $0)) }, "the top")
+        // Opaque inside (`blend` is not a transparency here), and nothing outside the box.
+        #expect(canvas.pixel(x: left + canvas.cellWidth / 2, y: middle) == 0x202830, "the tint, fully opaque")
+        #expect(Set(canvas.cell(row: 2, col: 12)) == [background], "the cells after it are untouched")
+    }
+
+    @Test("a run with altfont and a blend of 50 is one and a half times the size")
+    func halfwayScale() throws {
+        let canvas = try Canvas()
+        var builder = ScreenBuilder(cols: 20, rows: 6)
+        builder.highlight(5, ["altfont": .bool(true), "blend": .int(50)])
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
+        builder.text("MMMM", grid: 2, row: 1, col: 0, hl: 5)
+        try canvas.render(Frame(screen: builder.screen))
+        func ink(
+            row: Int,
+            cols: Range<Int>
+        ) -> Bool { cols.contains { canvas.cell(row: row, col: $0).contains(foreground) } }
+        // Four letters at 1.5 cells: six cells wide, two rows tall (the second only partly).
+        #expect(ink(row: 1, cols: 0 ..< 6) && ink(row: 2, cols: 0 ..< 6))
+        #expect(!ink(row: 1, cols: 6 ..< 20), "not as wide as at twice the size")
+    }
+
     // MARK: Day 4: cursor and colours
 
     /// A window with "abc" at the top left and the cursor on the "b".

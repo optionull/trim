@@ -79,6 +79,7 @@ struct RectInstance {
     static let undercurl: UInt32 = 2
     static let dotted: UInt32 = 3
     static let dashed: UInt32 = 4
+    static let border: UInt32 = 5
 }
 
 struct GlyphInstance {
@@ -421,11 +422,11 @@ public final class GridRenderer {
         let cell = inside ? buffer[row, col] : Cell.blank
         // The cell's own colours, which the default cursor (highlight 0) shows reversed.
         let cellHighlight = screen.highlights[cell.hl] ?? Highlight()
-        // On a double-height row the cursor is two cells wide and tall, at twice the column.
-        let double = inside && cellHighlight.altfont
+        // On a scaled row the cursor is as many times as wide and tall, at that many times the column.
+        let factor = inside ? cellHighlight.scale : 1
         var x = Float(placement.col + col) * cellWidth, y = Float(placement.row + row) * cellHeight
-        if double { x = Float(placement.col) * cellWidth + Float(col) * 2 * cellWidth }
-        let cellWidth = double ? cellWidth * 2 : cellWidth, cellHeight = double ? cellHeight * 2 : cellHeight
+        if factor != 1 { x = Float(placement.col) * cellWidth + Float(col) * factor * cellWidth }
+        let cellWidth = cellWidth * factor, cellHeight = cellHeight * factor
         var cellForeground = cellHighlight.foreground ?? screen.defaultForeground
         var cellBackground = cellHighlight.background ?? screen.defaultBackground
         if cellHighlight.reverse { swap(&cellForeground, &cellBackground) }
@@ -453,7 +454,7 @@ public final class GridRenderer {
             guard inside, !cell.text.isEmpty, cell.text != " " else { return (rect, nil) }
             let region = atlas.region(
                 text: cell.text, bold: cellHighlight.bold, italic: cellHighlight.italic, cellCount: wide ? 2 : 1,
-                factor: double ? 2 : 1
+                factor: CGFloat(factor)
             )
             return (rect, GlyphInstance(
                 origin: [x, y], size: [region.width, region.height], atlasOrigin: [region.x, region.y],
@@ -478,34 +479,57 @@ public final class GridRenderer {
             var background = highlight.background ?? style.background
             if highlight.reverse { swap(&foreground, &background) }
             let x = Float(col) * cellWidth, width = Float(end - col) * cellWidth
-            if highlight.altfont {
-                // A double-height run: two cells to a character, from a font twice the size, over this row and the
-                // blank one under it (its underline there too).
-                appendDoubleGlyphs(
-                    buffer,
-                    row: row,
-                    cols: col ..< end,
-                    highlight: highlight,
-                    color: foreground,
-                    to: &built
+            if highlight.scale != 1 {
+                // A scaled run: `scale` cells to a character, from a font that many times the size, over this row and
+                // the blank one under it (its underline there too).
+                let scale = highlight.scale
+                appendScaledGlyphs(
+                    buffer, row: row, cols: col ..< end, highlight: highlight, color: foreground, to: &built
                 )
                 appendDecorations(
-                    highlight, x: x, width: min(width * 2, Float(cols) * cellWidth - x), foreground: foreground,
-                    to: &built, factor: 2
+                    highlight, x: x, width: min(width * scale, Float(cols) * cellWidth - x), foreground: foreground,
+                    to: &built, factor: scale
                 )
                 col = end
                 continue
             }
             if covers || background != style.background {
                 var color = Self.color(background)
-                color.w = 1 - Float(highlight.blend) / 100
+                // (`blend` on a marked run is a size or a box, not a transparency.)
+                color.w = highlight.altfont ? 1 : 1 - Float(highlight.blend) / 100
                 built.backgrounds.append(RectInstance(origin: [x, 0], size: [width, cellHeight], color: color))
             }
             appendGlyphs(buffer, row: row, cols: col ..< end, highlight: highlight, color: foreground, to: &built)
             appendDecorations(highlight, x: x, width: width, foreground: foreground, to: &built)
             col = end
         }
+        appendBoxes(buffer, row: row, style: style, to: &built)
         return built
+    }
+
+    /// A rounded outline round each stretch of cells whose highlight is a box (inline code): one outline for the
+    /// stretch,
+    /// whatever the highlights inside it, in the highlight's special colour (else its text colour).
+    private func appendBoxes(_ buffer: GridBuffer, row: Int, style: Style, to built: inout Row) {
+        var col = 0
+        while col < buffer.cols {
+            guard let first = style.highlights[buffer[row, col].hl], first.boxed else {
+                col += 1
+                continue
+            }
+            var end = col + 1
+            while end < buffer.cols, style.highlights[buffer[row, end].hl]?.boxed == true {
+                end += 1
+            }
+            let inset = Float(scale)
+            let color = Self.color(first.special ?? first.foreground ?? style.foreground)
+            built.decorations.append(RectInstance(
+                origin: [Float(col) * cellWidth + inset, inset],
+                size: [Float(end - col) * cellWidth - inset * 2, cellHeight - inset * 2], color: color,
+                kind: RectInstance.border, thickness: lineThickness
+            ))
+            col = end
+        }
     }
 
     /// Glyphs for a run of cells with one highlight: shaped in segments (for ligatures), with double-width cells on
@@ -556,13 +580,14 @@ public final class GridRenderer {
         flush()
     }
 
-    /// Glyphs of a double-height run, each at twice the size and twice the advance; what would run past the grid's edge
-    /// is
-    /// not drawn.
-    private func appendDoubleGlyphs(
+    /// Glyphs of a scaled run, each at `scale` times the size and the advance; what would run past the grid's edge is
+    /// not
+    /// drawn.
+    private func appendScaledGlyphs(
         _ buffer: GridBuffer, row: Int, cols: Range<Int>, highlight: Highlight, color: Int, to built: inout Row
     ) {
         let color = Self.color(color)
+        let scale = highlight.scale
         let limit = Float(buffer.cols) * cellWidth
         var col = cols.lowerBound
         while col < cols.upperBound {
@@ -570,10 +595,10 @@ public final class GridRenderer {
             let wide = col + 1 < buffer.cols && buffer[row, col + 1].text.isEmpty
             let cells = wide ? 2 : 1
             defer { col += cells }
-            let x = Float(cols.lowerBound) * cellWidth + Float(col - cols.lowerBound) * 2 * cellWidth
-            guard !text.isEmpty, text != " ", x + Float(cells) * 2 * cellWidth <= limit else { continue }
+            let x = Float(cols.lowerBound) * cellWidth + Float(col - cols.lowerBound) * scale * cellWidth
+            guard !text.isEmpty, text != " ", x + Float(cells) * scale * cellWidth <= limit else { continue }
             let region = atlas.region(
-                text: text, bold: highlight.bold, italic: highlight.italic, cellCount: cells, factor: 2
+                text: text, bold: highlight.bold, italic: highlight.italic, cellCount: cells, factor: CGFloat(scale)
             )
             built.glyphs.append(GlyphInstance(
                 origin: [x, 0], size: [region.width, region.height], atlasOrigin: [region.x, region.y],

@@ -95,6 +95,23 @@ struct HitTests {
         #expect(screen.hit(row: 23, col: 5) == (1, 23, 5), "the command line is grid 1")
     }
 
+    @Test(
+        "altfont is twice the size, with a blend that many hundredths more than once, and 100 is a box of ordinary size"
+    )
+    func scaleOfAHighlight() {
+        var plain = Highlight()
+        #expect(plain.scale == 1 && !plain.boxed)
+        plain.altfont = true
+        #expect(plain.scale == 2)
+        plain.blend = 50
+        #expect(plain.scale == 1.5)
+        plain.blend = 100
+        #expect(plain.scale == 1 && plain.boxed)
+        var float = Highlight()
+        float.blend = 40
+        #expect(float.scale == 1 && !float.boxed, "a float's blend is not a size")
+    }
+
     @Test("on a double-height row a click lands on the cell it is over: two screen columns to a cell")
     func doubleRow() {
         var screen = Screen()
@@ -108,7 +125,7 @@ struct HitTests {
             colStart: 0,
             cells: "Title".map { GridCellData(text: String($0), hlId: 7, repeats: 1) }
         ))
-        #expect(screen.isDoubleRow(grid: 2, row: 2) && !screen.isDoubleRow(grid: 2, row: 3))
+        #expect(screen.rowScale(grid: 2, row: 2) == 2 && screen.rowScale(grid: 2, row: 3) == 1)
         #expect(screen.hit(row: 2, col: 6) == (2, 2, 3), "the fourth letter spans screen columns 6 and 7")
         #expect(screen.hit(row: 3, col: 6) == (2, 3, 6), "other rows are as they were")
     }

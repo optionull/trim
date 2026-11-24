@@ -3201,6 +3201,19 @@ struct TrimCheck {
         )?
             .boolValue == true
         else { fail("the step heading has no colour from the scheme") }
+        // Opened past the front matter, which is hidden; the cursor in it shows all of it.
+        func hiddenFront() async -> Int64 {
+            await lua(
+                "return #vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace('trim_walk_front'), 0, -1, {})"
+            )?.integerValue ?? -1
+        }
+        guard await lua("return vim.api.nvim_win_get_cursor(0)[1]")?.integerValue == 4, await hiddenFront() == 3
+        else { fail("the walkthrough did not open on its title with the front matter hidden") }
+        await keys("gg")
+        await waitAsync("the front matter open under the cursor") { await hiddenFront() == 0 }
+        await keys("4G")
+        await waitAsync("the front matter hidden again") { await hiddenFront() == 3 }
+        step("it opens past the front matter, which is hidden; the cursor in it shows all of it")
         // nvim's keys: ]] is the next step, and the code of the step opens beside it.
         await keys("gg]]")
         await waitAsync("the code of the first step beside the walkthrough") {

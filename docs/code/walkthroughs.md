@@ -19,6 +19,14 @@ and the code of the step you are on opens beside it.
 path/to/x.walk.md`, the file tree or `:edit` open one directly, and an agent's `trim walk open` opens it in the window
 that is on its repository.
 
+## How it looks while you edit
+
+It is source, styled: the title (`# Heading`) is drawn at twice the size, bold and underlined; step headings (`##`) at one and
+a half times; the `#` marks are hidden until the cursor is on the line. `` `Inline code` `` sits in a rounded box (the
+backticks are its padding), a border rather than a tint so it never looks like a selection. The front matter is one quiet
+line above the title; move the cursor into it and all of it opens. A walkthrough opens with the cursor on the title, past
+the front matter. The same styling applies to any markdown file you edit in Trim.
+
 ## Read it like nvim
 
 | Key | What it does |

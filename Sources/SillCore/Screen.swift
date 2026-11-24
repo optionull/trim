@@ -121,6 +121,13 @@ public struct Highlight: Sendable, Equatable {
     /// How far a float's background lets what is under it show through, 0 (opaque) to 100.
     public var blend = 0
 
+    /// How many times the size a run is drawn at: 1, or with `altfont` twice, or as `blend` says (50 is 1.5 times, 25
+    /// is 1.25 times; `blend` is nothing else on text).
+    public var scale: Float { altfont && !boxed ? (blend > 0 ? 1 + Float(blend) / 100 : 2) : 1 }
+
+    /// A box round the run's cells (inline code): `altfont` with a `blend` of 100.
+    public var boxed: Bool { altfont && blend == 100 }
+
     public init() {}
 }
 
@@ -608,21 +615,20 @@ public struct Screen: Sendable {
                 col >= placement.col && col < placement.col + placement.width
         }
         guard let (grid, placement) = hit else { return (1, row, col) }
-        // A double-height row has two cells to a character: the screen column is twice the grid's.
+        // A scaled row has `scale` cells to a character: the screen column is that many times the grid's.
         let local = row - placement.row
-        let wide = isDoubleRow(grid: grid, row: local)
-        return (grid, local, wide ? (col - placement.col) / 2 : col - placement.col)
+        let scale = rowScale(grid: grid, row: local)
+        return (grid, local, scale == 1 ? col - placement.col : Int(Float(col - placement.col) / scale))
     }
 
-    /// Whether a row of a grid is drawn at double height (some of its text has the `altfont` attribute).
-    public func isDoubleRow(grid: Int, row: Int) -> Bool {
-        guard let buffer = grids[grid], row >= 0, row < buffer.rows else { return false }
-        for col in 0 ..< buffer.cols
-            where buffer[row, col].hl != 0 && highlights[buffer[row, col].hl]?.altfont == true
-        {
-            return true
+    /// How many times the size a row of a grid is drawn at (the largest of its text's `scale`), 1 for an ordinary row.
+    public func rowScale(grid: Int, row: Int) -> Float {
+        guard let buffer = grids[grid], row >= 0, row < buffer.rows else { return 1 }
+        var scale: Float = 1
+        for col in 0 ..< buffer.cols where buffer[row, col].hl != 0 {
+            scale = max(scale, highlights[buffer[row, col].hl]?.scale ?? 1)
         }
-        return false
+        return scale
     }
 
     /// Grids in drawing order: grid 1, the windows, then floats and the message grid by their compindex.

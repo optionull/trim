@@ -23,7 +23,7 @@ final class GlyphAtlas {
         let bold: Bool
         let italic: Bool
         let cellCount: Int
-        /// 1, or 2 for a double-height row: the glyph is drawn from a font twice the size, into cells twice the size.
+        /// The size in percent (100 ordinarily): a scaled row's glyph is drawn from a font that many times the size.
         let factor: Int
     }
 
@@ -55,11 +55,17 @@ final class GlyphAtlas {
 
     var regionCount: Int { regions.count }
 
-    func region(text: String, bold: Bool, italic: Bool, cellCount: Int = 1, factor: Int = 1) -> Region {
-        let key = Key(text: text, bold: bold, italic: italic, cellCount: cellCount, factor: factor)
+    func region(text: String, bold: Bool, italic: Bool, cellCount: Int = 1, factor: CGFloat = 1) -> Region {
+        let key = Key(
+            text: text,
+            bold: bold,
+            italic: italic,
+            cellCount: cellCount,
+            factor: Int((factor * 100).rounded())
+        )
         if let existing = regions[key] { return existing }
-        let size = factor == 1 ? font.pointSize : font.pointSize * CGFloat(factor)
-        let cell = CGSize(width: cellSize.width * CGFloat(factor), height: cellSize.height * CGFloat(factor))
+        let size = font.pointSize * factor
+        let cell = CGSize(width: cellSize.width * factor, height: cellSize.height * factor)
 
         var drawFont = font
         if factor != 1 { drawFont = NSFont(descriptor: font.fontDescriptor, size: size) ?? font }

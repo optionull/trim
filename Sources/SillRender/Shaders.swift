@@ -18,6 +18,7 @@ enum Shaders {
     constant uint kindUndercurl = 2;
     constant uint kindDotted = 3;
     constant uint kindDashed = 4;
+    constant uint kindBorder = 5;
 
     struct RectInstance {
         float2 origin;
@@ -79,6 +80,12 @@ enum Shaders {
         } else if (in.kind == kindDotted) {
             // Dots as wide as the line is thick, a dot's width apart.
             alpha *= step(fmod(in.local.x, in.thickness * 2.0), in.thickness);
+        } else if (in.kind == kindBorder) {
+            // A rounded outline just inside the rect: the distance to its edge, kept to a band `thickness` wide.
+            float radius = min(in.size.y * 0.3, in.size.x * 0.5);
+            float2 p = abs(in.local - in.size * 0.5) - (in.size * 0.5 - radius);
+            float inside = radius - (length(max(p, 0.0)) + min(max(p.x, p.y), 0.0));
+            alpha *= clamp(in.thickness * 0.5 - abs(inside - in.thickness * 0.5) + 0.5, 0.0, 1.0);
         } else if (in.kind == kindDashed) {
             // Dashes three thicknesses long, two apart.
             float dash = max(in.thickness * 3.0, 3.0);
