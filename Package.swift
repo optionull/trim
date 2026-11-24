@@ -14,6 +14,8 @@ var targets: [Target] = [
     // only, so it is tested alone.
     .target(name: "TrimWalk"),
     .testTarget(name: "TrimWalkTests", dependencies: ["TrimWalk"]),
+    // `trim`: the command line tool agents use to write, check and open walkthroughs (installed as Helpers/trim in Trim.app).
+    .executableTarget(name: "TrimCLI", dependencies: ["TrimWalk"]),
     // nvim over msgpack-RPC: the process, the transport and the redraw events. Lifted from Veil (MIT).
     .target(name: "SillNvim", dependencies: [messagePack]),
     // What the UI draws, built from redraw events: grids, their placement, and which windows are terminal panes.
@@ -87,6 +89,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .executable(name: "Shim", targets: ["Shim"]),
+        .executable(name: "trim-cli", targets: ["TrimCLI"]),
         .executable(name: "Trim", targets: ["Trim"]),
     ],
     // The msgpack codec Veil's RPC layer is written against (MIT).

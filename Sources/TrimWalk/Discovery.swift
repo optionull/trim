@@ -8,6 +8,17 @@ public enum TrimFolder {
     public static let name = ".trim"
     public static let walkthroughs = "walkthroughs"
 
+    /// The root of the worktree `directory` is in (the folder itself outside a repository).
+    public static func worktreeRoot(for directory: String) -> String {
+        Git.run(["rev-parse", "--show-toplevel"], in: directory)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? directory
+    }
+
+    /// The short commit `directory`'s repository is at; nil outside one.
+    public static func head(for directory: String) -> String? {
+        Git.run(["rev-parse", "--short", "HEAD"], in: directory)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// The main worktree's root: the folder around the common `.git` (the folder itself outside a repository).
     public static func mainRoot(for directory: String) -> String {
         guard let common = Git.run(["rev-parse", "--path-format=absolute", "--git-common-dir"], in: directory)?
