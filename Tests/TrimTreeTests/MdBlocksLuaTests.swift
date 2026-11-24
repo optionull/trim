@@ -113,4 +113,38 @@ struct MdBlocksLuaTests {
         assert(vim.inspect(rows) == vim.inspect({ 12, 13 }), 'only the callout is hidden: ' .. vim.inspect(rows))
         """)
     }
+
+    @Test(
+        "an @ask is a question block with its answer, numbered steps get their number before the heading, and both are source under the cursor"
+    )
+    func askAndSteps() throws {
+        try check("""
+        local md = require('trim.mdstyle')
+        vim.cmd('enew')
+        local lines = { '# T', '', '## First', 'text', '@ask Why is it so?', '> Because.', '> Really.', '', '## Second', 'more' }
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        md.apply(0, lines, 0, { steps = true })
+        local marks = vim.api.nvim_buf_get_extmarks(0, md.ns, 0, -1, { details = true })
+        local numbers, hidden, drawn = {}, {}, ''
+        for _, m in ipairs(marks) do
+          if m[4].virt_text_pos == 'inline' then numbers[#numbers + 1] = { m[2] + 1, m[4].virt_text[1][1] } end
+          if m[4].conceal_lines then hidden[#hidden + 1] = m[2] + 1 end
+          for _, row in ipairs(m[4].virt_lines or {}) do for _, c in ipairs(row) do drawn = drawn .. c[1] end end
+        end
+        assert(vim.inspect(numbers) == vim.inspect({ { 3, '01  ' }, { 9, '02  ' } }), 'steps: ' .. vim.inspect(numbers))
+        table.sort(hidden)
+        assert(vim.inspect(hidden) == vim.inspect({ 5, 6, 7 }), 'the question and answer are hidden: ' .. vim.inspect(hidden))
+        assert(drawn:find('Question', 1, true) and drawn:find('Why is it so?', 1, true) and drawn:find('Because.', 1, true), drawn)
+        vim.api.nvim_win_set_cursor(0, { 6, 0 })
+        md.restyle(0)
+        marks = vim.api.nvim_buf_get_extmarks(0, md.ns, 0, -1, { details = true })
+        for _, m in ipairs(marks) do assert(not m[4].conceal_lines, 'source while the cursor is in the block') end
+        local plain = {}
+        md.apply(0, lines, 0)
+        for _, m in ipairs(vim.api.nvim_buf_get_extmarks(0, md.ns, 0, -1, { details = true })) do
+          assert(m[4].virt_text_pos ~= 'inline', 'no step numbers outside a walkthrough')
+        end
+        """)
+    }
 }

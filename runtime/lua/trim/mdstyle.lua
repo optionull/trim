@@ -35,6 +35,8 @@ function M.define()
   api.nvim_set_hl(0, 'TrimMdH2', { fg = heading.fg or title.fg or fg, bold = true, altfont = true, blend = 50 })
   -- Inline code: a faint tint inside a rounded border, so it is a thing and not a highlight.
   api.nvim_set_hl(0, 'TrimMdCode', { fg = fg, bg = mix(bg, fg, 0.09), sp = mix(bg, fg, 0.5), altfont = true, blend = 100 })
+  -- A step's number, before its heading, at the heading's size: the accent, quieter.
+  api.nvim_set_hl(0, 'TrimMdStepNo', { fg = mix(bg, heading.fg or title.fg or fg, 0.55), bold = true, altfont = true, blend = 50 })
   api.nvim_set_hl(0, 'TrimMdFence', { bg = mix(bg, fg, 0.055) })
   api.nvim_set_hl(0, 'TrimMdFenceLabel', { fg = mix(bg, fg, 0.5), bg = mix(bg, fg, 0.055), italic = true })
   api.nvim_set_hl(0, 'TrimMdBoxOpen', { fg = mix(bg, fg, 0.55) })
@@ -79,15 +81,18 @@ end
 function M.show(set, first, last, front_end, drawn)
   for line = first, last do set(line, 0, { conceal_lines = '' }) end
   if first - 1 > (front_end or 0) then
-    set(first - 1, 0, { virt_lines = drawn })
+    set(first - 1, 0, { virt_lines = drawn, priority = 200 })
   else
-    set(first, 0, { virt_lines = drawn, virt_lines_above = true })
+    set(first, 0, { virt_lines = drawn, virt_lines_above = true, priority = 200 })
   end
 end
 
 --- Decorates `lines` (1-based, of buffer `buf`): headings, inline code, checklists, tables, callouts and quotes, fenced
---- blocks; outside the front matter (lines 1 to `front_end`, when there is any).
-function M.apply(buf, lines, front_end)
+--- blocks; outside the front matter (lines 1 to `front_end`, when there is any). `opts.steps` numbers the `##` headings
+--- (a walkthrough's steps); `@ask` lines are question blocks.
+function M.apply(buf, lines, front_end, opts)
+  opts = opts or {}
+  local steps = 0
   api.nvim_buf_clear_namespace(buf, M.ns, 0, -1)
   M.blocks[buf] = {}
   local width, cursor = M.width(buf), cursor_line(buf)
@@ -137,6 +142,17 @@ function M.apply(buf, lines, front_end)
           number = last + 1
           advanced = true
         end
+      elseif text:match('^@ask%s') then
+        -- A question, and the answer in the quote lines after it, as a callout of its own.
+        end_list()
+        local last = number
+        while last < #lines and lines[last + 1]:match('^%s*>') do last = last + 1 end
+        local block = { '> [!question] ' .. text:gsub('^@ask%s+', '') }
+        for i = number + 1, last do block[#block + 1] = lines[i] end
+        M.blocks[buf][#M.blocks[buf] + 1] = { first = number, last = last }
+        if cursor < number or cursor > last then M.show(set, number, last, front_end, (blocks.quote_lines(block, width))) end
+        number = last + 1
+        advanced = true
       elseif text:match('^%s*>') then
         end_list()
         local last = number
@@ -152,6 +168,10 @@ function M.apply(buf, lines, front_end)
         set(number, 0, { end_col = #hashes + 1, conceal = '' })
         set(number, #hashes + 1, { end_col = #text, hl_group = group, priority = 200 })
         set(number, 0, { virt_lines = { { { ' ' } } } })
+        if opts.steps and #hashes == 2 then
+          steps = steps + 1
+          set(number, #hashes + 1, { virt_text = { { ('%02d  '):format(steps), 'TrimMdStepNo' } }, virt_text_pos = 'inline' })
+        end
       elseif box then
         local done = box ~= ' '
         if not list then list = { first = number, done = 0, total = 0 } end
@@ -181,6 +201,8 @@ local function front_range(lines)
   return 0
 end
 
+local function is_walk(buf) return api.nvim_buf_get_name(buf):match('%.walk%.md$') ~= nil end
+
 --- The index of the block that has `line`, or nil.
 function M.block_at(buf, line)
   for index, block in ipairs(M.blocks[buf] or {}) do
@@ -192,7 +214,7 @@ end
 function M.restyle(buf)
   if not api.nvim_buf_is_loaded(buf) then return end
   local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
-  M.apply(buf, lines, front_range(lines))
+  M.apply(buf, lines, front_range(lines), { steps = is_walk(buf) })
   M.inside[buf] = M.block_at(buf, cursor_line(buf))
 end
 
@@ -203,8 +225,6 @@ local function later(buf, ms)
   timer:stop()
   timer:start(ms, 0, vim.schedule_wrap(function() M.restyle(buf) end))
 end
-
-local function is_walk(buf) return api.nvim_buf_get_name(buf):match('%.walk%.md$') ~= nil end
 
 --- Any markdown buffer gets this, as it is edited; a walkthrough's text is dressed by trim.walk, which calls `apply` with
 --- what it knows, and this keeps blocks in step with the cursor in both.

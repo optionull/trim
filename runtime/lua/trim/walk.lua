@@ -106,7 +106,7 @@ function M.render(path, json)
   if (model.stale or 0) > 0 then meta[#meta + 1] = { ('  ·  %d need a look'):format(model.stale), 'TrimWalkWarn' } end
   set(title_line or (front_end + 1), 0, { virt_lines = { meta }, virt_lines_above = true })
   -- Headings in bigger type and inline code in a box, as in any markdown buffer.
-  require('trim.mdstyle').apply(buf, lines, front_end)
+  require('trim.mdstyle').apply(buf, lines, front_end, { steps = true })
   M.front(buf)
   for number, text in ipairs(lines) do
     local item = at[number]
@@ -129,7 +129,8 @@ function M.render(path, json)
       local open = (M.fold[buf] or {})[key]
       if open == nil then open = total <= walkcard.OPEN_LIMIT end
       if not open then card = walkcard.lines(item, width, false) end
-      set(number, 0, { virt_lines = card })
+      -- (A priority below the markdown blocks', so a card comes before what follows it on the same line.)
+      set(number, 0, { virt_lines = card, priority = 100 })
       -- The directive is the card's source: its text is hidden (the line stays, as the card's top margin) and shows, to
       -- edit, while the cursor is on the line.
       if #text > 0 then set(number, 0, { end_col = #text, conceal = '', priority = 300 }) end

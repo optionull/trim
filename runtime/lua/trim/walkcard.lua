@@ -1,8 +1,7 @@
 -- The cards of a walkthrough: the code (or the change) an anchor points at, as a sunken, rounded block of virtual lines
 -- under the line that anchors it. A card has a header row (what, where, whether it is still true), the code with its own
--- line numbers wrapped to the width it is given at word boundaries, and a bottom edge in the colour of that answer; it is
--- open or closed to a peek of its first lines. The grid draws the block from the rows' highlights: `altfont` with a
--- `blend` of 98 (the first row), 97 (the middle) and 96 (the last), and the last row's special colour along its edge.
+-- line numbers wrapped to the width it is given at word boundaries; it is open or closed to a peek of its first lines. The grid draws the block from the rows' highlights: `altfont` with a
+-- `blend` of 98 (the first row), 97 (the middle) and 96 (the last).
 local M = {}
 local api = vim.api
 
@@ -53,12 +52,12 @@ function M.define()
   row_group('TrimCardErr', 'M', { fg = err })
   row_group('TrimCardAdd', 'M', { fg = add.fg or 0x7ee787, bg = add.bg or mix(tint, 0x2ea043, 0.25) })
   row_group('TrimCardDel', 'M', { fg = del.fg or 0xff7b72, bg = del.bg or mix(tint, 0xf85149, 0.25) })
-  -- The chip in the header, and the bottom edge, in the colour of whether the code is still as written.
-  row_group('TrimCardEdge', 'B', { fg = fg, sp = mix(bg, fg, 0.18) })
+  -- The bottom row (no line along it) and the chip in the header, in the colour of whether the code is still as written.
+  row_group('TrimCardEdge', 'B', { fg = fg })
   for _, level in ipairs({ { 'Ok', 'DiagnosticOk' }, { 'Warn', 'DiagnosticWarn' }, { 'Err', 'DiagnosticError' } }) do
     local colour = api.nvim_get_hl(0, { name = level[2], link = false }).fg or fg
     row_group('TrimCard' .. level[1], 'T', { fg = colour, bold = true })
-    row_group('TrimCardEdge' .. level[1], 'B', { fg = fg, sp = colour })
+    row_group('TrimCardEdge' .. level[1], 'B', { fg = fg })
   end
   -- Syntax colours were made against the old fill.
   for name, spec in pairs(codes) do row_group(name, 'M', { fg = spec[1], bold = spec[2], italic = spec[3] }) end
@@ -224,7 +223,7 @@ function M.lines(item, width, open)
     local more = ('⋯ %d more line%s   za to open'):format(#rows - limit, #rows - limit == 1 and '' or 's')
     lines[#lines + 1] = body(nil, string.rep(' ', gutter_width), { { more, 'TrimCardMore' } }, width_of(more), inner)
   end
-  -- The bottom edge: an empty row, with a line along its bottom in the colour of whether the code is as written.
+  -- The bottom: an empty row that rounds the block off.
   lines[#lines + 1] = body('TrimCardEdge' .. (level or ''), string.rep(' ', gutter_width), {}, 0, inner)
   return lines, #rows
 end

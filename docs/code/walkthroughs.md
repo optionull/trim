@@ -34,7 +34,8 @@ when the table is wider than the window, `**bold**`, `*italic*`, `` `code` `` an
 (`> [!warning] text`; also note, tip, important, caution, danger, risk, question, verified, asserted) as a tinted block with an
 accent bar in its colour and its kind named; a plain `>` quote has a quiet bar. Move the cursor onto one and it is source
 again, so editing is never in the way. Checklist items are boxes (☐ ☑), done items struck through, with a count (`2 of 4`)
-on the first item. Fenced blocks sit on a tint with their language named. This applies to every markdown file you edit.
+on the first item. Fenced blocks sit on a tint with their language named. In a walkthrough the steps are numbered (`01  The oven heats`), and an
+`@ask` with the `>` answer after it is a question block (the answer in it, the source again under the cursor). This applies to every markdown file you edit.
 
 ## Cards
 

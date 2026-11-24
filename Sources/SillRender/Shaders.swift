@@ -85,8 +85,8 @@ enum Shaders {
             alpha *= step(fmod(in.local.x, in.thickness * 2.0), in.thickness);
         } else if (in.kind >= kindCardTop && in.kind <= kindCardBottom) {
             // A row of a sunken, rounded block: `thickness` is the device pixels to a point. Corners are rounded at the
-            // block's top (first row) and bottom (last); the fill is shaded darker along its top and sides, and the bottom
-            // edge has a faint lip, so it reads as set into the page.
+            // block's top (first row) and bottom (last); the fill is shaded darker along its top and sides, so it
+            // reads as set into the page.
             float u = in.thickness;
             float radius = 8.0 * u;
             float2 half_size = in.size * 0.5;
@@ -103,10 +103,6 @@ enum Shaders {
             float shade = 0.22 * clamp(1.0 - side / (5.0 * u), 0.0, 1.0);
             if (top) { shade = max(shade, 0.42 * clamp(1.0 - in.local.y / (10.0 * u), 0.0, 1.0)); }
             float3 rgb = in.color.rgb * (1.0 - shade);
-            if (bottom) {
-                float lip = clamp(1.0 - (in.size.y - in.local.y) / (1.5 * u), 0.0, 1.0);
-                rgb = mix(rgb, float3(1.0), 0.08 * lip);
-            }
             return float4(rgb * coverage, coverage);
         } else if (in.kind == kindBorder) {
             // A rounded outline just inside the rect: the distance to its edge, kept to a band `thickness` wide.

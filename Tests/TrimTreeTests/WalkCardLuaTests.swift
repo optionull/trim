@@ -112,7 +112,7 @@ struct WalkCardLuaTests {
     }
 
     @Test(
-        "a card's rows are marked for the grid: its header the first row, its body the middle and its bottom edge the last, in the freshness colour"
+        "a card's rows are marked for the grid: its header the first row, its body the middle and its bottom the last, with no line along it"
     )
     func rows() throws {
         try check("""
@@ -132,9 +132,8 @@ struct WalkCardLuaTests {
         assert(head[98] and not head[97] and not head[96], 'header is the top row')
         assert(middle[97] and not middle[98] and not middle[96], 'the body is the middle')
         assert(last[96] and not last[97], 'the last row is the bottom')
-        local edge = vim.api.nvim_get_hl(0, { name = last and lines[#lines][#lines[#lines]][2], link = false })
-        local warn = vim.api.nvim_get_hl(0, { name = 'DiagnosticWarn', link = false }).fg
-        assert(edge.sp == warn, 'the bottom edge is in the freshness colour')
+        local edge = vim.api.nvim_get_hl(0, { name = lines[#lines][#lines[#lines]][2], link = false })
+        assert(edge.sp == nil, 'no line along the bottom')
         local normal = vim.api.nvim_get_hl(0, { name = 'Normal', link = false })
         assert(vim.api.nvim_get_hl(0, { name = 'TrimCardBody', link = false }).bg ~= normal.bg, 'the fill is not the page')
         """)
