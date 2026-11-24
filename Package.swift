@@ -14,6 +14,9 @@ var targets: [Target] = [
     // only, so it is tested alone.
     .target(name: "TrimWalk"),
     .testTarget(name: "TrimWalkTests", dependencies: ["TrimWalk"]),
+    // Mermaid diagrams: Mermaider's native library and a renderer for the SVG it makes (every diagram type of it).
+    .target(name: "TrimDiagram"),
+    .testTarget(name: "TrimDiagramTests", dependencies: ["TrimDiagram"], resources: [.copy("Fixtures")]),
     // `trim`: the command line tool agents use to write, check and open walkthroughs (installed as Helpers/trim in Trim.app).
     .executableTarget(name: "TrimCLI", dependencies: ["TrimWalk"]),
     // nvim over msgpack-RPC: the process, the transport and the redraw events. Lifted from Veil (MIT).

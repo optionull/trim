@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150.15588000000002 316.25" width="150.15588000000002" height="316.25" style="--bg:#1a1b26;--fg:#a9b1d6;--line:#858EB5;--accent:#7aa2f7;--muted:#7982aa;background:var(--bg)">
+<style>
+  text { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  .mono { font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace; }
+  svg {
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 72%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 64%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 30%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_line-soft:     color-mix(in srgb, var(--fg) 14%, var(--bg));
+    --_line-strong:   color-mix(in srgb, var(--fg) 68%, var(--bg));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 70%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 10%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 22%, var(--bg)));
+    --_group-fill:    color-mix(in srgb, var(--fg) 4%, var(--bg));
+    --_group-hdr:     color-mix(in srgb, var(--accent, var(--fg)) 15%, var(--bg));
+    --_group-stroke:  color-mix(in srgb, var(--fg) 10%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 9%, var(--bg));
+    --_accent-fill:   color-mix(in srgb, var(--accent, var(--fg)) 8%, var(--bg));
+    --_accent-stroke: color-mix(in srgb, var(--accent, var(--fg)) 20%, var(--bg));
+    --_accent-text:   color-mix(in srgb, var(--accent, var(--fg)) 65%, var(--bg));
+    --fs-xs: 0.75rem;
+    --fs-s:  0.875rem;
+    --fs-m:  1rem;
+    --fs-l:  1.125rem;
+  }
+  .node, .actor, .entity, .class-node, .architecture-service, .kanban-card { filter: drop-shadow(0 1px 2px color-mix(in srgb, color-mix(in srgb, var(--bg) 35%, black) 55%, transparent)); }
+  .subgraph, .kanban-column { filter: drop-shadow(0 1px 2px color-mix(in srgb, color-mix(in srgb, var(--bg) 35%, black) 35%, transparent)); }
+</style>
+
+<path class="edge" data-from="_start" data-to="Idle" data-style="solid" data-arrow-start="false" data-arrow-end="true" d="M63.384,40 L63.384,70" fill="none" stroke="var(--_line)" stroke-width="1.5" marker-end="url(#m5bdf0d43-mk-arrow)" />
+<path class="edge" data-from="Idle" data-to="Running" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="start" d="M52.64333333333333,112.2 L52.64333333333333,176.05 L52.64333333333333,176.05 L52.64333333333333,204.05" fill="none" stroke="var(--_line)" stroke-width="1.5" marker-end="url(#m5bdf0d43-mk-arrow)" />
+<path class="edge" data-from="Running" data-to="Idle" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="stop" d="M79.17866666666666,204.05 L79.17866666666666,184.05 Q79.17866666666666,176.05 87.17866666666666,176.05 L101.75120000000001,176.05 Q109.75120000000001,176.05 109.75120000000001,168.05 L109.75120000000001,148.2 Q109.75120000000001,140.2 101.75120000000001,140.2 L82.12466666666666,140.2 Q74.12466666666666,140.2 74.12466666666666,132.2 L74.12466666666666,112.2" fill="none" stroke="var(--_line)" stroke-width="1.5" marker-end="url(#m5bdf0d43-mk-arrow)" />
+<path class="edge" data-from="Running" data-to="_end" data-style="solid" data-arrow-start="false" data-arrow-end="true" d="M63.384,246.25 L63.384,276.25" fill="none" stroke="var(--_line)" stroke-width="1.5" marker-end="url(#m5bdf0d43-mk-arrow)" />
+<g class="edge-label" data-from="Idle" data-to="Running" data-label="start">
+  <rect x="31.43133333333333" y="147.325" width="42.424" height="21.6" rx="10.8" ry="10.8" fill="var(--bg)" stroke="var(--_line)" stroke-width="1.5" /> <text x="52.64" y="158.13" text-anchor="middle" font-size="var(--fs-xs)" font-weight="500" fill="var(--_text)" dy="4.2">start</text>
+</g>
+<g class="edge-label" data-from="Running" data-to="Idle" data-label="stop">
+  <rect x="89.22320000000002" y="147.325" width="41.056" height="21.6" rx="10.8" ry="10.8" fill="var(--bg)" stroke="var(--_line)" stroke-width="1.5" /> <text x="109.75" y="158.13" text-anchor="middle" font-size="var(--fs-xs)" font-weight="500" fill="var(--_text)" dy="4.2">stop</text>
+</g>
+<g class="node" data-id="_start" data-label="" data-shape="statestart">
+  <circle cx="63.384" cy="28" r="10" fill="var(--accent, var(--fg))" />
+  
+</g>
+<g class="node" data-id="Idle" data-label="Idle" data-shape="rounded">
+  <rect x="31.162000000000006" y="70" width="64.44399999999999" height="42.2" rx="14" ry="14" fill="url(#m5bdf0d43-ng-p0)" stroke="color-mix(in srgb, #7982aa 74%, var(--fg))" stroke-width="1.25" />
+  <text x="63.38" y="91.1" text-anchor="middle" font-size="var(--fs-s)" font-weight="500" fill="var(--_text)" dy="4.9">Idle</text>
+</g>
+<g class="node" data-id="Running" data-label="Running" data-shape="rounded">
+  <rect x="16" y="204.05" width="94.768" height="42.2" rx="14" ry="14" fill="url(#m5bdf0d43-ng-p0)" stroke="color-mix(in srgb, #7982aa 74%, var(--fg))" stroke-width="1.25" />
+  <text x="63.38" y="225.15" text-anchor="middle" font-size="var(--fs-s)" font-weight="500" fill="var(--_text)" dy="4.9">Running</text>
+</g>
+<g class="node" data-id="_end" data-label="" data-shape="stateend">
+  <circle cx="63.384" cy="288.25" r="10" fill="none" stroke="var(--accent, var(--fg))" stroke-width="2" />
+<circle cx="63.384" cy="288.25" r="6" fill="var(--accent, var(--fg))" />
+  
+</g>
+<defs>
+  <linearGradient id="m5bdf0d43-ng-p0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="color-mix(in srgb, #7982aa 15%, var(--bg))" /><stop offset="1" stop-color="color-mix(in srgb, #7982aa 7%, var(--bg))" /></linearGradient>
+  <marker id="m5bdf0d43-mk-arrow" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="12" refX="10" refY="6" orient="auto">
+    <polygon points="0,1.5 10,6 0,10.5" fill="var(--_line)" stroke="var(--_line)" stroke-width="1" stroke-linejoin="miter" />
+  </marker>
+</defs>
+</svg>
