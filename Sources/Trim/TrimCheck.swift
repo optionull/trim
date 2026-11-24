@@ -3093,10 +3093,11 @@ struct TrimCheck {
         await wait("the font back") { EditorFont.metrics.regular.familyName == beforeFamily }
     }
 
-    /// Walkthroughs: a document an agent writes is shown in the pane beside the editor, read with nvim's own keys (its
-    /// buffer is a real one), the editor follows the step, a checklist is ticked from it, and a change of the code or
-    /// of
-    /// the file shows at once.
+    /// Walkthroughs: a file an agent writes opens as a tab like any other, drawn in the editor (steps, the code each
+    /// anchor
+    /// points at under its line, checklists), moved with nvim's keys, with the code of the step beside it, and a change
+    /// in
+    /// the code shows at once.
     private func runGit(_ folder: String, _ arguments: [String]) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -3141,126 +3142,127 @@ struct TrimCheck {
         ## Before you merge
         - [ ] Tests pass
         - [ ] Pricing reviewed
-        ```text
-        dotnet test
-        ```
+        @run Tests: echo tested
         """
         try? source.write(toFile: file, atomically: true, encoding: .utf8)
-        _ = TrimFolder.path(for: base)
         shell.focusEditor()
         _ = try? await shell.session.channel.lua("vim.cmd('silent! %bwipeout!')")
         shell.move(to: base)
         await waitAsync("nvim in the fixture") {
             await (try? shell.session.channel.lua("return vim.fn.getcwd()"))?.stringValue == base
         }
+        func lua(_ code: String) async -> MessagePackValue? { try? await shell.session.channel.lua(code) }
+        func keys(_ text: String) async { _ = try? await shell.session.channel.lua(
+            "vim.api.nvim_input(...)",
+            args: [.string(text)]
+        ) }
+        /// All the text drawn by the walkthrough's decorations, header, badges and code cards.
+        func drawn() async -> String {
+            await lua("""
+            local out = {}
+            for _, m in ipairs(vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace('trim_walk'), 0, -1, { details = true })) do
+              for _, key in ipairs({ 'virt_text', 'virt_lines' }) do
+                for _, row in ipairs(m[4][key] or {}) do
+                  local chunks = key == 'virt_lines' and row or { row }
+                  for _, c in ipairs(chunks) do out[#out + 1] = type(c) == 'table' and c[1] or c end
+                  out[#out + 1] = '\\n'
+                end
+              end
+            end
+            return table.concat(out)
+            """)?.stringValue ?? ""
+        }
+        func here() async -> String {
+            await lua(
+                "return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ':t') .. ':' .. vim.api.nvim_win_get_cursor(0)[1]"
+            )?
+                .stringValue ?? ""
+        }
         // Through the link an agent's `trim walk open` makes.
         guard let link = URL(string: "trim://walkthrough?path=" + file
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!) else { fail("no link") }
         guard app.handle(link) else { fail("trim://walkthrough was not taken as a link") }
-        await wait("the walkthrough's pane") {
-            shell.walkPane?.isHidden == false && (shell.walk?.doc.items.count ?? 0) > 0
+        await waitAsync("the walkthrough in the editor") { await here().hasPrefix("pricing.walk.md") }
+        await waitAsync("the walkthrough drawn") { await drawn().contains("order.Lines.Sum") }
+        guard await lua("return #vim.fn.getbufinfo({ buflisted = 1 })")?.integerValue ?? 0 >= 1,
+              await lua("return vim.bo.buflisted and vim.bo.filetype")?.stringValue == "markdown"
+        else { fail("the walkthrough is not a listed markdown buffer like a file") }
+        let text = await drawn()
+        guard text.contains("How a total is made"), text.contains("3 steps"), text.contains("Pricing.cs:5-8"),
+              !text.contains("changed since"),
+              text.contains("amount * 0.2m")
+        else { fail("the walkthrough is not drawn: \(text)") }
+        step(
+            "trim://walkthrough opens it as a tab in the editor, drawn with its header, anchors found by declaration and their code"
+        )
+        guard await lua(
+            "local n = 0; for _, m in ipairs(vim.api.nvim_get_hl(0, { name = 'TrimWalkStep' })) do n = n + 1 end; return vim.api.nvim_get_hl(0, { name = 'TrimWalkStep', link = false }).fg ~= nil"
+        )?
+            .boolValue == true
+        else { fail("the step heading has no colour from the scheme") }
+        // nvim's keys: ]] is the next step, and the code of the step opens beside it.
+        await keys("gg]]")
+        await waitAsync("the code of the first step beside the walkthrough") {
+            await lua("""
+            local win = require('trim.walk').win
+            return #vim.api.nvim_tabpage_list_wins(0) == 2 and win and vim.api.nvim_win_is_valid(win) and vim.fn.fnamemodify(vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(win)), ':t') .. ':' .. vim.api.nvim_win_get_cursor(win)[1]
+            """)?.stringValue == "Pricing.cs:5"
         }
-        guard let state = shell.walk else { fail("no walkthrough open") }
-        await wait("the keyboard in the walkthrough") { shell.modes.surface == .walk }
-        guard shell.modes.label(editorMode: "normal") == "WALK"
-        else { fail("the status bar says \(shell.modes.label(editorMode: "normal"))") }
-        step("trim://walkthrough opens it in the pane, in a mode of its own (WALK)")
-        let kinds = state.doc.items.map { item -> String in
-            switch item.kind {
-            case .step: "step"
-            case .prose: "prose"
-            case .card: "card"
-            case .task: "task"
-            case .ask: "ask"
-            case .run: "run"
-            }
+        guard await here().hasPrefix("pricing.walk.md") else { fail("the keyboard left the walkthrough") }
+        guard await lua(
+            "return #vim.api.nvim_buf_get_extmarks(vim.api.nvim_win_get_buf(require('trim.walk').win), vim.api.nvim_create_namespace('trim_walk_code'), 0, -1, {})"
+        )?
+            .integerValue == 4
+        else { fail("the lines of the anchor are not marked in the code") }
+        step(
+            "]] is nvim's: it goes to the step, and the code opens beside it with its lines marked, the keyboard staying"
+        )
+        await keys("]]")
+        await waitAsync("the second step's code") {
+            await (lua("local w = require('trim.walk').win; return vim.api.nvim_win_get_cursor(w)[1]"))?
+                .integerValue == 10
         }
-        guard state.doc.title == "How a total is made", kinds.count(where: { $0 == "step" }) == 3,
-              kinds.count(where: { $0 == "task" }) == 2, kinds.contains("ask"),
-              kinds.count(where: { $0 == "card" }) == 3
-        else { fail("the document is \(state.doc.title): \(kinds)") }
-        let totalCard = state.doc.items.compactMap { item -> (WalkCard, WalkJump?)? in
-            if case let .card(card) = item.kind, card.heading.hasPrefix("Pricing.Total") { return (card, item.jump) }
-            return nil
-        }.first
-        guard let (card, jump) = totalCard, card.body.string.contains("order.Lines.Sum"), jump?.from == 5,
-              jump?.to == 8
-        else {
-            fail(
-                "the Total anchor is not its lines: \(String(describing: totalCard?.0.body.string)) \(String(describing: totalCard?.1))"
-            )
+        await keys("<Down><Down>")
+        await keys("[[")
+        await keys("[[")
+        await waitAsync("back at the first step's code") {
+            await (lua("local w = require('trim.walk').win; return vim.api.nvim_win_get_cursor(w)[1]"))?
+                .integerValue == 5
         }
-        step("steps, prose, the anchors' own lines (found by their declaration), questions and checklists are drawn")
-        // The keys are nvim's: ]] goes to the first step, and the editor follows it.
-        state.session.send(keys: "]]")
-        await waitAsync("the editor on the anchor") {
-            let name = await (try? shell.session.channel
-                .lua(
-                    "return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ':t') .. ':' .. vim.api.nvim_win_get_cursor(0)[1]"
-                ))?
-                .stringValue
-            return name == "Pricing.cs:5"
+        step("moving between steps moves the code beside it")
+        // The checklist is ticked with x, in the buffer.
+        await keys(":/Tests pass<CR>x")
+        await waitAsync("the task ticked") {
+            await (lua("return vim.fn.search('- \\\\[x\\\\] Tests pass', 'nw')"))?.integerValue ?? 0 > 0
         }
-        guard await (try? shell.session.channel
-            .lua("return #vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace('trim_walk'), 0, -1, {})"))?
-                    .integerValue == 4
-        else {
-            fail("the lines of the anchor are not marked in the editor")
-        }
-        step("]] is nvim's: the cursor goes to the step, and the editor shows its code with the lines marked")
-        state.session.send(keys: "]]")
-        await waitAsync("the editor on the second anchor") {
-            await (try? shell.session.channel.lua("return vim.api.nvim_win_get_cursor(0)[1]"))?.integerValue == 10
-        }
-        step("the next step moves the editor to the next anchor")
-        // A real register-and-command nvim: a count and `:`.
-        state.session.send(keys: ":1<CR>")
-        await wait("the cursor back at the top (a : command)") { state.cursorLine == 1 }
-        state.session.send(keys: "i")
-        await wait("insert mode in the label") { shell.modes.label(editorMode: "normal") == "WALK INSERT" }
-        guard !(shell.walkEscape() != .pass) else { fail("Escape in insert mode left the walkthrough") }
-        state.session.send(keys: "<Esc>")
-        await wait("normal again") { shell.modes.label(editorMode: "normal") == "WALK" }
-        step("nvim's modes show in the label, and Escape in insert mode ends the mode, not the walkthrough")
-        // The checklist.
-        state.session.send(keys: ":17<CR>")
-        await wait("the cursor on the first task") { state.cursorLine == 17 }
-        state.session.send(keys: "x")
-        await wait("the task ticked in the file") {
-            ((try? String(contentsOfFile: file, encoding: .utf8)) ?? "").contains("- [x] Tests pass")
-        }
-        step("x ticks a checklist item, in the file")
-        // An agent writes another step while it is open.
-        var more = (try? String(contentsOfFile: file, encoding: .utf8)) ?? ""
-        more += "\n\n## One more\nAdded while it was open.\n@code src/Pricing.cs:3-4\n"
-        try? more.write(toFile: file, atomically: true, encoding: .utf8)
-        await wait("the new step in the pane") { (state.parsed?.steps.count ?? 0) == 4 }
-        step("a step written into the file while it is open appears in the pane")
-        // The code moves on: its anchors are marked changed.
-        guard state.doc.stale == 0 else { fail("a fresh walkthrough has \(state.doc.stale) anchors that need a look") }
+        await waitAsync("the ticked box drawn") { await drawn().contains("☑") }
+        step("x ticks a checklist item in the buffer, drawn as a box")
+        // Edited like any buffer: a new step typed in appears in the drawn document.
+        await keys("Go<CR>## One more<CR>Added while typing.<CR>@code src/Pricing.cs:3-4<Esc>")
+        await waitAsync("the new anchor drawn") { await drawn().contains("Pricing.cs:3-4") }
+        step("typing in it is editing a buffer: the new step's anchor is drawn at once")
+        // The code moves on after the walkthrough was stamped: the anchor is marked.
+        _ = try? await shell.session.channel.lua("vim.cmd('silent write')")
         let stamped = Walkthrough.stamping(
-            more,
-            resolver: AnchorResolver(root: base, folder: folder),
-            commit: nil,
-            date: "2026-11-24"
+            (try? String(contentsOfFile: file, encoding: .utf8)) ?? "", resolver: AnchorResolver(
+                root: base,
+                folder: folder
+            ), commit: nil, date: "2026-11-24"
         )
         try? stamped.write(toFile: file, atomically: true, encoding: .utf8)
-        await wait("the stamped file read") { state.lines.contains { $0.contains("@code Pricing.Total #") } }
+        _ = try? await shell.session.channel.lua("vim.cmd('checktime')")
+        await waitAsync("the stamped walkthrough read") {
+            await lua("return vim.fn.search('@code Pricing.Total #', 'nw')")?.integerValue ?? 0 > 0
+        }
         try? code.replacingOccurrences(of: "amount * 0.2m", with: "amount * 0.25m").write(
             toFile: base + "/src/Pricing.cs",
             atomically: true,
             encoding: .utf8
         )
-        _ = try? await state.session.channel.lua("vim.cmd('silent! edit')")
-        await wait("a stale anchor in the pane") { state.doc.stale >= 1 }
+        _ = try? await shell.session.channel.lua("vim.cmd('doautocmd BufEnter')")
+        await waitAsync("a changed anchor marked") { await drawn().contains("changed since written") }
         step("an anchor whose code changed since it was stamped is marked, and counted in the header")
-        // Out of it: Escape in normal mode is the way back to the code.
-        guard shell.walkEscape() != .pass,
-              shell.modes.surface == .editor else { fail("Escape did not leave the walkthrough") }
-        step("Escape in normal mode gives the keyboard back to the code")
-        shell.hideWalkPane()
-        await wait("the pane away") { shell.walkPane?.isHidden == true }
-        _ = try? await shell.session.channel.lua("vim.cmd('silent! %bwipeout!')")
+        _ = try? await shell.session.channel.lua("vim.cmd('only'); vim.cmd('silent! %bwipeout!')")
     }
 
     /// A big file, and one with a very long line, open plain and at once: no tree-sitter, no folds, no language server.
@@ -4164,17 +4166,17 @@ struct TrimCheck {
         try? await Task.sleep(for: .seconds(1.5))
         snap("window")
         step("docshots: the window")
-        // Wide enough that the pane sits beside the code, as it does on a big screen.
+        // Wide enough for the code beside it, as on a big screen.
         let before = ctrl.window.contentView?.frame.size ?? NSSize(width: 1100, height: 760)
         ctrl.window.setContentSize(NSSize(width: 1440, height: 880))
         try? await Task.sleep(for: .milliseconds(600))
         ctrl.openWalkthrough(tour)
-        await wait("the walkthrough") { ctrl.walk?.doc.items.isEmpty == false }
-        ctrl.walk?.session.send(keys: "]]")
+        await waitAsync("the walkthrough") { await bufferIs("oven.walk.md") }
+        try? await Task.sleep(for: .seconds(1.5))
+        _ = try? await ctrl.session.channel.lua("vim.api.nvim_input(...)", args: [.string("gg]]")])
         try? await Task.sleep(for: .seconds(2))
         snap("walkthrough")
-        ctrl.hideWalkPane()
-        await wait("the walkthrough away") { ctrl.walkPane?.isHidden == true }
+        _ = try? await ctrl.session.channel.lua("vim.cmd('only')")
         ctrl.window.setContentSize(before)
         try? await Task.sleep(for: .milliseconds(600))
         step("docshots: a walkthrough")
@@ -4591,7 +4593,6 @@ struct TrimCheck {
         var overlays: [NSView] = []
         if let pane = host.runPane, !pane.isHidden { overlays.append(pane) }
         if let pane = host.runListPane, !pane.isHidden { overlays.append(pane) }
-        if let pane = host.walkPane, !pane.isHidden { overlays.append(pane) }
         overlays += host.view.overlay.subviews.filter { !$0.isHidden }
         for overlay in overlays {
             let frame = overlay.convert(overlay.bounds, to: host.view)

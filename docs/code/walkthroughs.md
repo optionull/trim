@@ -5,33 +5,31 @@ description: "Agents write explanations of your code as Markdown; Trim shows the
 
 # Walkthroughs
 
-A walkthrough is a guided reading of your code, written by an agent (or by you) and shown in Trim beside the editor.
-Each step has its prose, the code it points at as that code is *now*, diagrams, questions and checklists. Where you read
-is a real nvim cursor: the editor beside it follows the step you are on.
+A walkthrough is a guided reading of your code, written by an agent (or by you) and opened in Trim like any file: a tab in
+the editor, in the editor's font and your colour scheme. Each step has its prose, the code it points at as that code is
+*now*, questions and checklists. It is an ordinary nvim buffer, so every motion, search and command you know works in it,
+and the code of the step you are on opens beside it.
 
-![A walkthrough beside the editor: steps, a callout, anchored code, a question, a table and a checklist](../images/shots/walkthrough.png)
+![A walkthrough in the editor: header, steps, anchored code cards, a question, a table and the code of the step beside it](../images/shots/walkthrough.png)
 
 ## Open one
 
 `<leader>W`, View ▸ Walkthroughs… (⌃⌘W) or `:TrimWalk` lists the repository's walkthroughs: the ones agents write into
 `.trim/walkthroughs/` (private to this machine, never committed) and any `*.walk.md` in the repository. `:TrimWalk
-path/to/x.walk.md` opens one directly, and an agent's `trim walk open` opens it in the window that is on its repository.
+path/to/x.walk.md`, the file tree or `:edit` open one directly, and an agent's `trim walk open` opens it in the window
+that is on its repository.
 
 ## Read it like nvim
 
-The pane is backed by a real nvim buffer (its own, headless), so what you know works: `j` `k`, `/` search, counts, marks,
-`:` commands, visual mode, registers. The status bar says WALK, and the mode nvim is in (WALK INSERT...).
-
 | Key | What it does |
 |---|---|
-| `]]`, `[[` | Next and previous step. The editor beside shows the step's code. |
-| `<CR>` | Show this block's code and go to it in the editor. |
-| `x` | Tick or untick a checklist item (written to the file). |
-| `gr` | Run a `@run` block in the Run pane. Nothing runs by itself. |
-| `gs` | Edit the source in the editor. |
-| `q`, Escape (in normal mode) | Back to the code. |
+| `]]`, `[[` | Next and previous step. The code of the step opens beside the walkthrough, its lines marked. |
+| `<CR>` on `@code` or a step | Go to that code, in the window beside. |
+| `<CR>` on `@run` | Run the command in the Run pane. Nothing runs by itself. |
+| `x` on a checklist item | Tick or untick it (it is text in the buffer; save to keep it). |
 
-Clicking a block moves the cursor there. A step that is written into the file while it is open appears at once.
+Move the cursor into another step and the code beside it follows. A step an agent writes into the file while it is open
+appears, and typing in the buffer redraws it.
 
 ## What a walkthrough contains
 
@@ -42,7 +40,7 @@ A walkthrough is Markdown. Steps are `##` headings; around them:
   `@code src/Pricing.cs:12-30` anchors a file range.
 - **`@diff path`** shows a file's change against the walkthrough's `base` (or `HEAD`).
 - **`@ask Why is the total not cached?`** marks a question worth asking.
-- **`- [ ] Reviewed`** checklists you tick in the pane; the file keeps the state.
+- **`- [ ] Reviewed`** checklists you tick with `x`; the file keeps the state.
 - **`@run Tests: dotnet test`** offers a command to run.
 - Fenced blocks, shown as highlighted code (Mermaid diagrams are drawn as diagrams in a later release).
 

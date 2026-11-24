@@ -344,25 +344,4 @@ import Testing
         modes.openList(title: "B")
         #expect(!modes.listFiltering && modes.label(editorMode: "normal") == "B")
     }
-
-    @Test func `in a walkthrough Escape leaves in normal mode and is nvim's in any other, and the label says which`() {
-        var modes = Modes()
-        modes.focused(.walk)
-        #expect(modes.label(editorMode: "normal") == "WALK")
-        modes.walkMode = "insert"
-        #expect(modes.label(editorMode: "normal") == "WALK INSERT")
-        #expect(modes.escape(editorMode: "normal", sidebarVisible: true) == .pass)
-        #expect(modes.surface == .walk, "Escape in insert mode ends the mode, not the walkthrough")
-        modes.walkMode = "normal"
-        #expect(modes.escape(editorMode: "normal", sidebarVisible: true) == .focus(.editor))
-        #expect(modes.surface == .editor)
-    }
-
-    @Test func `a walkthrough that goes away takes the keyboard back, and its mode is forgotten`() {
-        var modes = Modes()
-        modes.focused(.walk)
-        modes.walkMode = "visual"
-        modes.walkHidden()
-        #expect(modes.surface == .editor && modes.walkMode == "normal")
-    }
 }

@@ -268,7 +268,6 @@ extension TrimWindowController {
     /// The pane in the window (it may have been running a build unseen).
     func showBuildPane() {
         let pane = ensureBuildPane()
-        hideWalkForSlot()
         if let run = runListPane, !run.isHidden {
             run.isHidden = true
             if modes.surface == .run { runGone() }
