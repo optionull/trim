@@ -3276,6 +3276,22 @@ struct TrimCheck {
         _ = try? await shell.session.channel.lua("vim.cmd('doautocmd BufEnter')")
         await waitAsync("a changed anchor marked") { await drawn().contains("changed since written") }
         step("an anchor whose code changed since it was stamped is marked, and counted in the header")
+        // A card folds to a peek of its first rows and opens again.
+        await keys("Go@code src/Pricing.cs:1-11<Esc>")
+        await waitAsync("the long card drawn") {
+            let text = await drawn()
+            return text.contains("Pricing.cs:1-11") && !text.contains("more lines")
+        }
+        // One card closes (zc) and opens again (za); zM closes every card, zR opens every card.
+        await keys("zc")
+        await waitAsync("the card folded to a peek") { await drawn().contains("more lines") }
+        await keys("za")
+        await waitAsync("the card open again") { await drawn().contains("more lines") == false }
+        await keys("zM")
+        await waitAsync("every card closed") { await drawn().contains("more lines") }
+        await keys("zR")
+        await waitAsync("every card open") { await drawn().contains("more lines") == false }
+        step("za folds a card to a peek (its first rows and how many more) and opens it again; zM and zR do every card")
         _ = try? await shell.session.channel.lua("vim.cmd('only'); vim.cmd('silent! %bwipeout!')")
     }
 

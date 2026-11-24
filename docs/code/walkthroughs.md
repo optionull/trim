@@ -27,6 +27,14 @@ backticks are its padding), a border rather than a tint so it never looks like a
 line above the title; move the cursor into it and all of it opens. A walkthrough opens with the cursor on the title, past
 the front matter. The same styling applies to any markdown file you edit in Trim.
 
+## Cards
+
+Under each `@code` (and `@diff`) is a card: a tinted block with a header bar (the symbol, the file and lines, and a chip that
+says whether the code is still as written), the code highlighted in your scheme and wrapped to the window, and for a diff
+the added and removed lines coloured. A card longer than 14 rows opens as a peek (its first four rows and how many more);
+`za` opens or closes the card the cursor is at, `zR` and `zM` open and close all of them. Cards are as wide as the window and
+are drawn again when it is resized.
+
 ## Read it like nvim
 
 | Key | What it does |

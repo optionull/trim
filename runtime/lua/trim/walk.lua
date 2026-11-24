@@ -7,6 +7,9 @@ local api = vim.api
 local ns = api.nvim_create_namespace('trim_walk')
 local marks = api.nvim_create_namespace('trim_walk_code')
 M.state = {}
+M.models = {}
+M.fold = {}
+local walkcard = require('trim.walkcard')
 M.shown = nil
 
 for name, link in pairs({
@@ -16,47 +19,6 @@ for name, link in pairs({
 }) do
   api.nvim_set_hl(0, name, { link = link, default = true })
 end
-local groups = {}
---- A highlight group for a colour and weight, made the first time it is asked for.
-local function group(c, bold, italic)
-  local name = ('TrimWalkC%06x%s%s'):format(c or 0, bold and 'b' or '', italic and 'i' or '')
-  if not groups[name] then
-    groups[name] = true
-    api.nvim_set_hl(0, name, { fg = c, bold = bold, italic = italic })
-  end
-  return name
-end
-
---- `text` as lines of virtual-text chunks, coloured by tree-sitter in `path`'s language, each after `prefix`.
-local function code_lines(text, path, prefix)
-  local lang = vim.filetype.match({ filename = path }) or ''
-  local ok, spans = pcall(require('trim.docs').highlight, text, lang)
-  spans = ok and spans or {}
-  local out, offset = {}, 0
-  for _, line in ipairs(vim.split(text, '\n', { plain = true })) do
-    local colours = {}
-    for _, s in ipairs(spans) do
-      for b = math.max(s.b, offset), math.min(s.e, offset + #line) - 1 do
-        colours[b - offset + 1] = { s.c, s.bold, s.italic }
-      end
-    end
-    local chunks, from = { prefix }, 1
-    while from <= #line do
-      local current, to = colours[from], from
-      while to < #line and (colours[to + 1] == nil) == (current == nil)
-        and (current == nil or (colours[to + 1][1] == current[1] and colours[to + 1][2] == current[2] and colours[to + 1][3] == current[3])) do
-        to = to + 1
-      end
-      local piece = line:sub(from, to)
-      chunks[#chunks + 1] = current and { piece, group(current[1], current[2], current[3]) } or { piece }
-      from = to + 1
-    end
-    out[#out + 1] = chunks
-    offset = offset + #line + 1
-  end
-  return out
-end
-
 --- The line the front matter ends on (0 when there is none).
 function M.front_range(lines)
   if lines[1] ~= '---' then return 0 end
@@ -82,6 +44,38 @@ end
 
 local levels = { ok = 'TrimWalkOk', warn = 'TrimWalkWarn', err = 'TrimWalkErr' }
 
+--- How wide the cards are: the window's text area, to a readable limit.
+function M.card_width(buf)
+  local win = vim.fn.bufwinid(buf)
+  if win < 0 then return 80 end
+  local info = vim.fn.getwininfo(win)[1]
+  return math.max(30, math.min(info.width - info.textoff - 2, 110))
+end
+
+--- Draws the buffer's last model again (the cards' width or open state changed).
+function M.refresh(buf)
+  local model = M.models[buf]
+  if model then M.render(model.path, model.json) end
+end
+
+--- Opens or closes the card the cursor is at (`mode` 'toggle', 'open', 'close'), or all of them ('open_all', 'close_all').
+function M.fold_cards(mode)
+  local buf = api.nvim_get_current_buf()
+  local state = M.state[buf]
+  if not state then return end
+  M.fold[buf] = M.fold[buf] or {}
+  if mode == 'open_all' or mode == 'close_all' then
+    for _, card in ipairs(state.cards) do M.fold[buf][card.key] = mode == 'open_all' end
+  else
+    local line, found, start = api.nvim_win_get_cursor(0)[1], nil, 0
+    for _, s in ipairs(state.steps) do if s <= line then start = s end end
+    for _, card in ipairs(state.cards) do if card.line <= line and card.line > start then found = card end end
+    if not found then return end
+    M.fold[buf][found.key] = mode == 'open' or (mode == 'toggle' and not found.open)
+  end
+  M.refresh(buf)
+end
+
 --- Draws the model the app computed for the buffer of `path`: the header, a card of code under each `@code`, the change under
 --- each `@diff`, the steps, checkboxes and what asks or runs.
 function M.render(path, json)
@@ -91,7 +85,7 @@ function M.render(path, json)
   if not ok then return end
   api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
-  local steps, jumps, at = {}, {}, {}
+  local steps, jumps, cards, seen, at = {}, {}, {}, {}, {}
   for _, item in ipairs(model.items or {}) do at[item.line] = item end
   local function set(line, col, opts) pcall(api.nvim_buf_set_extmark, buf, ns, line - 1, col, opts) end
   -- The front matter collapses to nothing (open while the cursor is in it) and leaves one quiet line above the title.
@@ -124,33 +118,25 @@ function M.render(path, json)
         virt_text_pos = 'overlay', conceal = nil,
       })
     end
-    if item and item.kind == 'code' then
-      local where = item.path and ('%s:%d-%d'):format(item.relative or item.path, item.from, item.to) or ''
-      local note = item.badge and ('  ' .. item.badge) or ''
-      set(number, 0, { virt_text = { { '   ' .. where, 'TrimWalkMeta' }, { note, levels[item.level] or 'TrimWalkMeta' } } })
-      local card = { { { '  ╭─ ' .. (item.heading or ''), 'TrimWalkBorder' } } }
-      if item.code then
-        for _, chunks in ipairs(code_lines(item.code, item.path or '', { '  │ ', 'TrimWalkBorder' })) do card[#card + 1] = chunks end
-      elseif item.message then
-        card[#card + 1] = { { '  │ ', 'TrimWalkBorder' }, { item.message, 'TrimWalkErr' } }
-      end
-      card[#card + 1] = { { '  ╰─', 'TrimWalkBorder' } }
+    if item and (item.kind == 'code' or item.kind == 'diff') then
+      local key = (item.heading or '') .. '#' .. (seen[item.heading or ''] or 0)
+      seen[item.heading or ''] = (seen[item.heading or ''] or 0) + 1
+      local width = M.card_width(buf)
+      M.last_width = M.last_width or {}
+      M.last_width[buf] = width
+      local card, total = walkcard.lines(item, width, true)
+      local open = (M.fold[buf] or {})[key]
+      if open == nil then open = total <= walkcard.OPEN_LIMIT end
+      if not open then card = walkcard.lines(item, width, false) end
       set(number, 0, { virt_lines = card })
-      if item.path then jumps[#jumps + 1] = { line = number, path = item.path, from = item.from, to = item.to } end
-    elseif item and item.kind == 'diff' then
-      local card = { { { '  ╭─ diff ' .. (item.heading or ''), 'TrimWalkBorder' } } }
-      for _, row in ipairs(vim.split(item.text or '', '\n', { plain = true })) do
-        if not row:match('^diff %-%-git') and not row:match('^index ') and row ~= '' then
-          local hl = (row:match('^%+') and not row:match('^%+%+%+')) and 'TrimWalkAdd'
-            or (row:match('^%-') and not row:match('^%-%-%-')) and 'TrimWalkDel' or 'TrimWalkMeta'
-          card[#card + 1] = { { '  │ ', 'TrimWalkBorder' }, { row, hl } }
-        end
+      cards[#cards + 1] = { line = number, key = key, open = open, total = total }
+      if item.kind == 'code' and item.path then
+        jumps[#jumps + 1] = { line = number, path = item.path, from = item.from, to = item.to }
       end
-      card[#card + 1] = { { '  ╰─', 'TrimWalkBorder' } }
-      set(number, 0, { virt_lines = card })
     end
   end
-  M.state[buf] = { steps = steps, jumps = jumps, stale = model.stale or 0, title = model.title }
+  M.state[buf] = { steps = steps, jumps = jumps, cards = cards, stale = model.stale or 0, title = model.title }
+  M.models[buf] = { path = path, json = json }
 end
 
 --- The code a cursor line belongs to: the last anchor above it in its step, else the step's first.
@@ -271,6 +257,11 @@ local function bind(tell, buf)
   map('[[', function() step(-1) end, 'Walkthrough: previous step')
   map('<CR>', function() enter(tell) end, 'Walkthrough: the code, or run')
   map('x', toggle, 'Walkthrough: tick the item')
+  map('za', function() M.fold_cards('toggle') end, 'Walkthrough: open or close the card')
+  map('zo', function() M.fold_cards('open') end, 'Walkthrough: open the card')
+  map('zc', function() M.fold_cards('close') end, 'Walkthrough: close the card')
+  map('zR', function() M.fold_cards('open_all') end, 'Walkthrough: open all cards')
+  map('zM', function() M.fold_cards('close_all') end, 'Walkthrough: close all cards')
 end
 
 --- Starts watching for walkthroughs: dressing them as they open and change, and the companion following the cursor.
@@ -299,6 +290,17 @@ function M.setup(tell)
     group = g, pattern = '*.walk.md', callback = function(event) M.front(event.buf) end,
   })
   api.nvim_create_autocmd('CursorMoved', { group = g, pattern = '*.walk.md', callback = M.follow })
+  -- The cards are as wide as the window: drawn again when it changes (or a split opens beside it).
+  api.nvim_create_autocmd({ 'WinResized', 'WinNew', 'WinClosed' }, {
+    group = g,
+    callback = function()
+      vim.schedule(function()
+        for buf in pairs(M.models) do
+          if api.nvim_buf_is_loaded(buf) and M.last_width and M.last_width[buf] ~= M.card_width(buf) then M.refresh(buf) end
+        end
+      end)
+    end,
+  })
   api.nvim_create_autocmd('BufWipeout', {
     group = g, pattern = '*.walk.md', callback = function(event) M.state[event.buf] = nil end,
   })
