@@ -21,10 +21,10 @@ import Testing
 
     @Test func `a move of several lines asks for all of them`() {
         var scroll = PixelScroll()
-        #expect(scroll.move(by: 3.4, reported: 2) == 4)
+        #expect(scroll.move(by: 3.4) == 3, "held to a few lines (slack) ahead of an nvim that has not scrolled yet")
         #expect(
-            scroll.move(by: -1.0, reported: 2) == -2,
-            "turning round: nvim goes to the line below the text (2.4), from 4"
+            scroll.move(by: -1.0, reported: 3) == -1,
+            "turning round: nvim goes to the line below the text (2.0), from 3"
         )
         #expect(scroll.sent == 2)
     }
@@ -34,7 +34,7 @@ import Testing
         #expect(scroll.move(by: 0.6) == 1)
         // The text is at 0.6 with nvim a line ahead; moving back to 0.3 keeps it a line ahead but the other way is
         // floor.
-        #expect(scroll.move(by: -0.3) == -1, "nvim leads the other way now: it goes back a line")
+        #expect(scroll.move(by: -0.3, reported: 1) == -1, "nvim leads the other way now: it goes back a line")
         #expect(scroll.sent == 0)
     }
 
@@ -63,5 +63,62 @@ import Testing
         _ = scroll.move(by: 1.7)
         scroll.reset()
         #expect(scroll == PixelScroll())
+    }
+
+    @Test func `a nvim whose steps scroll several rows keeps the text with the finger, and goes only a step ahead of it`(
+    ) {
+        // Each step nvim is asked for scrolls `rows` rows (a line with a card drawn under it), reported as it happens.
+        for rows in [1, 7, 12] {
+            var scroll = PixelScroll()
+            var reported = 0
+            var steps = 0
+            var last = 1
+            for _ in 0 ..< 200 {
+                let asked = scroll.move(by: 0.25, reported: reported, lastStep: last)
+                steps += asked
+                if asked != 0 {
+                    reported += asked * rows
+                    last = rows
+                    scroll.acknowledge()
+                }
+            }
+            // The finger moved 50 lines.
+            #expect(
+                abs(scroll.visual - 50) < 0.5,
+                "the text is where the finger took it, not carried by nvim's jumps: \(scroll.visual) for \(rows) rows a step"
+            )
+            #expect(steps <= 50, "no more steps than lines the finger moved: \(steps)")
+            #expect(reported <= 50 + rows + 3, "nvim ends within a step of the finger: \(reported) rows for 50")
+        }
+    }
+
+    @Test func `and going back, or over lines of one row and of several, it still follows the finger`() {
+        var scroll = PixelScroll()
+        var reported = 0
+        var last = 1
+        let rows = [1, 1, 9, 1, 1, 1, 12, 1, 1, 6]
+        var count = 0
+        for _ in 0 ..< 400 {
+            let asked = scroll.move(by: 0.25, reported: reported, lastStep: last)
+            if asked != 0 {
+                let moved = rows[count % rows.count]
+                count += abs(asked)
+                reported += (asked > 0 ? 1 : -1) * moved * abs(asked)
+                last = moved
+                scroll.acknowledge()
+            }
+        }
+        #expect(abs(scroll.visual - 100) < 0.5, "down: the text follows 100 lines of finger: \(scroll.visual)")
+        for _ in 0 ..< 400 {
+            let asked = scroll.move(by: -0.25, reported: reported, lastStep: last)
+            if asked != 0 {
+                let moved = rows[count % rows.count]
+                count += abs(asked)
+                reported += (asked > 0 ? 1 : -1) * moved * abs(asked)
+                last = moved
+                scroll.acknowledge()
+            }
+        }
+        #expect(abs(scroll.visual) < 0.5, "and back to where it began: \(scroll.visual)")
     }
 }

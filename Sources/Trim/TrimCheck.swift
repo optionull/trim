@@ -3347,16 +3347,18 @@ struct TrimCheck {
                 "a ```mermaid block is drawn as a picture in the editor (rows of the grid), its source shows under the cursor"
             )
         }
-        // Scrolling a long walkthrough does not redraw its blocks, reset its front matter or move the code beside it at
-        // every
-        // step the cursor is carried along: that waits for the scrolling to stop (a table opening under the cursor
-        // moves
-        // everything below it, in the middle of the scroll).
+        // Scrolling a long walkthrough: the wheel carries the cursor along, and it is kept out of the blocks that are
+        // drawn (a cursor
+        // on lines with no height makes nvim scroll back to find it) and nothing is redrawn at every step; a trackpad
+        // gesture
+        // follows the finger, not nvim's jumps over the lines that have a card or a diagram under them (the text raced
+        // ahead of
+        // the finger by more and more).
         _ = await lua("""
         local extra = {}
         for i = 1, 14 do
           vim.list_extend(extra, { '', '## Extra ' .. i, 'Prose with `code` and more words so the line wraps around the window edge a little bit.', '',
-            '| a | b |', '|---|---|', '| 1 | 2 |', '', '@code Pricing.Tax', '', '> [!note] A callout that has a little text in it.', '' })
+            '| a | b |', '|---|---|', '| 1 | 2 |', '', '@code src/Pricing.cs:1-11', '', '> [!note] A callout that has a little text in it.', '' })
         end
         vim.api.nvim_buf_set_lines(0, -1, -1, false, extra)
         """)
@@ -3366,22 +3368,55 @@ struct TrimCheck {
         require('trim.walk').stats = { front = 0, follow = 0, show = 0, refresh = 0 }
         require('trim.mdstyle').stats.restyle = 0
         """)
+        let wheelEditor = shell.editor!
+        let wheelGrid = wheelEditor.screen.cursorGrid
+        let wheelPlacement = wheelEditor.screen.placements[wheelGrid]
+        var tops: [Int] = []
         for _ in 0 ..< 120 {
-            await keys("<C-e>")
+            _ = await lua("vim.api.nvim_input_mouse('wheel', 'down', '', 0, 5, 5)")
+            await tops.append(lua("return vim.fn.line('w0')")?.integerValue.map(Int.init) ?? 0)
         }
-        try? await Task.sleep(for: .milliseconds(600))
+        try? await Task.sleep(for: .milliseconds(700))
         let work = await lua("""
         local w, m = require('trim.walk').stats, require('trim.mdstyle').stats
-        return vim.inspect({ restyle = m.restyle, front = w.front, show = w.show, top = vim.fn.line('w0') })
+        local md = require('trim.mdstyle')
+        return vim.inspect({ restyle = m.restyle, front = w.front, show = w.show, top = vim.fn.line('w0'),
+          inside = md.block_at(vim.api.nvim_get_current_buf(), vim.fn.line('.')) or 0 })
         """)?.stringValue ?? "nil"
         guard let restyle = work.firstMatch(of: /restyle = (\d+)/).flatMap({ Int($0.1) }),
               let front = work.firstMatch(of: /front = (\d+)/).flatMap({ Int($0.1) }),
-              let top = work.firstMatch(of: /top = (\d+)/).flatMap({ Int($0.1) })
+              let top = work.firstMatch(of: /top = (\d+)/).flatMap({ Int($0.1) }),
+              let inside = work.firstMatch(of: /inside = (\d+)/).flatMap({ Int($0.1) })
         else { fail("no scroll statistics: \(work)") }
         guard top > 40 else { fail("the walkthrough did not scroll: \(work)") }
         guard restyle <= 4, front <= 4 else { fail("scrolling redrew too much (\(top) lines down): \(work)") }
+        guard zip(tops, tops.dropFirst()).allSatisfy({ $1 >= $0 })
+        else { fail("the window scrolled back in the middle of a scroll down: \(tops)") }
+        guard inside == 0 else { fail("scrolling left the cursor in a block that is drawn: \(work)") }
+        // A trackpad: 50 lines of finger movement, in small events.
+        _ = await lua("vim.cmd('normal! gg')")
+        try? await Task.sleep(for: .milliseconds(500))
+        wheelEditor.pixelScrolling = true
+        var gesture: [Int] = []
+        for _ in 0 ..< 200 {
+            wheelEditor.pixelScroll(
+                deltaX: 0, deltaY: -0.25 * wheelEditor.metrics.height, grid: wheelGrid,
+                row: (wheelPlacement?.row ?? 0) + 3,
+                col: (wheelPlacement?.col ?? 0) + 12, modifiers: ""
+            )
+            try? await Task.sleep(for: .milliseconds(8))
+            await gesture.append(lua("return vim.fn.line('w0')")?.integerValue.map(Int.init) ?? 0)
+        }
+        try? await Task.sleep(for: .milliseconds(600))
+        let end = await lua("return vim.fn.line('w0')")?.integerValue.map(Int.init) ?? 0
+        let biggest = zip(gesture, gesture.dropFirst()).map { $1 - $0 }.max() ?? 0
+        // The finger moved 30 rows: nvim is a few lines of the document (each is at least a row) along, not 190 as it
+        // was.
+        guard end <= 60,
+              biggest <= 12 else { fail("the text raced ahead of the finger: top \(end), the biggest step \(biggest)") }
+        guard end >= 15 else { fail("the gesture did not scroll: top \(end)") }
         step(
-            "scrolling a long walkthrough defers what the carried cursor would do at every step (blocks, front matter, the code beside it)"
+            "scrolling a long walkthrough: the wheel keeps the cursor out of drawn blocks and redraws nothing at every step; a trackpad follows the finger over lines that have a card or a diagram under them"
         )
         _ = try? await shell.session.channel.lua("vim.cmd('only'); vim.cmd('silent! %bwipeout!')")
     }

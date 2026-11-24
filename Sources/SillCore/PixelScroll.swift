@@ -11,22 +11,43 @@ public struct PixelScroll: Equatable, Sendable {
     public private(set) var visual = 0.0
     /// The lines nvim has been asked to scroll, from where the gesture began.
     public private(set) var sent = 0
+    /// The steps asked since nvim last reported a scroll: on their way, not in its rows yet.
+    public private(set) var pending = 0
 
     public init() {}
 
-    /// The finger moved the text by `lines` (down positive). Returns the whole lines to ask nvim to scroll now (down
-    /// positive): going down, nvim is ahead of what is drawn (`sent` at least `visual`, rounded up); going up, the same
-    /// the
-    /// other way. Nothing is asked while the move stays inside the line nvim is already at.
-    public mutating func move(by lines: Double, reported: Int = 0, slack: Int = 3) -> Int {
+    /// The finger moved the text by `lines` (down positive); `lastStep` is how many rows nvim's last scroll moved.
+    /// Returns the
+    /// whole lines to ask nvim to scroll now (down positive): going down, nvim is ahead of what is drawn, going up the
+    /// other way.
+    /// Nothing is asked while the move stays inside the line nvim is already at.
+    ///
+    /// Asking is compared with where nvim is, or soon will be, in rows (`reported` plus the steps asked and not yet
+    /// reported),
+    /// not with the steps asked: a wheel step scrolls a whole buffer line, one row of ordinary text but many under a
+    /// line with a
+    /// card, a diagram or a table drawn below it. Counting steps against rows would see nvim "behind" after every such
+    /// step and
+    /// ask for more, which scroll more, and the text races ahead of the finger.
+    public mutating func move(by lines: Double, reported: Int = 0, slack: Int = 3, lastStep: Int = 1) -> Int {
         visual += lines
-        // nvim that does not scroll (the end of the buffer) must not let the text run away from it.
-        visual = min(max(visual, Double(reported - slack)), Double(reported + slack))
-        let target = lines >= 0 ? max(sent, Int(visual.rounded(.up))) : min(sent, Int(visual.rounded(.down)))
-        let asked = target - sent
-        sent = target
+        // nvim that does not scroll (the end of the buffer) must not let the text run away from it. The text may be
+        // behind
+        // nvim by the rows of its last step: holding it closer would drag it ahead of the finger.
+        let allowance = max(slack, abs(lastStep))
+        visual = min(max(visual, Double(reported - allowance)), Double(reported + allowance))
+        let asked: Int = if lines >= 0 {
+            max(0, Int(visual.rounded(.up)) - (reported + max(0, pending)))
+        } else {
+            min(0, Int(visual.rounded(.down)) - (reported + min(0, pending)))
+        }
+        pending += asked
+        sent += asked
         return asked
     }
+
+    /// nvim reported a scroll: what was asked before it is in `reported` now.
+    public mutating func acknowledge() { pending = 0 }
 
     /// How far nvim's rows (`reported`, the lines it has scrolled so far) are from what is drawn: positive when nvim is
     /// ahead going down. Zero when drawn where nvim is.
@@ -42,5 +63,6 @@ public struct PixelScroll: Equatable, Sendable {
     public mutating func reset() {
         visual = 0
         sent = 0
+        pending = 0
     }
 }

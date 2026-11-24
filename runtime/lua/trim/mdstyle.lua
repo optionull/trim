@@ -281,16 +281,50 @@ end
 --- How long after the window last scrolled before what waited for it is done (ms).
 M.SCROLL_PAUSE = 180
 
-local tops = {}
---- Whether the window showing `buf` scrolled since `who` last asked (each asker has its own memory).
-function M.scrolled(buf, who)
-  local win = vim.fn.bufwinid(buf)
-  if win < 0 then return false end
-  local top = vim.fn.getwininfo(win)[1].topline
-  local key = (who or '') .. buf
-  local moved = tops[key] ~= nil and tops[key] ~= top
-  tops[key] = top
-  return moved
+--- When a mouse wheel last moved the window (nvim's clock, ns): a scroll that carries the cursor along, as against a jump (a
+--- search, `G`) or a key that happens to move the window by a line at its edge.
+M.wheel_at = -1e12
+
+--- Whether the mouse wheel scrolled the window just now (`who` is ignored: kept for the callers that keep their own memory).
+function M.scrolled(_, _)
+  return vim.uv.hrtime() - M.wheel_at < 150e6
+end
+
+local last_line = {}
+
+--- Where a block (a drawn table, callout or diagram) is entered by the cursor. Moving there with the keys opens it at once
+--- (its source shows). Scrolling carries the cursor along instead, and a cursor that lands in a block that is drawn is on
+--- lines with no height: nvim then scrolls the window to find it (back up by a screenful, in the middle of the scroll) and the
+--- block opening reflows everything below. So while the window scrolls the cursor is put on the nearest line outside the
+--- block, the way the scroll was going, and the blocks stay drawn.
+function M.on_cursor(buf)
+  if not M.blocks[buf] then return end
+  local line = cursor_line(buf)
+  local previous = last_line[buf] or line
+  last_line[buf] = line
+  local index = M.block_at(buf, line)
+  if index == M.inside[buf] then return end
+  if M.scrolled(buf, 'md') then
+    if index then
+      local count = api.nvim_buf_line_count(buf)
+      local down = line >= previous
+      local target = down and M.blocks[buf][index].last + 1 or M.blocks[buf][index].first - 1
+      -- Not into the next block either (blocks can touch).
+      while M.block_at(buf, target) and target >= 1 and target <= count do
+        local other = M.blocks[buf][M.block_at(buf, target)]
+        target = down and other.last + 1 or other.first - 1
+      end
+      target = math.min(math.max(target, 1), count)
+      if not M.block_at(buf, target) then
+        local win = vim.fn.bufwinid(buf)
+        if win >= 0 then pcall(api.nvim_win_set_cursor, win, { target, 0 }) end
+        return
+      end
+    end
+    later(buf, M.SCROLL_PAUSE)
+  else
+    M.restyle(buf)
+  end
 end
 
 local timers = {}
@@ -305,6 +339,13 @@ end
 --- what it knows, and this keeps blocks in step with the cursor in both.
 function M.setup()
   local group = api.nvim_create_augroup('TrimMdBuffers', { clear = true })
+  vim.on_key(function(key, typed)
+    local k = typed ~= '' and typed or key
+    if k:find('\128\253', 1, true) then
+      local name = vim.fn.keytrans(k)
+      if name:find('ScrollWheel', 1, true) then M.wheel_at = vim.uv.hrtime() end
+    end
+  end, api.nvim_create_namespace('trim_md_keys'))
   local function markdown(buf) return vim.bo[buf].filetype == 'markdown' end
   api.nvim_create_autocmd({ 'FileType', 'BufWinEnter' }, {
     group = group, pattern = { 'markdown', '*.md' },
@@ -320,15 +361,11 @@ function M.setup()
       if markdown(event.buf) and not is_walk(event.buf) then later(event.buf, 120) end
     end,
   })
-  -- Moving into or out of a table or callout shows its source or draws it. While the window is scrolling (the cursor is
-  -- being carried along) that waits for the scrolling to stop: a block opening under the cursor moves everything below it.
+  -- Moving into or out of a table or callout shows its source or draws it.
   api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
     group = group,
     callback = function(event)
-      if not markdown(event.buf) or not M.blocks[event.buf] then return end
-      local line = cursor_line(event.buf)
-      if M.block_at(event.buf, line) == M.inside[event.buf] then return end
-      if M.scrolled(event.buf, 'md') then later(event.buf, M.SCROLL_PAUSE) else M.restyle(event.buf) end
+      if markdown(event.buf) then M.on_cursor(event.buf) end
     end,
   })
   api.nvim_create_autocmd('WinResized', {

@@ -86,6 +86,8 @@ package final class EditorView: NSView {
     /// The window a gesture scrolls, and how many lines nvim has reported scrolling it since the gesture began.
     private var pixelGrid: Int?
     private var pixelReported = 0
+    /// The rows nvim's last scroll in this gesture moved: a line with a card under it is many.
+    private var pixelLastStep = 1
     private var pixelSettle: DispatchWorkItem?
     /// How long after the last scroll event the text is let settle where nvim is.
     package static let pixelSettleDelay: TimeInterval = 0.09
@@ -111,6 +113,8 @@ package final class EditorView: NSView {
                 // A gesture is scrolling this window: the slide is held by the finger, from the rows before this
                 // scroll.
                 pixelReported += scroll.lines
+                pixel.acknowledge()
+                pixelLastStep = max(1, abs(scroll.lines))
                 if let previous = old.grids[grid], abs(scroll.lines) < placement.height,
                    previous.rows == placement.height
                 {
@@ -474,9 +478,10 @@ package final class EditorView: NSView {
         if pixelSettle == nil || pixelGrid != grid {
             pixel.reset()
             pixelReported = 0
+            pixelLastStep = 1
             pixelGrid = grid
         }
-        let asked = pixel.move(by: -Double(deltaY / metrics.height), reported: pixelReported)
+        let asked = pixel.move(by: -Double(deltaY / metrics.height), reported: pixelReported, lastStep: pixelLastStep)
         for _ in 0 ..< abs(asked) {
             channel.send(.mouse(
                 button: "wheel", action: asked > 0 ? "down" : "up", modifiers: modifiers, grid: grid, row: row, col: col
@@ -507,6 +512,7 @@ package final class EditorView: NSView {
         pixelGrid = nil
         pixel.reset()
         pixelReported = 0
+        pixelLastStep = 1
         submit()
     }
 
