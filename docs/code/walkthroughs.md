@@ -12,6 +12,10 @@ and the code of the step you are on opens beside it.
 
 ![A walkthrough in the editor: header, steps, anchored code cards, a question, a table and the code of the step beside it](../images/shots/walkthrough.png)
 
+The last step of a review: a change as a card, a checklist with its count, and a command to run.
+
+![A walkthrough's last step: a diff card, a checklist, and a run line](../images/shots/walkthrough-review.png)
+
 ## Open one
 
 `<leader>W`, View ▸ Walkthroughs… (⌃⌘W) or `:TrimWalk` lists the repository's walkthroughs: the ones agents write into

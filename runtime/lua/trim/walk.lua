@@ -114,8 +114,6 @@ function M.render(path, json)
       steps[#steps + 1] = number
     elseif text:match('^@ask') then
       set(number, 0, { end_col = #text, hl_group = 'TrimWalkAsk', priority = 10 })
-    elseif text:match('^@run') then
-      set(number, 0, { end_col = #text, hl_group = 'TrimWalkHint', virt_text = { { '   ↵ run', 'TrimWalkMeta' } }, priority = 10 })
     elseif text:match('^>') then
       set(number, 0, { end_col = #text, hl_group = 'TrimWalkMeta', priority = 5 })
     end

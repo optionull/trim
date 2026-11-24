@@ -37,6 +37,8 @@ function M.define()
   api.nvim_set_hl(0, 'TrimMdCode', { fg = fg, bg = mix(bg, fg, 0.09), sp = mix(bg, fg, 0.5), altfont = true, blend = 100 })
   -- A step's number, before its heading, at the heading's size: the accent, quieter.
   api.nvim_set_hl(0, 'TrimMdStepNo', { fg = mix(bg, heading.fg or title.fg or fg, 0.55), bold = true, altfont = true, blend = 50 })
+  api.nvim_set_hl(0, 'TrimMdRunPlay', { fg = ok.fg or 0x7ee787, bold = true })
+  api.nvim_set_hl(0, 'TrimMdRunName', { bold = true })
   api.nvim_set_hl(0, 'TrimMdFence', { bg = mix(bg, fg, 0.055) })
   api.nvim_set_hl(0, 'TrimMdFenceLabel', { fg = mix(bg, fg, 0.5), bg = mix(bg, fg, 0.055), italic = true })
   api.nvim_set_hl(0, 'TrimMdBoxOpen', { fg = mix(bg, fg, 0.55) })
@@ -141,6 +143,21 @@ function M.apply(buf, lines, front_end, opts)
           if cursor < number or cursor > last then M.show(set, number, last, front_end, blocks.table_lines(block, width)) end
           number = last + 1
           advanced = true
+        end
+      elseif text:match('^@run%s+.-:%s*.+') then
+        -- A command to offer: its name, the command in a box and how to run it; the source while the cursor is on it.
+        end_list()
+        local name, command = text:match('^@run%s+(.-):%s*(.+)$')
+        M.blocks[buf][#M.blocks[buf] + 1] = { first = number, last = number }
+        if cursor ~= number then
+          set(number, 0, { end_col = #text, conceal = '', priority = 300 })
+          set(number, 0, {
+            virt_text = {
+              { '▶ ', 'TrimMdRunPlay' }, { name, 'TrimMdRunName' }, { '   ' }, { ' ' .. command .. ' ', 'TrimMdCode' },
+              { '   ↵ to run', 'TrimMdCount' },
+            },
+            virt_text_pos = 'eol',
+          })
         end
       elseif text:match('^@ask%s') then
         -- A question, and the answer in the quote lines after it, as a callout of its own.

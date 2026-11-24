@@ -472,6 +472,7 @@ public final class GridRenderer {
         let cols = buffer.cols
         var col = 0
         let cardFill = cardFill(buffer, row: row, style: style)
+        var overCard: [RectInstance] = []
         while col < cols {
             let hl = buffer[row, col].hl
             var end = col + 1
@@ -500,12 +501,17 @@ public final class GridRenderer {
             // A card's cells have the block's fill, drawn by the card's own rounded shape (below), so what is under it
             // is the
             // page; any other background inside a card (a diff's added line) is a plain rect.
-            if highlight.card != nil, background == cardFill { background = style.background }
+            var inCard = false
+            if highlight.card != nil {
+                if background == cardFill { background = style.background } else { inCard = true }
+            }
             if covers || background != style.background {
                 var color = Self.color(background)
                 // (`blend` on a marked run is a size, a box or a card, not a transparency.)
                 color.w = highlight.altfont ? 1 : 1 - Float(highlight.blend) / 100
-                built.backgrounds.append(RectInstance(origin: [x, 0], size: [width, cellHeight], color: color))
+                let rect = RectInstance(origin: [x, 0], size: [width, cellHeight], color: color)
+                // A background inside a card goes over the card's fill, which is drawn below.
+                if inCard { overCard.append(rect) } else { built.backgrounds.append(rect) }
             }
             appendGlyphs(buffer, row: row, cols: col ..< end, highlight: highlight, color: foreground, to: &built)
             appendDecorations(highlight, x: x, width: width, foreground: foreground, to: &built)
@@ -513,6 +519,7 @@ public final class GridRenderer {
         }
         appendBoxes(buffer, row: row, style: style, to: &built)
         appendCards(buffer, row: row, style: style, to: &built)
+        built.backgrounds.append(contentsOf: overCard)
         return built
     }
 

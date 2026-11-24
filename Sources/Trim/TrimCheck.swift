@@ -4167,8 +4167,12 @@ struct TrimCheck {
             @code Dough.Water
 
             ## Before you merge
+            Nothing else changed in the oven.
+            @diff src/oven.lua
+
             - [x] Heat limit checked
             - [ ] Hydration ratios reviewed
+            - [ ] Run the tests
             @run Tests: make test
             """
         )
@@ -4225,6 +4229,10 @@ struct TrimCheck {
         _ = try? await ctrl.session.channel.lua("vim.api.nvim_input(...)", args: [.string("gg]]")])
         try? await Task.sleep(for: .seconds(2))
         snap("walkthrough")
+        // The last step: a change, a checklist and a command to run.
+        _ = try? await ctrl.session.channel.lua("vim.cmd('silent! /Before you merge'); vim.cmd('normal! zt')")
+        try? await Task.sleep(for: .seconds(1.5))
+        snap("walkthrough-review")
         _ = try? await ctrl.session.channel.lua("vim.cmd('only')")
         ctrl.window.setContentSize(before)
         try? await Task.sleep(for: .milliseconds(600))

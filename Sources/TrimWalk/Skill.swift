@@ -75,12 +75,16 @@ public enum WalkSkill {
     - **Diagrams:** a ```` ```mermaid ```` fence, only when the picture carries weight: a sequence diagram for a call path, a
       state diagram for a lifecycle, a flowchart for a pipeline. Keep it under about 15 nodes. After it, `@link Node -> anchor`
       lines make nodes jump to code when chosen.
-    - **Tables and callouts:** ordinary Markdown tables for comparisons; `> [!note]`, `> [!warning]` for things to notice.
+    - **Tables and callouts:** ordinary Markdown tables for comparisons (Trim draws them as aligned grids). Callouts are
+      `> [!kind] text` with the kind one of note, tip, important, warning, caution, risk, question, verified, asserted: `warning`
+      or `risk` for what to be careful of, `verified` for a claim you checked by running it, `asserted` for one you only read
+      in the code. Write the text on the same line; it is wrapped for you.
     - **Questions:** `@ask <question>` marks a question worth asking about the step. When one is asked the answer is written
       under it as a `>` quote. Do not write answers yourself.
     - **Checklists:** `- [ ] item`. The person ticks them in Trim; the file keeps the state.
-    - **Runs:** `@run <Name>: <command>` offers a command (tests, a repro) from the repository's root. The person chooses to
-      run it, so never write one that changes anything; its output is shown as evidence under the step.
+    - **Runs:** `@run <Name>: <command>` offers a command (tests, a repro) from the repository's root. Trim shows it as a
+      button-like line; the person chooses to run it (Enter on the line, output in the Run pane), so never write one that
+      changes anything.
     - **Evidence:** if you ran something to learn this, say what you ran and what it printed (`@run`, or a table of the
       numbers). Mark claims you checked ("verified by running ...") apart from ones you read in the code.
 

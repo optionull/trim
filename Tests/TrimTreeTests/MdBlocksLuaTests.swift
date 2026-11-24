@@ -147,4 +147,32 @@ struct MdBlocksLuaTests {
         end
         """)
     }
+
+    @Test("an @run is a name, its command in a box and a hint, with the source under the cursor")
+    func run() throws {
+        try check("""
+        local md = require('trim.mdstyle')
+        vim.cmd('enew')
+        local lines = { '## Check', '@run Tests: swift test --filter Walk', 'after' }
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        md.apply(0, lines, 0)
+        local function shown()
+          local text, hidden = '', false
+          for _, m in ipairs(vim.api.nvim_buf_get_extmarks(0, md.ns, 0, -1, { details = true })) do
+            if m[2] == 1 then
+              if m[4].conceal then hidden = true end
+              for _, c in ipairs(m[4].virt_text or {}) do text = text .. c[1] end
+            end
+          end
+          return text, hidden
+        end
+        local text, hidden = shown()
+        assert(hidden and text:find('Tests', 1, true) and text:find('swift test --filter Walk', 1, true) and text:find('to run', 1, true), text)
+        vim.api.nvim_win_set_cursor(0, { 2, 0 })
+        md.apply(0, lines, 0)
+        text, hidden = shown()
+        assert(not hidden and text == '', 'the source while the cursor is on it: ' .. text)
+        """)
+    }
 }

@@ -375,6 +375,41 @@ struct RendererTests {
         #expect(Set(canvas.cell(row: 1, col: 10)) == [background], "nothing above the card")
     }
 
+    @Test("a background inside a card (a diff's added line) shows over the card's fill")
+    func cardInnerBackground() throws {
+        let canvas = try Canvas(cols: 24, rows: 8)
+        var builder = ScreenBuilder(cols: 24, rows: 8)
+        builder.highlight(5, ["altfont": .bool(true), "blend": .int(97), "background": .int(0x202030)])
+        builder.highlight(6, ["altfont": .bool(true), "blend": .int(97), "background": .int(0x206020)])
+        builder.window(grid: 2, row: 0, col: 0, cols: 24, rows: 8)
+        builder.text(String(repeating: " ", count: 16), grid: 2, row: 3, col: 4, hl: 5)
+        builder.text(String(repeating: " ", count: 6), grid: 2, row: 3, col: 8, hl: 6)
+        try canvas.render(Frame(screen: builder.screen))
+        let centre = canvas.pixel(x: 10 * canvas.cellWidth, y: 3 * canvas.cellHeight + canvas.cellHeight / 2)
+        #expect(
+            (centre >> 8) & 0xFF > 0x50 && (centre >> 16) & 0xFF < 0x40,
+            "the added line's green, not the card's fill: \(String(centre, radix: 16))"
+        )
+    }
+
+    @Test("a diff row as a walkthrough builds it: padding, gutter, then the added line's cells to the end of the card")
+    func cardDiffRow() throws {
+        let canvas = try Canvas(cols: 24, rows: 8)
+        var builder = ScreenBuilder(cols: 24, rows: 8)
+        builder.highlight(5, ["altfont": .bool(true), "blend": .int(97), "background": .int(0x202030)])
+        builder.highlight(
+            6,
+            ["altfont": .bool(true), "blend": .int(97), "background": .int(0x206020), "foreground": .int(0xF0F0F0)]
+        )
+        builder.window(grid: 2, row: 0, col: 0, cols: 24, rows: 8)
+        builder.text("  ", grid: 2, row: 3, col: 4, hl: 5)
+        builder.text("+ return x      ", grid: 2, row: 3, col: 6, hl: 6)
+        try canvas.render(Frame(screen: builder.screen))
+        let y = 3 * canvas.cellHeight + 2
+        let colour = canvas.pixel(x: 18 * canvas.cellWidth, y: y)
+        #expect((colour >> 8) & 0xFF > 0x50, "green to the end of the row: \(String(colour, radix: 16))")
+    }
+
     // MARK: Day 4: cursor and colours
 
     /// A window with "abc" at the top left and the cursor on the "b".
