@@ -92,15 +92,35 @@ struct AnimatedRenderTests {
         }
     }
 
-    @Test("a frame costs little enough to play at the display's rate")
+    @Test("a frame costs little enough to play at 30 frames a second, and the regions are the same in every frame")
     func cost() throws {
-        let diagram = try AnimatedDiagram(svg: fixture("animated-sequence"))
-        let began = Date()
-        for frame in 0 ..< 30 {
-            _ = try diagram.frame(at: Double(frame) / 30 * diagram.duration, scale: 2)
+        for name in ["animated-request-path", "animated-state-machine", "animated-sequence"] {
+            let diagram = try AnimatedDiagram(svg: fixture(name))
+            let first = try diagram.frame(at: 0, scale: 2)
+            let began = Date()
+            var last = first
+            for frame in 1 ... 30 {
+                last = try diagram.frame(at: Double(frame) / 30 * diagram.duration, scale: 2)
+            }
+            let each = Date().timeIntervalSince(began) / 30 * 1000
+            print("animated frame cost \(name): \(String(format: "%.1f", each)) ms at 2x")
+            #expect(each < 20, "\(name): a frame took \(each) ms")
         }
-        let each = Date().timeIntervalSince(began) / 30 * 1000
-        print("animated frame cost: \(String(format: "%.1f", each)) ms at 2x")
-        #expect(each < 60, "a frame took \(each) ms")
+    }
+
+    @Test("a clickable group that is invisible at the moment still has its region, where it always is")
+    func regionsOfHiddenGroups() throws {
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100">
+        <style>@keyframes k{0%{opacity:0}50%{opacity:1}100%{opacity:0}}.k{animation:k 10s linear infinite both}</style>
+        <g class="k" data-id="node-a" opacity="0"><rect x="20" y="20" width="60" height="30" fill="#3b6cf6"/></g>
+        </svg>
+        """
+        let diagram = try AnimatedDiagram(svg: svg)
+        let hidden = try diagram.frame(at: 0, scale: 2)
+        let shown = try diagram.frame(at: 5, scale: 2)
+        #expect(hidden.pixels != shown.pixels, "it does fade in")
+        #expect(shown.regions.count == 1, "a region while shown")
+        #expect(hidden.regions == shown.regions, "and the same one while hidden: \(hidden.regions)")
     }
 }

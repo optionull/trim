@@ -221,6 +221,10 @@ private final class SVGPainter {
         let animated = animations?.values(forClass: element.attributes["class"] ?? "", at: time)
         if let offset = animated?.dashOffset { style.dashOffset = offset }
         let opacity = animated?.opacity ?? number(effective("opacity", element)) ?? 1
+        // Nothing of it shows (the most of an animated diagram, at any moment): not drawn, unless it is what the
+        // diagram's
+        // regions are measured from.
+        if opacity <= 0, !holdsRegion(element) { return }
         context.saveGState()
         let savedMatrix = matrix
         if let t = animated?.transform ?? element.attributes["transform"].map(Self.transform) {
@@ -255,6 +259,17 @@ private final class SVGPainter {
         if layered { context.endTransparencyLayer() }
         matrix = savedMatrix
         context.restoreGState()
+    }
+
+    private var regionHolders: [ObjectIdentifier: Bool] = [:]
+
+    /// Whether the element or something in it is a region (`data-id` group), which is measured by drawing it.
+    private func holdsRegion(_ element: SVGElement) -> Bool {
+        let key = ObjectIdentifier(element)
+        if let known = regionHolders[key] { return known }
+        let holds = element.attributes["data-id"] != nil || element.children.contains(where: holdsRegion)
+        regionHolders[key] = holds
+        return holds
     }
 
     /// Adds `rect` (root user space) to the element that is collecting its bounds.
@@ -326,7 +341,18 @@ private final class SVGPainter {
 
     // MARK: Shapes
 
+    private var shapes: [ObjectIdentifier: CGPath?] = [:]
+
+    /// The path of a shape element, worked out once: it does not change from frame to frame.
     private func shape(_ element: SVGElement) -> CGPath? {
+        let key = ObjectIdentifier(element)
+        if let known = shapes[key] { return known }
+        let made = makeShape(element)
+        shapes[key] = made
+        return made
+    }
+
+    private func makeShape(_ element: SVGElement) -> CGPath? {
         let a = element.attributes
         func n(_ key: String, _ fallback: Double = 0) -> Double { number(a[key]) ?? fallback }
         switch element.name {
