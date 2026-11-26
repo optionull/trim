@@ -42,6 +42,31 @@ public struct DiagramRegion: Sendable, Equatable {
     }
 }
 
+/// An SVG read once and drawn at any moment of its animation: what Mermaider.Animate makes plays by its CSS keyframes,
+/// which are
+/// evaluated for the time asked, so a frame is a function of it (and playing, pausing and scrubbing are choosing the
+/// time).
+public final class AnimatedDiagram {
+    private let painter: SVGPainter
+
+    /// The length of a loop in seconds; 0 when nothing in the diagram moves.
+    public let duration: Double
+
+    public var isAnimated: Bool { duration > 0 }
+
+    public init(svg: String, monoFont: String? = nil) throws {
+        let document: SVGDocument
+        do { document = try SVGDocument(svg) } catch { throw SVGRender.Failure(description: "\(error)") }
+        painter = SVGPainter(document: document, monoFont: monoFont)
+        duration = painter.animations?.duration ?? 0
+    }
+
+    /// The diagram `time` seconds into its animation (looping, so past `duration` it is back at the start).
+    public func frame(at time: Double, scale: CGFloat, maxWidth: CGFloat? = nil) throws -> DiagramImage {
+        try painter.render(scale: scale, maxWidth: maxWidth, time: time)
+    }
+}
+
 public enum SVGRender {
     public struct Failure: Error, CustomStringConvertible {
         public let description: String
@@ -85,6 +110,7 @@ private struct Style {
     var mono = false
     var strokeFirst = false
     var fillRule = "nonzero"
+    var dashOffset = 0.0
 }
 
 private final class SVGPainter {
@@ -97,16 +123,30 @@ private final class SVGPainter {
     var regionBounds: [CGRect?] = []
     var regions: [DiagramRegion] = []
     var depth = 0
+    /// The CSS animations of the SVG, when it has any, and how far along they are in the frame being drawn.
+    let animations: SVGAnimations?
+    var time = 0.0
 
     init(document: SVGDocument, monoFont: String?) {
         self.document = document
         self.monoFont = monoFont
         variables = document.variables
+        let found = SVGAnimations(styles: Self.styles(document.root))
+        animations = found.isAnimated ? found : nil
+    }
+
+    private static func styles(_ element: SVGElement) -> [String] {
+        (element.name == "style" ? [element.text] : []) + element.children.flatMap(styles)
     }
 
     // MARK: The root
 
-    func render(scale: CGFloat, maxWidth: CGFloat?) throws -> DiagramImage {
+    func render(scale: CGFloat, maxWidth: CGFloat?, time: Double = 0) throws -> DiagramImage {
+        self.time = time
+        regions = []
+        regionBounds = []
+        depth = 0
+        matrix = .identity
         let root = document.root
         let box = viewBox(root)
         let width = number(root.attributes["width"]) ?? box?.width ?? 300
@@ -177,11 +217,13 @@ private final class SVGPainter {
         }
         var style = parent
         applyStyle(&style, from: element)
-        let opacity = number(effective("opacity", element)) ?? 1
+        // What the element's CSS animation says at this moment replaces its own opacity, transform and dash offset.
+        let animated = animations?.values(forClass: element.attributes["class"] ?? "", at: time)
+        if let offset = animated?.dashOffset { style.dashOffset = offset }
+        let opacity = animated?.opacity ?? number(effective("opacity", element)) ?? 1
         context.saveGState()
         let savedMatrix = matrix
-        if let transform = element.attributes["transform"] {
-            let t = Self.transform(transform)
+        if let t = animated?.transform ?? element.attributes["transform"].map(Self.transform) {
             context.concatenate(t)
             matrix = t.concatenating(matrix)
         }
@@ -343,7 +385,15 @@ private final class SVGPainter {
         }
         func strokeIt() {
             guard let stroke, style.strokeWidth > 0 else { return }
-            strokePath(path, paint: stroke, style: style)
+            // `pathLength="1"` makes a dash array and offset fractions of the path (how a line draws itself): scaled to
+            // its real length.
+            var dashed = style
+            if let declared = number(element.attributes["pathLength"]), declared > 0 {
+                let factor = Self.length(of: path) / declared
+                dashed.dash = style.dash.map { $0 * factor }
+                dashed.dashOffset = style.dashOffset * factor
+            }
+            strokePath(path, paint: stroke, style: dashed)
         }
         if style.strokeFirst { strokeIt(); fillIt() } else { fillIt(); strokeIt() }
         let strokeWidth = stroke == nil ? 0 : style.strokeWidth
@@ -371,7 +421,10 @@ private final class SVGPainter {
         context.setLineWidth(CGFloat(style.strokeWidth))
         context.setLineCap(style.cap == "round" ? .round : style.cap == "square" ? .square : .butt)
         context.setLineJoin(style.join == "round" ? .round : style.join == "bevel" ? .bevel : .miter)
-        if !style.dash.isEmpty { context.setLineDash(phase: 0, lengths: style.dash.map { CGFloat($0) }) }
+        if !style.dash.isEmpty { context.setLineDash(
+            phase: CGFloat(style.dashOffset),
+            lengths: style.dash.map { CGFloat($0) }
+        ) }
         switch paint {
         case let .color(color):
             context.setStrokeColor(CGColor(
@@ -389,6 +442,56 @@ private final class SVGPainter {
             drawGradient(gradient, in: path.boundingBoxOfPath, opacity: style.strokeOpacity)
         }
         context.restoreGState()
+    }
+
+    /// The length of a path: its lines, and its curves flattened.
+    static func length(of path: CGPath) -> Double {
+        var total = 0.0
+        var current = CGPoint.zero, start = CGPoint.zero
+        func distance(_ a: CGPoint, _ b: CGPoint) -> Double { hypot(Double(b.x - a.x), Double(b.y - a.y)) }
+        path.applyWithBlock { pointer in
+            let element = pointer.pointee
+            switch element.type {
+            case .moveToPoint:
+                current = element.points[0]
+                start = current
+            case .addLineToPoint:
+                total += distance(current, element.points[0])
+                current = element.points[0]
+            case .addQuadCurveToPoint:
+                let control = element.points[0], end = element.points[1]
+                var previous = current
+                for step in 1 ... 12 {
+                    let t = CGFloat(step) / 12, u = 1 - t
+                    let point = CGPoint(
+                        x: u * u * current.x + 2 * u * t * control.x + t * t * end.x,
+                        y: u * u * current.y + 2 * u * t * control.y + t * t * end.y
+                    )
+                    total += distance(previous, point)
+                    previous = point
+                }
+                current = end
+            case .addCurveToPoint:
+                let c1 = element.points[0], c2 = element.points[1], end = element.points[2]
+                var previous = current
+                for step in 1 ... 16 {
+                    let t = CGFloat(step) / 16, u = 1 - t
+                    let point = CGPoint(
+                        x: u * u * u * current.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * end.x,
+                        y: u * u * u * current.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * end.y
+                    )
+                    total += distance(previous, point)
+                    previous = point
+                }
+                current = end
+            case .closeSubpath:
+                total += distance(current, start)
+                current = start
+            @unknown default:
+                break
+            }
+        }
+        return total
     }
 
     // MARK: Gradients
