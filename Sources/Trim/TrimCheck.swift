@@ -3346,6 +3346,31 @@ struct TrimCheck {
             step(
                 "a ```mermaid block is drawn as a picture in the editor (rows of the grid), its source shows under the cursor"
             )
+            // A diagram with an `animate` block moves: while its rows are on screen a clock draws its frames; paused it
+            // draws
+            // none; scrolled away it stops (an idle editor wakes nothing), and it starts again when it is back.
+            let player = shell.editor.diagramPlayer
+            _ = await lua("""
+            vim.api.nvim_buf_set_lines(0, -1, -1, false, { '', '```mermaid', 'flowchart LR', '  client[Client] --> lb[Balancer]', '', 'animate', '  step "A request"', '    tour client -> lb "GET"', '```', 'after the animation' })
+            vim.cmd('normal! G')
+            """)
+            await wait("the animated diagram playing") { player.isRunning && player.framesPlayed > 3 }
+            await keys("g<Space>")
+            await wait("the diagrams paused") { player.isPaused }
+            try? await Task.sleep(for: .milliseconds(300))
+            let held = player.framesPlayed
+            try? await Task.sleep(for: .milliseconds(500))
+            guard player.framesPlayed == held
+            else { fail("frames were drawn while paused: \(held), then \(player.framesPlayed)") }
+            await keys("g<Space>")
+            await wait("the diagrams playing again") { player.framesPlayed > held + 3 }
+            _ = await lua("vim.cmd('normal! gg')")
+            await wait("the clock stopped with the diagram off the screen") { !player.isRunning }
+            _ = await lua("vim.cmd('normal! G')")
+            await wait("the clock started again with the diagram back") { player.isRunning }
+            step(
+                "a diagram with an animate block plays while it is on screen: pause and play with g<Space>, no clock when it is scrolled away"
+            )
         }
         // Scrolling a long walkthrough: the wheel carries the cursor along, and it is kept out of the blocks that are
         // drawn (a cursor

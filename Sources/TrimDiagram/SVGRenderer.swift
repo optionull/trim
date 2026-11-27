@@ -46,8 +46,10 @@ public struct DiagramRegion: Sendable, Equatable {
 /// which are
 /// evaluated for the time asked, so a frame is a function of it (and playing, pausing and scrubbing are choosing the
 /// time).
-public final class AnimatedDiagram {
+public final class AnimatedDiagram: @unchecked Sendable {
     private let painter: SVGPainter
+    /// A painter keeps the state of the frame it is drawing: one frame at a time, whichever thread asks.
+    private let lock = NSLock()
 
     /// The length of a loop in seconds; 0 when nothing in the diagram moves.
     public let duration: Double
@@ -63,7 +65,9 @@ public final class AnimatedDiagram {
 
     /// The diagram `time` seconds into its animation (looping, so past `duration` it is back at the start).
     public func frame(at time: Double, scale: CGFloat, maxWidth: CGFloat? = nil) throws -> DiagramImage {
-        try painter.render(scale: scale, maxWidth: maxWidth, time: time)
+        lock.lock()
+        defer { lock.unlock() }
+        return try painter.render(scale: scale, maxWidth: maxWidth, time: time)
     }
 }
 

@@ -953,6 +953,14 @@ final class TrimWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
             } else { showWalkthroughs(nil) }
         case "trim_walk_model": if let payload = args.first?.stringValue { walkModel(payload) }
         case "trim_walk_run": if let payload = args.first?.stringValue { walkRun(payload) }
+        case "trim_diagram":
+            switch args.first?.stringValue {
+            case "toggle": editor.diagramPlayer.toggle()
+            case "back": editor.diagramPlayer.seek(by: -1)
+            case "forward": editor.diagramPlayer.seek(by: 1)
+            case "restart": editor.diagramPlayer.restart()
+            default: break
+            }
         case "trim_hover": externalUI.hoverText = args.first?.stringValue ?? ""
         case "trim_completion_doc": externalUI.completionDoc = args.first?.stringValue ?? ""
         case "trim_diag":

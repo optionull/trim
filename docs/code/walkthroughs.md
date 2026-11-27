@@ -29,6 +29,13 @@ Diagrams are made by [Mermaider](https://mermaider.nullean.net), a .NET Mermaid 
 colour scheme and scroll with the text. Without the library a diagram stays source with a note saying so. To build it from a
 Mermaider checkout that has `src/Mermaider.Native`: `MERMAIDER_SRC=~/Projects/mermaider mise run mermaider`.
 
+### Diagrams that move
+
+A diagram with an [`animate` block](https://github.com/nullean/mermaider/tree/main/src/Mermaider.Animate) plays: a request travelling a
+path, a line drawing itself, a node failing. Trim plays it itself, at 30 frames a second, only while it is on screen (a diagram
+scrolled away costs nothing, and an idle editor still wakes nothing). In a walkthrough, `g<Space>` pauses and plays, `g<Left>` and
+`g<Right>` move a second back or forward, `g<Home>` starts again. With Reduce Motion on, a diagram is drawn still.
+
 ## Open one
 
 `<leader>W`, View ▸ Walkthroughs… (⌃⌘W) or `:TrimWalk` lists the repository's walkthroughs: the ones agents write into

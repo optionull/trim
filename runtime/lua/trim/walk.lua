@@ -294,6 +294,11 @@ local function bind(tell, buf)
   end
   local function map(lhs, fn, desc) vim.keymap.set('n', lhs, fn, { buffer = buf, silent = true, desc = desc }) end
   map(']]', function() step(1) end, 'Walkthrough: next step')
+  -- A diagram that moves: pause and play, a second back or forward, from the start.
+  map('g<Space>', function() tell('trim_diagram', 'toggle') end, 'Walkthrough: pause or play the diagrams')
+  map('g<Left>', function() tell('trim_diagram', 'back') end, 'Walkthrough: diagrams back a second')
+  map('g<Right>', function() tell('trim_diagram', 'forward') end, 'Walkthrough: diagrams forward a second')
+  map('g<Home>', function() tell('trim_diagram', 'restart') end, 'Walkthrough: diagrams from the start')
   map('[[', function() step(-1) end, 'Walkthrough: previous step')
   map('<CR>', function() enter(tell) end, 'Walkthrough: the code, or run')
   map('x', toggle, 'Walkthrough: tick the item')

@@ -145,6 +145,22 @@ final class GlyphAtlas {
         return region
     }
 
+    /// A new frame of a diagram already in the atlas, written over the old one; false when it is not there or is not of
+    /// the
+    /// same size (it is then uploaded whole, the next time its rows are built).
+    @discardableResult
+    func replaceImage(id: Int, with image: DiagramImage) -> Bool {
+        guard let known = imageRegions[id], Int(known.region.width) == image.pixelWidth,
+              Int(known.region.height) == image.pixelHeight else { return false }
+        image.pixels.withUnsafeBytes { pointer in
+            color.replace(
+                region: MTLRegionMake2D(Int(known.region.x), Int(known.region.y), image.pixelWidth, image.pixelHeight),
+                mipmapLevel: 0, withBytes: pointer.baseAddress!, bytesPerRow: image.bytesPerRow
+            )
+        }
+        return true
+    }
+
     /// Shapes a run, with ligatures.
     func shape(_ text: String, bold: Bool, italic: Bool) -> [ShapedGlyph] {
         shapeRunText(text, font: font, bold: bold, italic: italic)

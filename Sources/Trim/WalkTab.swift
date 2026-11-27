@@ -173,7 +173,10 @@ extension TrimWindowController {
     nonisolated static func diagramItem(_ fence: MermaidFence, _ request: DiagramRequest) -> [String: Any] {
         var item: [String: Any] = ["line": fence.first, "last": fence.last, "kind": "diagram"]
         let themeKey = request.theme.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
-        let key = "\(request.scale)|\(request.cols)|\(Int(request.cellHeight))|\(themeKey)|\(fence.source)"
+        // Asked for less motion, a diagram that moves is drawn still (Mermaider's own `still`, a picture of it
+        // settled).
+        let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let key = "\(request.scale)|\(request.cols)|\(Int(request.cellHeight))|\(still)|\(themeKey)|\(fence.source)"
         let store = DiagramStore.shared
         var id = store.id(forKey: key)
         if id == nil {
@@ -184,19 +187,25 @@ extension TrimWindowController {
             do {
                 var options: [String: Any] = request.theme
                 options["transparent"] = true
+                if still { options["motion"] = "still" }
                 let svg = try library.renderSVG(fence.source, options: options)
-                let width = max(Double(request.cols - 4) * request.cellWidth, 120)
-                var image = try SVGRender.image(svg: svg, scale: request.scale, maxWidth: width)
+                var width = max(Double(request.cols - 4) * request.cellWidth, 120)
+                let animation = try AnimatedDiagram(svg: svg)
+                func draw(_ width: Double) throws -> DiagramImage {
+                    animation.isAnimated
+                        ? try animation.frame(at: 0, scale: request.scale, maxWidth: width)
+                        : try SVGRender.image(svg: svg, scale: request.scale, maxWidth: width)
+                }
+                var image = try draw(width)
                 // Taller than a character can name: drawn smaller, to fit.
                 let limit = Double(diagramRowLimit) * request.cellHeight
                 if Double(image.size.height) > limit {
-                    image = try SVGRender.image(
-                        svg: svg,
-                        scale: request.scale,
-                        maxWidth: width * limit / Double(image.size.height)
-                    )
+                    width *= limit / Double(image.size.height)
+                    image = try draw(width)
                 }
-                id = store.register(image, key: key)
+                let playback = animation.isAnimated
+                    ? DiagramStore.Playback(diagram: animation, scale: request.scale, maxWidth: width) : nil
+                id = store.register(image, key: key, playback: playback)
             } catch {
                 item["message"] = "\(error)"
                 return item

@@ -84,6 +84,8 @@ public enum WalkSkill {
       `## The shape of it`; do not put one before the first step), only when the picture carries weight: a sequence diagram for a call path, a
       state diagram for a lifecycle, a flowchart for a pipeline. Keep it under about 15 nodes. After it, `@link Node -> anchor`
       lines make nodes jump to code when chosen.
+      A diagram may move: an `animate` block at the end of the fence (see Mermaider.Animate) plays in Trim while it is on screen; use it
+      only when the movement is the explanation (a request's path, a failure spreading).
     - **Tables and callouts:** ordinary Markdown tables for comparisons (Trim draws them as aligned grids). Callouts are
       `> [!kind] text` with the kind one of note, tip, important, warning, caution, risk, question, verified, asserted: `warning`
       or `risk` for what to be careful of, `verified` for a claim you checked by running it, `asserted` for one you only read

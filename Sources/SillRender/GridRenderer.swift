@@ -115,6 +115,52 @@ public final class GridRenderer {
     /// What was built for each row, by grid and row, with the row version it was built from.
     private var rows: [RowKey: Row] = [:]
     private var rowsStyle: Style?
+
+    // MARK: Moving diagrams
+
+    private let diagramLock = NSLock()
+    private var diagramFrames: [Int: DiagramImage] = [:]
+    private var shownDiagrams: Set<Int> = []
+    private var onShown: (@Sendable () -> Void)?
+
+    /// The diagrams with rows in the last frame built.
+    public var visibleDiagrams: Set<Int> {
+        diagramLock.lock()
+        defer { diagramLock.unlock() }
+        return shownDiagrams
+    }
+
+    /// Called (on the render thread) when a frame built has a moving diagram in it: what starts the clock that plays
+    /// it.
+    public func onMovingDiagramShown(_ body: (@Sendable () -> Void)?) {
+        diagramLock.lock()
+        onShown = body
+        diagramLock.unlock()
+    }
+
+    /// A new frame of diagram `id`, to be put in the atlas by the next frame built (ask for one to be drawn).
+    public func submitDiagramFrame(id: Int, image: DiagramImage) {
+        diagramLock.lock()
+        diagramFrames[id] = image
+        diagramLock.unlock()
+    }
+
+    private func takeDiagramFrames() -> [Int: DiagramImage] {
+        diagramLock.lock()
+        defer { diagramLock.unlock() }
+        let frames = diagramFrames
+        diagramFrames = [:]
+        return frames
+    }
+
+    private func publishShown(_ shown: Set<Int>) {
+        diagramLock.lock()
+        shownDiagrams = shown
+        let callback = onShown
+        diagramLock.unlock()
+        if let callback, shown.contains(where: { DiagramStore.shared.entry($0)?.playback != nil }) { callback() }
+    }
+
     private var rowsGeneration = -1
     private var shapes: [ShapeKey: [ShapedGlyph]] = [:]
 
@@ -130,6 +176,8 @@ public final class GridRenderer {
         var backgrounds: [RectInstance]
         var glyphs: [GlyphInstance]
         var decorations: [RectInstance]
+        /// The diagrams whose rows these are.
+        var diagrams: [Int] = []
     }
 
     private struct ShapeKey: Hashable {
@@ -325,6 +373,12 @@ public final class GridRenderer {
         stats.rowsBuilt = 0
         stats.rowsReused = 0
         stats.multiCellGlyphs = 0
+        // Frames of moving diagrams that came since the last build go into the atlas, here on the render thread.
+        for (id, image) in takeDiagramFrames() {
+            atlas.replaceImage(id: id, with: image)
+        }
+        var shown = Set<Int>()
+        defer { publishShown(shown) }
 
         var layers = Layers()
         var decorations: [RectInstance] = []
@@ -351,6 +405,7 @@ public final class GridRenderer {
                     stats.rowsBuilt += 1
                 }
                 let offset = SIMD2<Float>(Float(placement.col) * cellWidth, Float(placement.row) * cellHeight + y)
+                shown.formUnion(built.diagrams)
                 for var rect in built.backgrounds {
                     rect.origin += offset
                     layers.rects.append(rect)
@@ -717,6 +772,7 @@ public final class GridRenderer {
         let top = Float(slice) * sliceHeight
         guard top < region.height else { return }
         let height = min(sliceHeight, region.height - top)
+        built.diagrams.append(id)
         built.glyphs.append(GlyphInstance(
             origin: [columnX(col), 0], size: [region.width * ratio, height * ratio],
             atlasOrigin: [region.x, region.y + top], atlasSize: [region.width, height], color: [1, 1, 1, 1], colored: 1

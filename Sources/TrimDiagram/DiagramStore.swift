@@ -15,8 +15,28 @@ public final class DiagramStore: @unchecked Sendable {
     /// How many diagrams are kept: ids 1 ... capacity (the oldest is replaced after that).
     public static let capacity = 1000
 
+    /// What plays a diagram that moves: the animation, and the size its frames are drawn at (the picture's own).
+    public struct Playback: Sendable {
+        public var diagram: AnimatedDiagram
+        public var scale: CGFloat
+        public var maxWidth: CGFloat?
+
+        public init(diagram: AnimatedDiagram, scale: CGFloat, maxWidth: CGFloat?) {
+            self.diagram = diagram
+            self.scale = scale
+            self.maxWidth = maxWidth
+        }
+
+        /// The frame `time` seconds in.
+        public func frame(at time: Double) -> DiagramImage? {
+            try? diagram.frame(at: time, scale: scale, maxWidth: maxWidth)
+        }
+    }
+
     public struct Entry: Sendable {
         public var image: DiagramImage
+        /// Set for a diagram that moves: `image` is its first frame.
+        public var playback: Playback?
         /// Changes when the id is given to another picture, so what was cached for the old one is dropped.
         public var serial: Int
     }
@@ -31,7 +51,7 @@ public final class DiagramStore: @unchecked Sendable {
 
     /// The id of the diagram made from `key` (its source, colours, width and scale): the one it already has, or a new
     /// one.
-    public func register(_ image: DiagramImage, key: String) -> Int {
+    public func register(_ image: DiagramImage, key: String, playback: Playback? = nil) -> Int {
         lock.lock()
         defer { lock.unlock() }
         if let id = ids[key], entries[id] != nil { return id }
@@ -44,7 +64,7 @@ public final class DiagramStore: @unchecked Sendable {
             order.append(id)
             ids = ids.filter { $0.value != id }
         }
-        entries[id] = Entry(image: image, serial: nextSerial)
+        entries[id] = Entry(image: image, playback: playback, serial: nextSerial)
         nextSerial += 1
         ids[key] = id
         return id

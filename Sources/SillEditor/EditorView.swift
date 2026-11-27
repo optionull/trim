@@ -213,9 +213,13 @@ package final class EditorView: NSView {
             self.displayLink(target: target, selector: selector)
         }
         rendererScale = scale
+        if let loop { diagramPlayer.attach(renderer: renderer, loop: loop) }
         updateDrawableSize()
         submit()
     }
+
+    /// Plays the diagrams that move (Mermaider.Animate's) while they are on screen; its transport is what keys drive.
+    package let diagramPlayer = DiagramPlayer()
 
     private var rendererScale: CGFloat = 0
 
