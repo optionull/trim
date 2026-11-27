@@ -193,7 +193,15 @@ extension TrimWindowController {
                 let animation = try AnimatedDiagram(svg: svg)
                 func draw(_ width: Double) throws -> DiagramImage {
                     animation.isAnimated
-                        ? try animation.frame(at: 0, scale: request.scale, maxWidth: width)
+                        ? try animation.frame(
+                            at: 0, scale: request.scale, maxWidth: width,
+                            strip: ScrubStrip(
+                                seconds: 0,
+                                duration: animation.duration,
+                                paused: false,
+                                theme: request.theme
+                            )
+                        )
                         : try SVGRender.image(svg: svg, scale: request.scale, maxWidth: width)
                 }
                 var image = try draw(width)
@@ -204,7 +212,12 @@ extension TrimWindowController {
                     image = try draw(width)
                 }
                 let playback = animation.isAnimated
-                    ? DiagramStore.Playback(diagram: animation, scale: request.scale, maxWidth: width) : nil
+                    ? DiagramStore.Playback(
+                        diagram: animation,
+                        scale: request.scale,
+                        maxWidth: width,
+                        theme: request.theme
+                    ) : nil
                 id = store.register(image, key: key, playback: playback)
             } catch {
                 item["message"] = "\(error)"

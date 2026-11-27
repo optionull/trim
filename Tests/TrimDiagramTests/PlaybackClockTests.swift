@@ -45,3 +45,18 @@ struct PlaybackClockTests {
         #expect(clock.paused && clock.time(now: 30) == 0, "paused stays paused, at the start")
     }
 }
+
+@Suite("Seeking the clock of an animated diagram")
+struct PlaybackClockSeekTests {
+    @Test("seek to goes to a time, running or paused, and never before the start")
+    func seekTo() {
+        var clock = PlaybackClock(now: 0)
+        clock.seek(to: 7, now: 3)
+        #expect(clock.time(now: 3) == 7 && clock.time(now: 4) == 8)
+        clock.pause(now: 4)
+        clock.seek(to: 2, now: 9)
+        #expect(clock.paused && clock.time(now: 50) == 2)
+        clock.seek(to: -5, now: 9)
+        #expect(clock.time(now: 9) == 0)
+    }
+}

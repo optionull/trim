@@ -38,6 +38,12 @@ public struct PlaybackClock: Equatable, Sendable {
         anchor = now
     }
 
+    /// Goes to `seconds` (not before the start), staying paused or running as it was.
+    public mutating func seek(to seconds: Double, now: Double) {
+        base = max(0, seconds)
+        anchor = now
+    }
+
     public mutating func restart(now: Double) {
         base = 0
         anchor = now

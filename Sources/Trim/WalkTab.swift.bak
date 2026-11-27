@@ -1,0 +1,238 @@
+import AppKit
+import MessagePack
+import SillCore
+import SillEditor
+import SillNvim
+import TrimDiagram
+import TrimRun
+import TrimTree
+import TrimWalk
+
+/// Walkthroughs are files in the editor: a tab like any other, in nvim. What the app adds is what nvim cannot know:
+/// where each
+/// anchor's code is now and whether it changed, a diff, and the Run pane for `@run`. It computes that for the buffer's
+/// text
+/// and gives it to `trim.walk` to draw.
+extension TrimWindowController {
+    /// A walkthrough is shown by opening it.
+    func openWalkthrough(_ path: String) {
+        guard FileManager.default.fileExists(atPath: path) else { return }
+        open(file: path, toEditor: true)
+    }
+
+    /// View ▸ Walkthroughs…, `<leader>W`, `:TrimWalk`: the repository's walkthroughs to choose from.
+    @objc func showWalkthroughs(_: Any?) {
+        let root = workspace
+        Task { [weak self] in
+            let found = await Task.detached { WalkFiles.find(in: root) }.value
+            guard let self, listPicker == nil else { return }
+            let items = found.map { walk in
+                PickerItem(
+                    id: walk.path, title: walk.title.isEmpty ? walk.relative : walk.title,
+                    detail: (walk.by.map { "by " + $0 + " · " } ?? "") +
+                        (walk.isPrivate ? "private" : "in the repository"),
+                    subtitle: walk.relative
+                )
+            }
+            showList(
+                title: "Walkthroughs", items: items, current: items.first?.id,
+                onChoose: { [weak self] item in self?.openWalkthrough(item.id) }
+            )
+        }
+    }
+
+    /// `@run` on Enter in the walkthrough: shown in the Run pane, run by that key press and nothing else.
+    func walkRun(_ payload: String) {
+        let parts = payload.components(separatedBy: "\t")
+        guard parts.count == 2 else { return }
+        runInRunPane(RunEntry(
+            title: parts[0], source: "walkthrough", kind: .task, command: parts[1], directory: workspace,
+            origin: "walkthrough"
+        ))
+    }
+
+    /// The buffer's text (`{path, text, cols, theme}` from `trim.walk`): its anchors found, their code, what changed
+    /// since, the diffs,
+    /// and its Mermaid diagrams drawn in the editor's colours, for the width it has.
+    func walkModel(_ payload: String) {
+        guard let data = payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let path = object["path"] as? String, let text = object["text"] as? String else { return }
+        let root = workspace
+        let metrics = EditorFont.metrics
+        let request = DiagramRequest(
+            cols: object["cols"] as? Int ?? 80, theme: object["theme"] as? [String: String] ?? [:],
+            scale: Double(window.backingScaleFactor), cellWidth: Double(metrics.width),
+            cellHeight: Double(metrics.height)
+        )
+        Task { [weak self] in
+            let string = await Task
+                .detached { Self.walkModelJSON(text: text, path: path, root: root, diagrams: request) }.value
+            guard let self, let string else { return }
+            do {
+                _ = try await session.channel.lua(
+                    "require('trim.walk').render(...)", args: [.string(path), .string(string)]
+                )
+                FileHandle.standardError.write(Data("WALKDBG rendered \(path.suffix(30)) model \(string.count) chars\n".utf8))
+            } catch {
+                FileHandle.standardError.write(Data("WALKDBG render error \(error)\n".utf8))
+            }
+        }
+    }
+
+    nonisolated static func walkModelJSON(
+        text: String,
+        path: String,
+        root: String,
+        diagrams: DiagramRequest? = nil
+    ) -> String? {
+        let model = walkModel(text: text, path: path, root: root, diagrams: diagrams)
+        return (try? JSONSerialization.data(withJSONObject: model)).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    nonisolated static func walkModel(
+        text: String,
+        path: String,
+        root: String,
+        diagrams: DiagramRequest? = nil
+    ) -> [String: Any] {
+        let walk = Walkthrough(text)
+        let folder = (path as NSString).deletingLastPathComponent
+        let resolver = AnchorResolver(root: root, folder: folder)
+        func relative(_ file: String) -> String { file
+            .hasPrefix(root + "/") ? String(file.dropFirst(root.count + 1)) : file
+        }
+        var items: [[String: Any]] = []
+        var stale = 0
+        for step in walk.steps {
+            for block in step.blocks {
+                switch block {
+                case let .code(anchor, line):
+                    var item: [String: Any] = ["line": line, "kind": "code", "heading": anchor.text]
+                    switch resolver.resolve(anchor) {
+                    case let .found(found):
+                        item["path"] = found.path
+                        item["relative"] = relative(found.path)
+                        item["from"] = found.lines.lowerBound
+                        item["to"] = found.lines.upperBound
+                        item["code"] = found.text.joined(separator: "\n")
+                        switch Freshness.of(recorded: walk.fingerprints[line], now: found) {
+                        case .fresh: item["badge"] = "as written"; item["level"] = "ok"
+                        case .changed: item["badge"] = "changed since written"; item["level"] = "warn"; stale += 1
+                        case .unchecked, .orphaned: break
+                        }
+                    case let .problem(message):
+                        item["badge"] = "not found"
+                        item["level"] = "err"
+                        item["message"] = message
+                        stale += 1
+                    }
+                    items.append(item)
+                case let .diff(file, line):
+                    let text = WalkGit.diff(file, base: walk.base, in: root) ?? ""
+                    items.append([
+                        "line": line,
+                        "kind": "diff",
+                        "heading": file,
+                        "text": text.isEmpty ? "no change in \(file)" : text,
+                    ])
+                default: break
+                }
+            }
+        }
+        var meta: [String] = []
+        if let by = walk.by { meta.append("by " + by) }
+        if let model = walk.model { meta.append(model) }
+        if let commit = walk.commit { meta.append("at " + commit) }
+        if let created = walk.created { meta.append(created) }
+        meta.append("\(walk.steps.count) steps")
+        if let diagrams {
+            for fence in MermaidFences.find(in: text) {
+                items.append(diagramItem(fence, diagrams))
+            }
+        }
+        return ["title": walk.title, "meta": meta.joined(separator: " · "), "stale": stale, "items": items]
+    }
+}
+
+/// What drawing a walkthrough's diagrams needs to know of the window: the width in cells, the editor's colours and the
+/// grid.
+struct DiagramRequest: Sendable {
+    var cols: Int
+    var theme: [String: String]
+    var scale: Double
+    var cellWidth: Double
+    var cellHeight: Double
+}
+
+extension TrimWindowController {
+    /// Mermaider's native library, loaded the first time a diagram is drawn; nil when it is not there.
+    nonisolated static let mermaid = MermaidLibrary.locate()
+
+    /// The most rows a diagram can take (what a character names): taller is drawn smaller.
+    nonisolated static let diagramRowLimit = DiagramStore.slices
+
+    /// The model's item for one Mermaid block: the id of its picture and how many rows it takes, or why there is none
+    /// (the block
+    /// then stays as it is, source).
+    nonisolated static func diagramItem(_ fence: MermaidFence, _ request: DiagramRequest) -> [String: Any] {
+        var item: [String: Any] = ["line": fence.first, "last": fence.last, "kind": "diagram"]
+        let themeKey = request.theme.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+        // Asked for less motion, a diagram that moves is drawn still (Mermaider's own `still`, a picture of it
+        // settled).
+        let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let key = "\(request.scale)|\(request.cols)|\(Int(request.cellHeight))|\(still)|\(themeKey)|\(fence.source)"
+        let store = DiagramStore.shared
+        var id = store.id(forKey: key)
+        if id == nil {
+            guard let library = mermaid else {
+                item["message"] = "the Mermaider library is not installed"
+                return item
+            }
+            do {
+                var options: [String: Any] = request.theme
+                options["transparent"] = true
+                if still { options["motion"] = "still" }
+                let svg = try library.renderSVG(fence.source, options: options)
+                var width = max(Double(request.cols - 4) * request.cellWidth, 120)
+                let animation = try AnimatedDiagram(svg: svg)
+                func draw(_ width: Double) throws -> DiagramImage {
+                    animation.isAnimated
+                        ? try animation.frame(
+                            at: 0, scale: request.scale, maxWidth: width,
+                            strip: ScrubStrip(
+                                seconds: 0,
+                                duration: animation.duration,
+                                paused: false,
+                                theme: request.theme
+                            )
+                        )
+                        : try SVGRender.image(svg: svg, scale: request.scale, maxWidth: width)
+                }
+                var image = try draw(width)
+                // Taller than a character can name: drawn smaller, to fit.
+                let limit = Double(diagramRowLimit) * request.cellHeight
+                if Double(image.size.height) > limit {
+                    width *= limit / Double(image.size.height)
+                    image = try draw(width)
+                }
+                let playback = animation.isAnimated
+                    ? DiagramStore.Playback(
+                        diagram: animation,
+                        scale: request.scale,
+                        maxWidth: width,
+                        theme: request.theme
+                    ) : nil
+                id = store.register(image, key: key, playback: playback)
+            } catch {
+                item["message"] = "\(error)"
+                return item
+            }
+        }
+        guard let id, let entry = store.entry(id) else { return item }
+        let rowPixels = request.cellHeight * request.scale
+        item["id"] = id
+        item["rows"] = min(diagramRowLimit, Int((Double(entry.image.pixelHeight) / rowPixels).rounded(.up)))
+        return item
+    }
+}

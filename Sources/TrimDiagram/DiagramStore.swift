@@ -20,16 +20,20 @@ public final class DiagramStore: @unchecked Sendable {
         public var diagram: AnimatedDiagram
         public var scale: CGFloat
         public var maxWidth: CGFloat?
+        /// The colours of the page, for the bar under the picture.
+        public var theme: [String: String]
 
-        public init(diagram: AnimatedDiagram, scale: CGFloat, maxWidth: CGFloat?) {
+        public init(diagram: AnimatedDiagram, scale: CGFloat, maxWidth: CGFloat?, theme: [String: String] = [:]) {
             self.diagram = diagram
             self.scale = scale
             self.maxWidth = maxWidth
+            self.theme = theme
         }
 
-        /// The frame `time` seconds in.
-        public func frame(at time: Double) -> DiagramImage? {
-            try? diagram.frame(at: time, scale: scale, maxWidth: maxWidth)
+        /// The frame `time` seconds in, with the bar that shows where that is.
+        public func frame(at time: Double, paused: Bool = false) -> DiagramImage? {
+            let strip = ScrubStrip(seconds: time, duration: diagram.duration, paused: paused, theme: theme)
+            return try? diagram.frame(at: time, scale: scale, maxWidth: maxWidth, strip: strip)
         }
     }
 

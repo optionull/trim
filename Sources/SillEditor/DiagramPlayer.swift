@@ -76,13 +76,15 @@ package final class DiagramPlayer: @unchecked Sendable {
         guard !moving.isEmpty else { return stop() }
         lock.lock()
         let time = clock.time(now: CACurrentMediaTime())
+        let paused = clock.paused
         let unchanged = time == lastTime
         lastTime = time
         lock.unlock()
         // Paused, the same time is the same picture: nothing to draw until the clock moves.
         if unchanged { return }
         for (id, playback) in moving {
-            if let image = playback.frame(at: time) { renderer.submitDiagramFrame(id: id, image: image) }
+            if let image = playback
+                .frame(at: time, paused: paused) { renderer.submitDiagramFrame(id: id, image: image) }
         }
         framesPlayed += 1
         loop.redraw()
@@ -93,6 +95,34 @@ package final class DiagramPlayer: @unchecked Sendable {
     package func toggle() { change { $0.toggle(now: $1) } }
     package func seek(by seconds: Double) { change { $0.seek(by: seconds, now: $1) } }
     package func restart() { change { $0.restart(now: $1) } }
+
+    /// Where it is, in seconds into the loop.
+    package var seconds: Double {
+        lock.lock()
+        defer { lock.unlock() }
+        return clock.time(now: CACurrentMediaTime())
+    }
+
+    private var pausedForScrub = false
+
+    /// A drag on the bar begins: the animation holds where it is, and goes on from where the drag leaves it if it was
+    /// playing.
+    package func beginScrub() {
+        change {
+            pausedForScrub = $0.paused
+            $0.pause(now: $1)
+        }
+    }
+
+    /// The drag is at `fraction` of the loop of diagram `id`.
+    package func scrub(id: Int, to fraction: Double) {
+        guard let duration = DiagramStore.shared.entry(id)?.playback?.diagram.duration, duration > 0 else { return }
+        change { $0.seek(to: fraction * duration, now: $1) }
+    }
+
+    package func endScrub() {
+        if !pausedForScrub { change { $0.resume(now: $1) } }
+    }
 
     private func change(_ edit: (inout PlaybackClock, Double) -> Void) {
         lock.lock()

@@ -14,11 +14,14 @@ public struct DiagramImage: Sendable {
     public var size: CGSize
     public var scale: CGFloat
     public var regions: [DiagramRegion]
+    /// The height of the bar for scrubbing at the bottom of the picture, in points; 0 when there is none.
+    public var scrubHeight: CGFloat
 
     public init(
         pixelWidth: Int, pixelHeight: Int, bytesPerRow: Int, pixels: Data, size: CGSize, scale: CGFloat,
-        regions: [DiagramRegion]
+        regions: [DiagramRegion], scrubHeight: CGFloat = 0
     ) {
+        self.scrubHeight = scrubHeight
         self.pixelWidth = pixelWidth
         self.pixelHeight = pixelHeight
         self.bytesPerRow = bytesPerRow
@@ -64,10 +67,12 @@ public final class AnimatedDiagram: @unchecked Sendable {
     }
 
     /// The diagram `time` seconds into its animation (looping, so past `duration` it is back at the start).
-    public func frame(at time: Double, scale: CGFloat, maxWidth: CGFloat? = nil) throws -> DiagramImage {
+    public func frame(
+        at time: Double, scale: CGFloat, maxWidth: CGFloat? = nil, strip: ScrubStrip? = nil
+    ) throws -> DiagramImage {
         lock.lock()
         defer { lock.unlock() }
-        return try painter.render(scale: scale, maxWidth: maxWidth, time: time)
+        return try painter.render(scale: scale, maxWidth: maxWidth, time: time, strip: strip)
     }
 }
 
@@ -145,7 +150,7 @@ private final class SVGPainter {
 
     // MARK: The root
 
-    func render(scale: CGFloat, maxWidth: CGFloat?, time: Double = 0) throws -> DiagramImage {
+    func render(scale: CGFloat, maxWidth: CGFloat?, time: Double = 0, strip: ScrubStrip? = nil) throws -> DiagramImage {
         self.time = time
         regions = []
         regionBounds = []
@@ -160,7 +165,10 @@ private final class SVGPainter {
         let fit = maxWidth.map { min(1, Double($0) / width) } ?? 1
         let pointSize = CGSize(width: width * fit, height: height * fit)
         let pixelWidth = max(1, Int((pointSize.width * scale).rounded(.up)))
-        let pixelHeight = max(1, Int((pointSize.height * scale).rounded(.up)))
+        let contentPixelHeight = max(1, Int((pointSize.height * scale).rounded(.up)))
+        // A diagram that moves has a bar for scrubbing under it: more picture, below the drawing.
+        let stripPoints = strip == nil ? 0 : ScrubStrip.height
+        let pixelHeight = contentPixelHeight + Int((stripPoints * scale).rounded(.up))
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         guard let bitmap = CGContext(
             data: nil, width: pixelWidth, height: pixelHeight, bitsPerComponent: 8, bytesPerRow: 0, space: space,
@@ -168,8 +176,9 @@ private final class SVGPainter {
         ) else { throw SVGRender.Failure(description: "no bitmap of \(pixelWidth) x \(pixelHeight)") }
         context = bitmap
         // y down, in points of the SVG's own width and height.
+        bitmap.saveGState()
         bitmap.translateBy(x: 0, y: CGFloat(pixelHeight))
-        bitmap.scaleBy(x: CGFloat(Double(pixelWidth) / width), y: -CGFloat(Double(pixelHeight) / height))
+        bitmap.scaleBy(x: CGFloat(Double(pixelWidth) / width), y: -CGFloat(Double(contentPixelHeight) / height))
         if let box {
             bitmap.scaleBy(x: width / box.width, y: height / box.height)
             bitmap.translateBy(x: -box.minX, y: -box.minY)
@@ -181,17 +190,21 @@ private final class SVGPainter {
         bitmap.setShouldAntialias(true)
         bitmap.interpolationQuality = .high
         draw(children: root, style: Style(), skipDefsOnly: true)
+        bitmap.restoreGState()
+        strip?.draw(in: bitmap, pixelWidth: pixelWidth, scale: scale)
         guard let data = bitmap.data else { throw SVGRender.Failure(description: "no pixels") }
         let bytesPerRow = bitmap.bytesPerRow
         let scaleToPoints = CGFloat(fit)
         return DiagramImage(
             pixelWidth: pixelWidth, pixelHeight: pixelHeight, bytesPerRow: bytesPerRow,
-            pixels: Data(bytes: data, count: bytesPerRow * pixelHeight), size: pointSize, scale: scale,
+            pixels: Data(bytes: data, count: bytesPerRow * pixelHeight),
+            size: CGSize(width: pointSize.width, height: pointSize.height + stripPoints), scale: scale,
             regions: regions.map { DiagramRegion(
                 id: $0.id,
                 kind: $0.kind,
                 rect: $0.rect.applying(CGAffineTransform(scaleX: scaleToPoints, y: scaleToPoints))
-            ) }
+            ) },
+            scrubHeight: stripPoints
         )
     }
 

@@ -3364,6 +3364,57 @@ struct TrimCheck {
             else { fail("frames were drawn while paused: \(held), then \(player.framesPlayed)") }
             await keys("g<Space>")
             await wait("the diagrams playing again") { player.framesPlayed > held + 3 }
+            // The bar under the picture: a press on the track holds the animation where it is and a drag follows it;
+            // the mark
+            // plays and pauses; a press elsewhere on the picture is not for it.
+            func bar() -> (id: Int, left: Double, width: Double, first: Int, last: Int)? {
+                let screen = shell.editor.screen
+                guard let grid = screen.grids[screen.cursorGrid] else { return nil }
+                let column = Double(screen.placements[screen.cursorGrid]?.col ?? 0)
+                var found: (id: Int, left: Double, width: Double, first: Int, last: Int)?
+                for row in 0 ..< grid.rows {
+                    for col in 0 ..< grid.cols {
+                        guard let (id, _) = DiagramStore.decode(grid[row, col].text),
+                              let entry = DiagramStore.shared.entry(id), entry.playback != nil else { continue }
+                        let left = (column + Double(col)) * Double(shell.editor.metrics.width)
+                        if found?.id == id { found?.last = row } else {
+                            found = (id, left, Double(entry.image.size.width), row, row)
+                        }
+                    }
+                }
+                return found
+            }
+            guard let strip = bar() else { fail("no animated picture on the screen") }
+            let height = Double(shell.editor.metrics.height)
+            func point(_ fraction: Double, row: Int) -> CGPoint {
+                let track = ScrubStrip.track(width: strip.width)
+                return CGPoint(
+                    x: strip.left + track.from + (track.to - track.from) * fraction, y: (Double(row) + 0.3) * height
+                )
+            }
+            guard let duration = DiagramStore.shared.entry(strip.id)?.playback?.diagram.duration, duration > 0
+            else { fail("the animated picture has no length") }
+            guard !shell.editor.scrubPress(at: point(0.5, row: strip.first)) else {
+                fail("a press on the picture, away from its bar, was taken for the bar")
+            }
+            guard shell.editor.scrubPress(at: point(0.5, row: strip.last))
+            else { fail("a press on the bar was not taken") }
+            guard player.isPaused, abs(player.seconds - 0.5 * duration) < 0.05
+            else {
+                fail("a press on the middle of the bar: paused \(player.isPaused), at \(player.seconds) of \(duration)")
+            }
+            shell.editor.scrubDrag(to: point(0.25, row: strip.last))
+            guard abs(player.seconds - 0.25 * duration) < 0.05
+            else { fail("a drag did not follow: \(player.seconds) of \(duration)") }
+            shell.editor.scrubDrag(to: point(3, row: strip.last + 5))
+            guard abs(player.seconds - duration) < 0.05
+            else { fail("a drag past the end did not hold at the end: \(player.seconds)") }
+            shell.editor.scrubRelease()
+            guard !player.isPaused else { fail("it did not go on playing after the drag, as it was playing before") }
+            let mark = CGPoint(x: strip.left + 10, y: (Double(strip.last) + 0.3) * height)
+            guard shell.editor.scrubPress(at: mark), player.isPaused else { fail("the mark did not pause") }
+            guard shell.editor.scrubPress(at: mark), !player.isPaused else { fail("the mark did not play again") }
+            step("the bar under a diagram that moves: a press seeks, a drag follows it, the mark plays and pauses")
             _ = await lua("vim.cmd('normal! gg')")
             await wait("the clock stopped with the diagram off the screen") { !player.isRunning }
             _ = await lua("vim.cmd('normal! G')")

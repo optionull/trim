@@ -34,7 +34,8 @@ Mermaider checkout that has `src/Mermaider.Native`: `MERMAIDER_SRC=~/Projects/me
 A diagram with an [`animate` block](https://github.com/nullean/mermaider/tree/main/src/Mermaider.Animate) plays: a request travelling a
 path, a line drawing itself, a node failing. Trim plays it itself, at 30 frames a second, only while it is on screen (a diagram
 scrolled away costs nothing, and an idle editor still wakes nothing). In a walkthrough, `g<Space>` pauses and plays, `g<Left>` and
-`g<Right>` move a second back or forward, `g<Home>` starts again. With Reduce Motion on, a diagram is drawn still.
+`g<Right>` move a second back or forward, `g<Home>` starts again. Under the picture is a bar: the mark pauses and plays, and a click
+on the track jumps there while a drag scrubs through the animation (it goes on playing from where you let go). With Reduce Motion on, a diagram is drawn still.
 
 ## Open one
 
