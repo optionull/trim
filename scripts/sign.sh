@@ -21,6 +21,8 @@ for app in "$build/Trim.app" "$build/Shim.app"; do
   # Native code in Resources: tree-sitter's parsers, and nvim when the app carries one.
   while IFS= read -r file; do sign "$file"; done < <(find "$app/Contents/Resources" -type f \
     \( -name '*.so' -o -name '*.dylib' -o -path '*/nvim/bin/nvim' \))
+  [ -f "$app/Contents/Helpers/trim" ] && sign "$app/Contents/Helpers/trim"
+  [ -f "$app/Contents/Frameworks/mermaider.dylib" ] && sign "$app/Contents/Frameworks/mermaider.dylib"
   sign "$app"
   codesign --verify --strict --deep --verbose=2 "$app"
   echo "sign: $app signed by $identity"

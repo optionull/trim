@@ -3,6 +3,7 @@ import SillCore
 import SillInput
 import SillNvim
 import SillRender
+import TrimDiagram
 
 /// Shows nvim's grids where multigrid places them, and sends nvim keys and mouse clicks.
 ///
@@ -86,6 +87,8 @@ package final class EditorView: NSView {
     /// The window a gesture scrolls, and how many lines nvim has reported scrolling it since the gesture began.
     private var pixelGrid: Int?
     private var pixelReported = 0
+    /// The rows nvim's last scroll in this gesture moved: a line with a card under it is many.
+    private var pixelLastStep = 1
     private var pixelSettle: DispatchWorkItem?
     /// How long after the last scroll event the text is let settle where nvim is.
     package static let pixelSettleDelay: TimeInterval = 0.09
@@ -111,6 +114,8 @@ package final class EditorView: NSView {
                 // A gesture is scrolling this window: the slide is held by the finger, from the rows before this
                 // scroll.
                 pixelReported += scroll.lines
+                pixel.acknowledge()
+                pixelLastStep = max(1, abs(scroll.lines))
                 if let previous = old.grids[grid], abs(scroll.lines) < placement.height,
                    previous.rows == placement.height
                 {
@@ -209,9 +214,13 @@ package final class EditorView: NSView {
             self.displayLink(target: target, selector: selector)
         }
         rendererScale = scale
+        if let loop { diagramPlayer.attach(renderer: renderer, loop: loop) }
         updateDrawableSize()
         submit()
     }
+
+    /// Plays the diagrams that move (Mermaider.Animate's) while they are on screen; its transport is what keys drive.
+    package let diagramPlayer = DiagramPlayer()
 
     private var rendererScale: CGFloat = 0
 
@@ -361,11 +370,75 @@ package final class EditorView: NSView {
     override package func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         onFocus?()
+        if scrubPress(at: convert(event.locationInWindow, from: nil)) { return }
         mouse(event, button: "left", action: "press")
     }
 
-    override package func mouseDragged(with event: NSEvent) { mouse(event, button: "left", action: "drag") }
-    override package func mouseUp(with event: NSEvent) { mouse(event, button: "left", action: "release") }
+    override package func mouseDragged(with event: NSEvent) {
+        if scrubbing != nil { return scrubDrag(to: convert(event.locationInWindow, from: nil)) }
+        mouse(event, button: "left", action: "drag")
+    }
+
+    override package func mouseUp(with event: NSEvent) {
+        if scrubbing != nil { return scrubRelease() }
+        mouse(event, button: "left", action: "release")
+    }
+
+    // MARK: Scrubbing a diagram that moves
+
+    /// A drag on the bar under a diagram: which diagram, and where its picture's left edge is on the screen.
+    private var scrubbing: (id: Int, left: Double, width: Double)?
+
+    /// The strip under a diagram that moves, when `point` is over it: the diagram, where its picture starts and how
+    /// wide it is.
+    private func scrubTarget(at point: CGPoint) -> (id: Int, left: Double, width: Double, x: Double)? {
+        let row = Int(floor(point.y / metrics.height)), col = Int(floor(point.x / metrics.width))
+        let hit = screen.hit(row: row, col: col)
+        guard let buffer = screen.grids[hit.grid], hit.row >= 0, hit.row < buffer.rows else { return nil }
+        let origin = Double(screen.placements[hit.grid]?.col ?? 0)
+        for column in 0 ..< buffer.cols {
+            guard let (id, slice) = DiagramStore.decode(buffer[hit.row, column].text),
+                  let entry = DiagramStore.shared.entry(id), entry.playback != nil, entry.image.scrubHeight > 0
+            else { continue }
+            // The picture is drawn at its size in points from the cell that names it; a row is one slice of it.
+            let y = Double(slice) * Double(metrics.height) + Double(point.y) - Double(row) * Double(metrics.height)
+            guard y >= Double(entry.image.size.height - entry.image.scrubHeight) else { return nil }
+            let left = (origin + Double(column)) * Double(metrics.width)
+            return (id, left, Double(entry.image.size.width), Double(point.x) - left)
+        }
+        return nil
+    }
+
+    /// A press at `point`: on the strip it toggles play (the mark) or begins a scrub (the track), and nvim does not see
+    /// it.
+    package func scrubPress(at point: CGPoint) -> Bool {
+        guard let target = scrubTarget(at: point), let hit = ScrubStrip.hit(x: target.x, width: target.width) else {
+            return false
+        }
+        switch hit {
+        case .toggle:
+            diagramPlayer.toggle()
+        case let .seek(fraction):
+            scrubbing = (target.id, target.left, target.width)
+            diagramPlayer.beginScrub()
+            diagramPlayer.scrub(id: target.id, to: fraction)
+        }
+        return true
+    }
+
+    package func scrubDrag(to point: CGPoint) {
+        guard let scrubbing else { return }
+        diagramPlayer.scrub(
+            id: scrubbing.id, to: ScrubStrip.fraction(x: Double(point.x) - scrubbing.left, width: scrubbing.width)
+        )
+    }
+
+    package func scrubRelease() {
+        guard scrubbing != nil else { return }
+        scrubbing = nil
+        diagramPlayer.endScrub()
+    }
+
     /// The right-click menu, made by the app (it knows the folder and runs commands in a terminal).
     package var contextMenu: (() -> NSMenu)?
 
@@ -474,9 +547,10 @@ package final class EditorView: NSView {
         if pixelSettle == nil || pixelGrid != grid {
             pixel.reset()
             pixelReported = 0
+            pixelLastStep = 1
             pixelGrid = grid
         }
-        let asked = pixel.move(by: -Double(deltaY / metrics.height), reported: pixelReported)
+        let asked = pixel.move(by: -Double(deltaY / metrics.height), reported: pixelReported, lastStep: pixelLastStep)
         for _ in 0 ..< abs(asked) {
             channel.send(.mouse(
                 button: "wheel", action: asked > 0 ? "down" : "up", modifiers: modifiers, grid: grid, row: row, col: col
@@ -507,6 +581,7 @@ package final class EditorView: NSView {
         pixelGrid = nil
         pixel.reset()
         pixelReported = 0
+        pixelLastStep = 1
         submit()
     }
 

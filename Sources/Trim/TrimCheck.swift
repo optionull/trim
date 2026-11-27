@@ -5,9 +5,11 @@ import SillAgent
 import SillCore
 import SillEditor
 import SillRender
+import TrimDiagram
 import TrimModes
 import TrimRun
 import TrimTree
+import TrimWalk
 import TrimWorkspaces
 
 /// The frame's check (`TRIM_CHECK=1`, nvim without the person's config): what is typed reaches nvim and comes
@@ -125,6 +127,7 @@ struct TrimCheck {
         await group("settings") { await settingsSteps() }
         await group("windows") { await windowSteps() }
         await group("switcher") { await switcherSteps() }
+        await group("walk") { await walkSteps() }
         await group("docshots") { await docShotsSteps() }
         await group("lspshots") { await lspShotsSteps() }
         if let path = ProcessInfo.processInfo.environment["SILL_CHECK_SHOT"] {
@@ -1981,7 +1984,7 @@ struct TrimCheck {
         step("and when it is over everything is as it was, the pane too")
     }
 
-    /// Links into the app: `frame://open?path=…&line=…&column=…` and a file handed over open the file at its place, in
+    /// Links into the app: `trim://open?path=…&line=…&column=…` and a file handed over open the file at its place, in
     /// the
     /// window that is on its folder.
     private func linkSteps() async {
@@ -1993,7 +1996,7 @@ struct TrimCheck {
         defer { try? FileManager.default.removeItem(atPath: folder) }
         let a = RealPath.of(folder) + "/a.txt", b = RealPath.of(folder) + "/b.txt"
         let windows = app.controllers.count
-        guard let link = URL(string: "frame://open?path=\(a)&line=2&column=5"), app.handle(link)
+        guard let link = URL(string: "trim://open?path=\(a)&line=2&column=5"), app.handle(link)
         else { fail("the link was not handled") }
         await waitAsync("the link to open the file at its place") {
             let name = await (try? channel.lua("return vim.api.nvim_buf_get_name(0)"))?.stringValue
@@ -2002,12 +2005,12 @@ struct TrimCheck {
             return name == a && at == [2, 4]
         }
         guard app.controllers.count == windows else { fail("a link opened a window although one is on the folder") }
-        step("a frame:// link opens the file at its line and column, in the window that is on its folder")
+        step("a trim:// link opens the file at its line and column, in the window that is on its folder")
         guard app.handle(URL(fileURLWithPath: b)) else { fail("a file handed over was not handled") }
         await waitAsync("a file handed over to open") {
             await (try? channel.lua("return vim.api.nvim_buf_get_name(0)"))?.stringValue == b
         }
-        guard !app.handle(URL(string: "frame://nothing")!) else { fail("a link that asks nothing was taken") }
+        guard !app.handle(URL(string: "trim://nothing")!) else { fail("a link that asks nothing was taken") }
         step("a file handed to the app opens, and a link that asks nothing is left")
     }
 
@@ -3091,6 +3094,409 @@ struct TrimCheck {
         await wait("the font back") { EditorFont.metrics.regular.familyName == beforeFamily }
     }
 
+    /// Walkthroughs: a file an agent writes opens as a tab like any other, drawn in the editor (steps, the code each
+    /// anchor
+    /// points at under its line, checklists), moved with nvim's keys, with the code of the step beside it, and a change
+    /// in
+    /// the code shows at once.
+    private func runGit(_ folder: String, _ arguments: [String]) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", folder] + arguments
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try? process.run()
+        process.waitUntilExit()
+    }
+
+    private func walkSteps() async {
+        let base = RealPath.of(NSTemporaryDirectory()) + "trim-walk-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        try? FileManager.default.createDirectory(atPath: base + "/src", withIntermediateDirectories: true)
+        let code = "namespace Orders;\n\npublic class Pricing\n{\n    public decimal Total(Order order)\n    {\n        return order.Lines.Sum(l => l.Price);\n    }\n\n    public decimal Tax(decimal amount) => amount * 0.2m;\n}\n"
+        try? code.write(toFile: base + "/src/Pricing.cs", atomically: true, encoding: .utf8)
+        for arguments in [
+            ["init", "-q", "-b", "main"],
+            ["add", "."],
+            ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "first"],
+        ] {
+            runGit(base, arguments)
+        }
+        let folder = TrimFolder.path(for: base) + "/" + TrimFolder.walkthroughs
+        let file = folder + "/pricing.walk.md"
+        let source = """
+        ---
+        by: claude
+        ---
+        # How a total is made
+
+        Totals are summed per line, tax is separate.
+
+        ## The total
+        The total adds the line prices up.
+        @code Pricing.Total
+
+        ## The tax
+        Tax is a fifth of the amount.
+        @code Pricing.Tax
+        @ask Why is tax not part of the total?
+
+        ## Before you merge
+        - [ ] Tests pass
+        - [ ] Pricing reviewed
+        @run Tests: echo tested
+        """
+        try? source.write(toFile: file, atomically: true, encoding: .utf8)
+        shell.focusEditor()
+        _ = try? await shell.session.channel.lua("vim.cmd('silent! %bwipeout!')")
+        shell.move(to: base)
+        await waitAsync("nvim in the fixture") {
+            await (try? shell.session.channel.lua("return vim.fn.getcwd()"))?.stringValue == base
+        }
+        func lua(_ code: String) async -> MessagePackValue? { try? await shell.session.channel.lua(code) }
+        func keys(_ text: String) async { _ = try? await shell.session.channel.lua(
+            "vim.api.nvim_input(...)",
+            args: [.string(text)]
+        ) }
+        /// All the text drawn by the walkthrough's decorations, header, badges and code cards.
+        func drawn() async -> String {
+            await lua("""
+            local out = {}
+            local marks = {}
+            for _, name in ipairs({ 'trim_walk', 'trim_md' }) do
+              for _, m in ipairs(vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace(name), 0, -1, { details = true })) do marks[#marks + 1] = m end
+            end
+            for _, m in ipairs(marks) do
+              if m[4].conceal and m[4].conceal ~= '' then out[#out + 1] = m[4].conceal end
+              for _, key in ipairs({ 'virt_text', 'virt_lines' }) do
+                for _, row in ipairs(m[4][key] or {}) do
+                  local chunks = key == 'virt_lines' and row or { row }
+                  for _, c in ipairs(chunks) do out[#out + 1] = type(c) == 'table' and c[1] or c end
+                  out[#out + 1] = '\\n'
+                end
+              end
+            end
+            return table.concat(out)
+            """)?.stringValue ?? ""
+        }
+        func here() async -> String {
+            await lua(
+                "return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ':t') .. ':' .. vim.api.nvim_win_get_cursor(0)[1]"
+            )?
+                .stringValue ?? ""
+        }
+        // Through the link an agent's `trim walk open` makes.
+        guard let link = URL(string: "trim://walkthrough?path=" + file
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!) else { fail("no link") }
+        guard app.handle(link) else { fail("trim://walkthrough was not taken as a link") }
+        await waitAsync("the walkthrough in the editor") { await here().hasPrefix("pricing.walk.md") }
+        await waitAsync("the walkthrough drawn") { await drawn().contains("order.Lines.Sum") }
+        guard await lua("return #vim.fn.getbufinfo({ buflisted = 1 })")?.integerValue ?? 0 >= 1,
+              await lua("return vim.bo.buflisted and vim.bo.filetype")?.stringValue == "markdown"
+        else { fail("the walkthrough is not a listed markdown buffer like a file") }
+        let text = await drawn()
+        guard text.contains("by claude"), text.contains("3 steps"), text.contains("Pricing.cs:5-8"),
+              !text.contains("changed since"),
+              text.contains("amount * 0.2m")
+        else { fail("the walkthrough is not drawn: \(text)") }
+        step(
+            "trim://walkthrough opens it as a tab in the editor, drawn with its header, anchors found by declaration and their code"
+        )
+        guard await lua(
+            "local n = 0; for _, m in ipairs(vim.api.nvim_get_hl(0, { name = 'TrimWalkStep' })) do n = n + 1 end; return vim.api.nvim_get_hl(0, { name = 'TrimWalkStep', link = false }).fg ~= nil"
+        )?
+            .boolValue == true
+        else { fail("the step heading has no colour from the scheme") }
+        // Opened past the front matter, which is hidden; the cursor in it shows all of it.
+        func hiddenFront() async -> Int64 {
+            await lua(
+                "return #vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace('trim_walk_front'), 0, -1, {})"
+            )?.integerValue ?? -1
+        }
+        guard await lua("return vim.api.nvim_win_get_cursor(0)[1]")?.integerValue == 4, await hiddenFront() == 3
+        else { fail("the walkthrough did not open on its title with the front matter hidden") }
+        await keys("gg")
+        await waitAsync("the front matter open under the cursor") { await hiddenFront() == 0 }
+        await keys("4G")
+        await waitAsync("the front matter hidden again") { await hiddenFront() == 3 }
+        step("it opens past the front matter, which is hidden; the cursor in it shows all of it")
+        // nvim's keys: ]] is the next step, and the code of the step opens beside it.
+        await keys("gg]]")
+        await waitAsync("the code of the first step beside the walkthrough") {
+            await lua("""
+            local win = require('trim.walk').win
+            return #vim.api.nvim_tabpage_list_wins(0) == 2 and win and vim.api.nvim_win_is_valid(win) and vim.fn.fnamemodify(vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(win)), ':t') .. ':' .. vim.api.nvim_win_get_cursor(win)[1]
+            """)?.stringValue == "Pricing.cs:5"
+        }
+        guard await here().hasPrefix("pricing.walk.md") else { fail("the keyboard left the walkthrough") }
+        guard await lua(
+            "return #vim.api.nvim_buf_get_extmarks(vim.api.nvim_win_get_buf(require('trim.walk').win), vim.api.nvim_create_namespace('trim_walk_code'), 0, -1, {})"
+        )?
+            .integerValue == 4
+        else { fail("the lines of the anchor are not marked in the code") }
+        step(
+            "]] is nvim's: it goes to the step, and the code opens beside it with its lines marked, the keyboard staying"
+        )
+        await keys("]]")
+        await waitAsync("the second step's code") {
+            await (lua("local w = require('trim.walk').win; return vim.api.nvim_win_get_cursor(w)[1]"))?
+                .integerValue == 10
+        }
+        await keys("<Down><Down>")
+        await keys("[[")
+        await keys("[[")
+        await waitAsync("back at the first step's code") {
+            await (lua("local w = require('trim.walk').win; return vim.api.nvim_win_get_cursor(w)[1]"))?
+                .integerValue == 5
+        }
+        step("moving between steps moves the code beside it")
+        // The checklist is ticked with x, in the buffer.
+        await keys(":/Tests pass<CR>x")
+        await waitAsync("the task ticked") {
+            await (lua("return vim.fn.search('- \\\\[x\\\\] Tests pass', 'nw')"))?.integerValue ?? 0 > 0
+        }
+        await waitAsync("the ticked box drawn") { await drawn().contains("☑") }
+        step("x ticks a checklist item in the buffer, drawn as a box")
+        // Edited like any buffer: a new step typed in appears in the drawn document.
+        await keys("Go<CR>## One more<CR>Added while typing.<CR>@code src/Pricing.cs:3-4<Esc>")
+        await waitAsync("the new anchor drawn") { await drawn().contains("Pricing.cs:3-4") }
+        step("typing in it is editing a buffer: the new step's anchor is drawn at once")
+        // The code moves on after the walkthrough was stamped: the anchor is marked.
+        _ = try? await shell.session.channel.lua("vim.cmd('silent write')")
+        let stamped = Walkthrough.stamping(
+            (try? String(contentsOfFile: file, encoding: .utf8)) ?? "", resolver: AnchorResolver(
+                root: base,
+                folder: folder
+            ), commit: nil, date: "2026-11-24"
+        )
+        try? stamped.write(toFile: file, atomically: true, encoding: .utf8)
+        _ = try? await shell.session.channel.lua("vim.cmd('checktime')")
+        await waitAsync("the stamped walkthrough read") {
+            await lua("return vim.fn.search('@code Pricing.Total #', 'nw')")?.integerValue ?? 0 > 0
+        }
+        try? code.replacingOccurrences(of: "amount * 0.2m", with: "amount * 0.25m").write(
+            toFile: base + "/src/Pricing.cs",
+            atomically: true,
+            encoding: .utf8
+        )
+        _ = try? await shell.session.channel.lua("vim.cmd('doautocmd BufEnter')")
+        await waitAsync("a changed anchor marked") { await drawn().contains("changed since written") }
+        step("an anchor whose code changed since it was stamped is marked, and counted in the header")
+        // A card folds to a peek of its first rows and opens again.
+        await keys("Go@code src/Pricing.cs:1-11<Esc>")
+        await waitAsync("the long card drawn") { await drawn().contains("Pricing.cs:1-11") }
+        // (A narrow window wraps it past the limit, and it opens as a peek: open everything to start from there.)
+        await keys("zR")
+        await waitAsync("every card open") { await drawn().contains("more lines") == false }
+        // One card closes (zc) and opens again (za); zM closes every card, zR opens every card.
+        await keys("zc")
+        await waitAsync("the card folded to a peek") { await drawn().contains("more lines") }
+        await keys("za")
+        await waitAsync("the card open again") { await drawn().contains("more lines") == false }
+        await keys("zM")
+        await waitAsync("every card closed") { await drawn().contains("more lines") }
+        await keys("zR")
+        await waitAsync("every card open") { await drawn().contains("more lines") == false }
+        step("za folds a card to a peek (its first rows and how many more) and opens it again; zM and zR do every card")
+        // A table and a callout are drawn, and are source while the cursor is in them.
+        _ = await lua("""
+        vim.api.nvim_buf_set_lines(0, -1, -1, false, { '', '| Dough | Water |', '|---|---:|', '| rye | 80% |', '', '> [!note] Mind the gap', '> second line' })
+        """)
+        await waitAsync("the table and the callout drawn") {
+            let text = await drawn()
+            return text.contains("┬") && text.contains("Mind the gap")
+        }
+        _ = await lua("vim.fn.search('| rye')")
+        await waitAsync("the table as source under the cursor") { await drawn().contains("┬") == false }
+        step(
+            "a table is a grid and a callout a block, drawn away from the cursor; the one the cursor is in shows its source"
+        )
+        // A Mermaid diagram is drawn from the walkthrough's text: its fence is hidden, its picture is rows of the grid
+        // (Mermaider's
+        // native library, drawn by TrimDiagram), and the cursor in the fence shows the source with the picture still
+        // there.
+        if TrimWindowController.mermaid == nil {
+            step("(diagrams not checked: Mermaider's library is not built; `MERMAIDER_SRC=... mise run mermaider`)")
+        } else {
+            func screenRows() -> [String] {
+                let screen = shell.editor.screen
+                guard let grid = screen.grids[screen.cursorGrid] else { return [] }
+                return (0 ..< grid.rows).map { row in (0 ..< grid.cols).map { grid[row, $0].text.isEmpty ? " " : grid[
+                    row,
+                    $0
+                ].text }.joined() }
+            }
+            func pictureRows() -> Int {
+                screenRows().count { $0.unicodeScalars.contains { $0.value >= DiagramStore.base } }
+            }
+            _ = await lua("""
+            vim.api.nvim_buf_set_lines(0, -1, -1, false, { '', '```mermaid', 'graph LR', '  Xnode --> Ynode', '```', 'after the diagram' })
+            vim.cmd('normal! G')
+            """)
+            await wait("the diagram's rows on the screen") { pictureRows() >= 2 }
+            guard !screenRows().contains(where: { $0.contains("graph LR") })
+            else { fail("the diagram's source shows beside its picture") }
+            guard screenRows().contains(where: { $0.contains("after the diagram") })
+            else { fail("the text after the diagram is not on the screen") }
+            let rows = pictureRows()
+            _ = await lua("vim.fn.search('graph LR')")
+            await wait("the fence as source under the cursor") { screenRows().contains { $0.contains("graph LR") } }
+            guard pictureRows() == rows
+            else { fail("the picture changed when the source was shown: \(rows) rows, then \(pictureRows())") }
+            step(
+                "a ```mermaid block is drawn as a picture in the editor (rows of the grid), its source shows under the cursor"
+            )
+            // A diagram with an `animate` block moves: while its rows are on screen a clock draws its frames; paused it
+            // draws
+            // none; scrolled away it stops (an idle editor wakes nothing), and it starts again when it is back.
+            let player = shell.editor.diagramPlayer
+            _ = await lua("""
+            vim.api.nvim_buf_set_lines(0, -1, -1, false, { '', '```mermaid', 'flowchart LR', '  client[Client] --> lb[Balancer]', '', 'animate', '  step "A request"', '    tour client -> lb "GET"', '```', 'after the animation' })
+            vim.cmd('normal! G')
+            """)
+            await wait("the animated diagram playing") { player.isRunning && player.framesPlayed > 3 }
+            await keys("g<Space>")
+            await wait("the diagrams paused") { player.isPaused }
+            try? await Task.sleep(for: .milliseconds(300))
+            let held = player.framesPlayed
+            try? await Task.sleep(for: .milliseconds(500))
+            guard player.framesPlayed == held
+            else { fail("frames were drawn while paused: \(held), then \(player.framesPlayed)") }
+            await keys("g<Space>")
+            await wait("the diagrams playing again") { player.framesPlayed > held + 3 }
+            // The bar under the picture: a press on the track holds the animation where it is and a drag follows it;
+            // the mark
+            // plays and pauses; a press elsewhere on the picture is not for it.
+            func bar() -> (id: Int, left: Double, width: Double, first: Int, last: Int)? {
+                let screen = shell.editor.screen
+                guard let grid = screen.grids[screen.cursorGrid] else { return nil }
+                let column = Double(screen.placements[screen.cursorGrid]?.col ?? 0)
+                var found: (id: Int, left: Double, width: Double, first: Int, last: Int)?
+                for row in 0 ..< grid.rows {
+                    for col in 0 ..< grid.cols {
+                        guard let (id, _) = DiagramStore.decode(grid[row, col].text),
+                              let entry = DiagramStore.shared.entry(id), entry.playback != nil else { continue }
+                        let left = (column + Double(col)) * Double(shell.editor.metrics.width)
+                        if found?.id == id { found?.last = row } else {
+                            found = (id, left, Double(entry.image.size.width), row, row)
+                        }
+                    }
+                }
+                return found
+            }
+            guard let strip = bar() else { fail("no animated picture on the screen") }
+            let height = Double(shell.editor.metrics.height)
+            func point(_ fraction: Double, row: Int) -> CGPoint {
+                let track = ScrubStrip.track(width: strip.width)
+                return CGPoint(
+                    x: strip.left + track.from + (track.to - track.from) * fraction, y: (Double(row) + 0.3) * height
+                )
+            }
+            guard let duration = DiagramStore.shared.entry(strip.id)?.playback?.diagram.duration, duration > 0
+            else { fail("the animated picture has no length") }
+            guard !shell.editor.scrubPress(at: point(0.5, row: strip.first)) else {
+                fail("a press on the picture, away from its bar, was taken for the bar")
+            }
+            guard shell.editor.scrubPress(at: point(0.5, row: strip.last))
+            else { fail("a press on the bar was not taken") }
+            guard player.isPaused, abs(player.seconds - 0.5 * duration) < 0.05
+            else {
+                fail("a press on the middle of the bar: paused \(player.isPaused), at \(player.seconds) of \(duration)")
+            }
+            shell.editor.scrubDrag(to: point(0.25, row: strip.last))
+            guard abs(player.seconds - 0.25 * duration) < 0.05
+            else { fail("a drag did not follow: \(player.seconds) of \(duration)") }
+            shell.editor.scrubDrag(to: point(3, row: strip.last + 5))
+            guard abs(player.seconds - duration) < 0.05
+            else { fail("a drag past the end did not hold at the end: \(player.seconds)") }
+            shell.editor.scrubRelease()
+            guard !player.isPaused else { fail("it did not go on playing after the drag, as it was playing before") }
+            let mark = CGPoint(x: strip.left + 10, y: (Double(strip.last) + 0.3) * height)
+            guard shell.editor.scrubPress(at: mark), player.isPaused else { fail("the mark did not pause") }
+            guard shell.editor.scrubPress(at: mark), !player.isPaused else { fail("the mark did not play again") }
+            step("the bar under a diagram that moves: a press seeks, a drag follows it, the mark plays and pauses")
+            _ = await lua("vim.cmd('normal! gg')")
+            await wait("the clock stopped with the diagram off the screen") { !player.isRunning }
+            _ = await lua("vim.cmd('normal! G')")
+            await wait("the clock started again with the diagram back") { player.isRunning }
+            step(
+                "a diagram with an animate block plays while it is on screen: pause and play with g<Space>, no clock when it is scrolled away"
+            )
+        }
+        // Scrolling a long walkthrough: the wheel carries the cursor along, and it is kept out of the blocks that are
+        // drawn (a cursor
+        // on lines with no height makes nvim scroll back to find it) and nothing is redrawn at every step; a trackpad
+        // gesture
+        // follows the finger, not nvim's jumps over the lines that have a card or a diagram under them (the text raced
+        // ahead of
+        // the finger by more and more).
+        _ = await lua("""
+        local extra = {}
+        for i = 1, 14 do
+          vim.list_extend(extra, { '', '## Extra ' .. i, 'Prose with `code` and more words so the line wraps around the window edge a little bit.', '',
+            '| a | b |', '|---|---|', '| 1 | 2 |', '', '@code src/Pricing.cs:1-11', '', '> [!note] A callout that has a little text in it.', '' })
+        end
+        vim.api.nvim_buf_set_lines(0, -1, -1, false, extra)
+        """)
+        try? await Task.sleep(for: .seconds(1.5))
+        _ = await lua("""
+        vim.cmd('normal! gg')
+        require('trim.walk').stats = { front = 0, follow = 0, show = 0, refresh = 0 }
+        require('trim.mdstyle').stats.restyle = 0
+        """)
+        let wheelEditor = shell.editor!
+        let wheelGrid = wheelEditor.screen.cursorGrid
+        let wheelPlacement = wheelEditor.screen.placements[wheelGrid]
+        var tops: [Int] = []
+        for _ in 0 ..< 120 {
+            _ = await lua("vim.api.nvim_input_mouse('wheel', 'down', '', 0, 5, 5)")
+            await tops.append(lua("return vim.fn.line('w0')")?.integerValue.map(Int.init) ?? 0)
+        }
+        try? await Task.sleep(for: .milliseconds(700))
+        let work = await lua("""
+        local w, m = require('trim.walk').stats, require('trim.mdstyle').stats
+        local md = require('trim.mdstyle')
+        return vim.inspect({ restyle = m.restyle, front = w.front, show = w.show, top = vim.fn.line('w0'),
+          inside = md.block_at(vim.api.nvim_get_current_buf(), vim.fn.line('.')) or 0 })
+        """)?.stringValue ?? "nil"
+        guard let restyle = work.firstMatch(of: /restyle = (\d+)/).flatMap({ Int($0.1) }),
+              let front = work.firstMatch(of: /front = (\d+)/).flatMap({ Int($0.1) }),
+              let top = work.firstMatch(of: /top = (\d+)/).flatMap({ Int($0.1) }),
+              let inside = work.firstMatch(of: /inside = (\d+)/).flatMap({ Int($0.1) })
+        else { fail("no scroll statistics: \(work)") }
+        guard top > 40 else { fail("the walkthrough did not scroll: \(work)") }
+        guard restyle <= 4, front <= 4 else { fail("scrolling redrew too much (\(top) lines down): \(work)") }
+        guard zip(tops, tops.dropFirst()).allSatisfy({ $1 >= $0 })
+        else { fail("the window scrolled back in the middle of a scroll down: \(tops)") }
+        guard inside == 0 else { fail("scrolling left the cursor in a block that is drawn: \(work)") }
+        // A trackpad: 50 lines of finger movement, in small events.
+        _ = await lua("vim.cmd('normal! gg')")
+        try? await Task.sleep(for: .milliseconds(500))
+        wheelEditor.pixelScrolling = true
+        var gesture: [Int] = []
+        for _ in 0 ..< 200 {
+            wheelEditor.pixelScroll(
+                deltaX: 0, deltaY: -0.25 * wheelEditor.metrics.height, grid: wheelGrid,
+                row: (wheelPlacement?.row ?? 0) + 3,
+                col: (wheelPlacement?.col ?? 0) + 12, modifiers: ""
+            )
+            try? await Task.sleep(for: .milliseconds(8))
+            await gesture.append(lua("return vim.fn.line('w0')")?.integerValue.map(Int.init) ?? 0)
+        }
+        try? await Task.sleep(for: .milliseconds(600))
+        let end = await lua("return vim.fn.line('w0')")?.integerValue.map(Int.init) ?? 0
+        let biggest = zip(gesture, gesture.dropFirst()).map { $1 - $0 }.max() ?? 0
+        // The finger moved 30 rows: nvim is a few lines of the document (each is at least a row) along, not 190 as it
+        // was.
+        guard end <= 60,
+              biggest <= 12 else { fail("the text raced ahead of the finger: top \(end), the biggest step \(biggest)") }
+        guard end >= 15 else { fail("the gesture did not scroll: top \(end)") }
+        step(
+            "scrolling a long walkthrough: the wheel keeps the cursor out of drawn blocks and redraws nothing at every step; a trackpad follows the finger over lines that have a card or a diagram under them"
+        )
+        _ = try? await shell.session.channel.lua("vim.cmd('only'); vim.cmd('silent! %bwipeout!')")
+    }
+
     /// A big file, and one with a very long line, open plain and at once: no tree-sitter, no folds, no language server.
     private func bigFileSteps() async {
         let channel = shell.session.channel
@@ -3914,6 +4320,54 @@ struct TrimCheck {
             "local Oven = {}\n\n--- Heats the oven to a temperature in degrees.\nfunction Oven.heat(degrees)\n  assert(degrees < 300, 'too hot')\n  return { degrees = degrees, ready = false, steam = true }\nend\n\nreturn Oven\n"
         )
         write(bakery + "/notes.txt", "to do: buy flour\n")
+        let tour = TrimFolder.path(for: bakery) + "/" + TrimFolder.walkthroughs + "/oven.walk.md"
+        write(
+            tour,
+            """
+            ---
+            by: claude
+            model: claude-opus
+            ---
+            # How the oven and the dough meet
+
+            The oven heats to a temperature and the dough carries its own water. Nothing else decides when a loaf is ready.
+
+            ## The oven heats
+            `Oven.heat` refuses anything over 300 degrees, then reports what it knows.
+
+            > [!warning] The limit is a bare number. Two callers already pass Fahrenheit.
+
+            @code Oven.heat
+            @ask Why is the limit in code and not in the recipe?
+
+            ## The dough knows its water
+            Hydration is a ratio, so the water for a batch is the flour times it.
+
+            ```mermaid
+            flowchart LR
+              Flour --> Dough
+              Water --> Dough
+              Dough --> Loaf
+              Oven --> Loaf
+            ```
+
+            | Dough | Hydration |
+            |---|---|
+            | sourdough | 75% |
+            | baguette | 70% |
+
+            @code Dough.Water
+
+            ## Before you merge
+            Nothing else changed in the oven.
+            @diff src/oven.lua
+
+            - [x] Heat limit checked
+            - [ ] Hydration ratios reviewed
+            - [ ] Run the tests
+            @run Tests: make test
+            """
+        )
         let sessions = [
             HeedSession(
                 id: "d1", title: "Tune the oven curve", agent: "claude", state: "working", needsYou: false,
@@ -3957,6 +4411,37 @@ struct TrimCheck {
         try? await Task.sleep(for: .seconds(1.5))
         snap("window")
         step("docshots: the window")
+        // Wide enough for the code beside it, as on a big screen.
+        let before = ctrl.window.contentView?.frame.size ?? NSSize(width: 1100, height: 760)
+        ctrl.window.setContentSize(NSSize(width: 1440, height: 880))
+        try? await Task.sleep(for: .milliseconds(600))
+        ctrl.openWalkthrough(tour)
+        await waitAsync("the walkthrough") { await bufferIs("oven.walk.md") }
+        try? await Task.sleep(for: .seconds(1.5))
+        _ = try? await ctrl.session.channel.lua("vim.api.nvim_input(...)", args: [.string("gg]]")])
+        try? await Task.sleep(for: .seconds(2))
+        snap("walkthrough")
+        // A diagram drawn from the walkthrough's own text.
+        _ = try? await ctrl.session.channel.lua("vim.cmd('silent! /The dough knows'); vim.cmd('normal! zt')")
+        if TrimWindowController.mermaid != nil {
+            await wait("the diagram's rows on the screen") {
+                let screen = ctrl.editor.screen
+                guard let grid = screen.grids[screen.cursorGrid] else { return false }
+                return (0 ..< grid.rows).contains { row in
+                    (0 ..< grid.cols).contains { DiagramStore.decode(grid[row, $0].text) != nil }
+                }
+            }
+        }
+        try? await Task.sleep(for: .seconds(0.8))
+        snap("walkthrough-diagram")
+        // The last step: a change, a checklist and a command to run.
+        _ = try? await ctrl.session.channel.lua("vim.cmd('silent! /Before you merge'); vim.cmd('normal! zt')")
+        try? await Task.sleep(for: .seconds(1.5))
+        snap("walkthrough-review")
+        _ = try? await ctrl.session.channel.lua("vim.cmd('only')")
+        ctrl.window.setContentSize(before)
+        try? await Task.sleep(for: .milliseconds(600))
+        step("docshots: a walkthrough")
 
         ctrl.showThemePicker(nil)
         await wait("the colour schemes") { ctrl.listPicker != nil }

@@ -2,6 +2,7 @@ import AppKit
 import CoreText
 import Metal
 import SillCore
+import TrimDiagram
 
 /// What one frame draws: a screen, the grids terminal panes cover, and the cursor.
 public struct Frame: Sendable {
@@ -79,6 +80,10 @@ struct RectInstance {
     static let undercurl: UInt32 = 2
     static let dotted: UInt32 = 3
     static let dashed: UInt32 = 4
+    static let border: UInt32 = 5
+    static let cardTop: UInt32 = 6
+    static let cardMiddle: UInt32 = 7
+    static let cardBottom: UInt32 = 8
 }
 
 struct GlyphInstance {
@@ -110,6 +115,52 @@ public final class GridRenderer {
     /// What was built for each row, by grid and row, with the row version it was built from.
     private var rows: [RowKey: Row] = [:]
     private var rowsStyle: Style?
+
+    // MARK: Moving diagrams
+
+    private let diagramLock = NSLock()
+    private var diagramFrames: [Int: DiagramImage] = [:]
+    private var shownDiagrams: Set<Int> = []
+    private var onShown: (@Sendable () -> Void)?
+
+    /// The diagrams with rows in the last frame built.
+    public var visibleDiagrams: Set<Int> {
+        diagramLock.lock()
+        defer { diagramLock.unlock() }
+        return shownDiagrams
+    }
+
+    /// Called (on the render thread) when a frame built has a moving diagram in it: what starts the clock that plays
+    /// it.
+    public func onMovingDiagramShown(_ body: (@Sendable () -> Void)?) {
+        diagramLock.lock()
+        onShown = body
+        diagramLock.unlock()
+    }
+
+    /// A new frame of diagram `id`, to be put in the atlas by the next frame built (ask for one to be drawn).
+    public func submitDiagramFrame(id: Int, image: DiagramImage) {
+        diagramLock.lock()
+        diagramFrames[id] = image
+        diagramLock.unlock()
+    }
+
+    private func takeDiagramFrames() -> [Int: DiagramImage] {
+        diagramLock.lock()
+        defer { diagramLock.unlock() }
+        let frames = diagramFrames
+        diagramFrames = [:]
+        return frames
+    }
+
+    private func publishShown(_ shown: Set<Int>) {
+        diagramLock.lock()
+        shownDiagrams = shown
+        let callback = onShown
+        diagramLock.unlock()
+        if let callback, shown.contains(where: { DiagramStore.shared.entry($0)?.playback != nil }) { callback() }
+    }
+
     private var rowsGeneration = -1
     private var shapes: [ShapeKey: [ShapedGlyph]] = [:]
 
@@ -125,6 +176,8 @@ public final class GridRenderer {
         var backgrounds: [RectInstance]
         var glyphs: [GlyphInstance]
         var decorations: [RectInstance]
+        /// The diagrams whose rows these are.
+        var diagrams: [Int] = []
     }
 
     private struct ShapeKey: Hashable {
@@ -320,6 +373,12 @@ public final class GridRenderer {
         stats.rowsBuilt = 0
         stats.rowsReused = 0
         stats.multiCellGlyphs = 0
+        // Frames of moving diagrams that came since the last build go into the atlas, here on the render thread.
+        for (id, image) in takeDiagramFrames() {
+            atlas.replaceImage(id: id, with: image)
+        }
+        var shown = Set<Int>()
+        defer { publishShown(shown) }
 
         var layers = Layers()
         var decorations: [RectInstance] = []
@@ -346,6 +405,7 @@ public final class GridRenderer {
                     stats.rowsBuilt += 1
                 }
                 let offset = SIMD2<Float>(Float(placement.col) * cellWidth, Float(placement.row) * cellHeight + y)
+                shown.formUnion(built.diagrams)
                 for var rect in built.backgrounds {
                     rect.origin += offset
                     layers.rects.append(rect)
@@ -417,11 +477,17 @@ public final class GridRenderer {
         _ cursor: Frame.Cursor, buffer: GridBuffer, screen: Screen, placement: Placement
     ) -> (RectInstance, GlyphInstance?) {
         let (row, col) = (screen.cursorRow, screen.cursorCol)
-        let x = Float(placement.col + col) * cellWidth, y = Float(placement.row + row) * cellHeight
         let inside = row < buffer.rows && col < buffer.cols
         let cell = inside ? buffer[row, col] : Cell.blank
         // The cell's own colours, which the default cursor (highlight 0) shows reversed.
         let cellHighlight = screen.highlights[cell.hl] ?? Highlight()
+        // On a scaled row the cursor is as many times as wide and tall, at that many times the column.
+        let factor = inside ? cellHighlight.scale : 1
+        var x = Float(placement.col + col) * cellWidth, y = Float(placement.row + row) * cellHeight
+        if let offsets = Self.columnOffsets(buffer, row: row, highlights: screen.highlights), col < offsets.count {
+            x = (Float(placement.col) + offsets[col]) * cellWidth
+        }
+        let cellWidth = cellWidth * factor, cellHeight = cellHeight * factor
         var cellForeground = cellHighlight.foreground ?? screen.defaultForeground
         var cellBackground = cellHighlight.background ?? screen.defaultBackground
         if cellHighlight.reverse { swap(&cellForeground, &cellBackground) }
@@ -448,7 +514,8 @@ public final class GridRenderer {
             )
             guard inside, !cell.text.isEmpty, cell.text != " " else { return (rect, nil) }
             let region = atlas.region(
-                text: cell.text, bold: cellHighlight.bold, italic: cellHighlight.italic, cellCount: wide ? 2 : 1
+                text: cell.text, bold: cellHighlight.bold, italic: cellHighlight.italic, cellCount: wide ? 2 : 1,
+                factor: CGFloat(factor)
             )
             return (rect, GlyphInstance(
                 origin: [x, y], size: [region.width, region.height], atlasOrigin: [region.x, region.y],
@@ -457,11 +524,38 @@ public final class GridRenderer {
         }
     }
 
+    /// For the row being built: where each column starts, in cells, when some of its cells are scaled (each takes its
+    /// scale's
+    /// width, so what follows a scaled run starts after it, not under it); nil for an ordinary row.
+    private var offsets: [Float]?
+
+    /// Where column `col` of the row being built starts, in points of pixels from the grid's left.
+    private func columnX(_ col: Int) -> Float {
+        guard let offsets else { return Float(col) * cellWidth }
+        return offsets[min(max(col, 0), offsets.count - 1)] * cellWidth
+    }
+
+    /// The column offsets of a row with scaled cells: the running sum of their scales; nil when none is.
+    static func columnOffsets(_ buffer: GridBuffer, row: Int, highlights: [Int: Highlight]) -> [Float]? {
+        var result: [Float] = [0]
+        var scaled = false
+        for col in 0 ..< buffer.cols {
+            let scale = highlights[buffer[row, col].hl]?.scale ?? 1
+            if scale != 1 { scaled = true }
+            result.append(result[col] + scale)
+        }
+        return scaled ? result : nil
+    }
+
     /// Instances for one row, positioned from the row's top-left corner.
     private func buildRow(_ buffer: GridBuffer, row: Int, style: Style, covers: Bool) -> Row {
         var built = Row(version: buffer.rowVersions[row], covers: covers, backgrounds: [], glyphs: [], decorations: [])
         let cols = buffer.cols
+        offsets = Self.columnOffsets(buffer, row: row, highlights: style.highlights)
+        defer { offsets = nil }
         var col = 0
+        let cardFill = cardFill(buffer, row: row, style: style)
+        var overCard: [RectInstance] = []
         while col < cols {
             let hl = buffer[row, col].hl
             var end = col + 1
@@ -472,17 +566,116 @@ public final class GridRenderer {
             var foreground = highlight.foreground ?? style.foreground
             var background = highlight.background ?? style.background
             if highlight.reverse { swap(&foreground, &background) }
-            let x = Float(col) * cellWidth, width = Float(end - col) * cellWidth
+            let x = columnX(col), width = columnX(end) - columnX(col)
+            if highlight.scale != 1 {
+                // A scaled run: `scale` cells to a character, from a font that many times the size, over this row and
+                // the blank one under it (its underline there too).
+                let scale = highlight.scale
+                if covers || background != style.background {
+                    var color = Self.color(background)
+                    color.w = highlight.altfont ? 1 : 1 - Float(highlight.blend) / 100
+                    built.backgrounds.append(RectInstance(origin: [x, 0], size: [width, cellHeight], color: color))
+                }
+                appendScaledGlyphs(
+                    buffer, row: row, cols: col ..< end, highlight: highlight, color: foreground, to: &built
+                )
+                appendDecorations(
+                    highlight, x: x, width: min(width, Float(cols) * cellWidth - x), foreground: foreground,
+                    to: &built, factor: scale
+                )
+                col = end
+                continue
+            }
+            // A card's cells have the block's fill, drawn by the card's own rounded shape (below), so what is under it
+            // is the
+            // page; any other background inside a card (a diff's added line) is a plain rect.
+            var inCard = false
+            if highlight.card != nil {
+                if background == cardFill { background = style.background } else { inCard = true }
+            }
             if covers || background != style.background {
                 var color = Self.color(background)
-                color.w = 1 - Float(highlight.blend) / 100
-                built.backgrounds.append(RectInstance(origin: [x, 0], size: [width, cellHeight], color: color))
+                // (`blend` on a marked run is a size, a box or a card, not a transparency.)
+                color.w = highlight.altfont ? 1 : 1 - Float(highlight.blend) / 100
+                let rect = RectInstance(origin: [x, 0], size: [width, cellHeight], color: color)
+                // A background inside a card goes over the card's fill, which is drawn below.
+                if inCard { overCard.append(rect) } else { built.backgrounds.append(rect) }
             }
             appendGlyphs(buffer, row: row, cols: col ..< end, highlight: highlight, color: foreground, to: &built)
             appendDecorations(highlight, x: x, width: width, foreground: foreground, to: &built)
             col = end
         }
+        appendBoxes(buffer, row: row, style: style, to: &built)
+        appendCards(buffer, row: row, style: style, to: &built)
+        built.backgrounds.append(contentsOf: overCard)
         return built
+    }
+
+    /// The fill of a row's card: the background of its first card cell, or nil when the row has none.
+    private func cardFill(_ buffer: GridBuffer, row: Int, style: Style) -> Int? {
+        for col in 0 ..< buffer.cols {
+            if let highlight = style.highlights[buffer[row, col].hl], highlight.card != nil {
+                return highlight.background ?? style.background
+            }
+        }
+        return nil
+    }
+
+    /// A card's row: one rounded, shaded rect over the stretch of its cells, in the card's fill, and along the bottom
+    /// row's
+    /// bottom edge a line in its special colour (inset from the corners).
+    private func appendCards(_ buffer: GridBuffer, row: Int, style: Style, to built: inout Row) {
+        var col = 0
+        while col < buffer.cols {
+            guard let first = style.highlights[buffer[row, col].hl], let edge = first.card else {
+                col += 1
+                continue
+            }
+            var end = col + 1
+            while end < buffer.cols, style.highlights[buffer[row, end].hl]?.card != nil {
+                end += 1
+            }
+            let kind = edge == .top ? RectInstance.cardTop : edge == .middle ? RectInstance.cardMiddle : RectInstance
+                .cardBottom
+            let x = columnX(col), width = columnX(end) - columnX(col)
+            built.backgrounds.append(RectInstance(
+                origin: [x, 0], size: [width, cellHeight], color: Self.color(first.background ?? style.background),
+                kind: kind, thickness: Float(scale)
+            ))
+            if edge == .bottom, let special = first.special {
+                let inset = 10 * Float(scale), line = 2 * Float(scale)
+                built.decorations.append(RectInstance(
+                    origin: [x + inset, cellHeight - line - Float(scale)], size: [max(width - inset * 2, 0), line],
+                    color: Self.color(special)
+                ))
+            }
+            col = end
+        }
+    }
+
+    /// A rounded outline round each stretch of cells whose highlight is a box (inline code): one outline for the
+    /// stretch,
+    /// whatever the highlights inside it, in the highlight's special colour (else its text colour).
+    private func appendBoxes(_ buffer: GridBuffer, row: Int, style: Style, to built: inout Row) {
+        var col = 0
+        while col < buffer.cols {
+            guard let first = style.highlights[buffer[row, col].hl], first.boxed else {
+                col += 1
+                continue
+            }
+            var end = col + 1
+            while end < buffer.cols, style.highlights[buffer[row, end].hl]?.boxed == true {
+                end += 1
+            }
+            let inset = Float(scale)
+            let color = Self.color(first.special ?? first.foreground ?? style.foreground)
+            built.decorations.append(RectInstance(
+                origin: [columnX(col) + inset, inset],
+                size: [columnX(end) - columnX(col) - inset * 2, cellHeight - inset * 2], color: color,
+                kind: RectInstance.border, thickness: lineThickness
+            ))
+            col = end
+        }
     }
 
     /// Glyphs for a run of cells with one highlight: shaped in segments (for ligatures), with double-width cells on
@@ -506,7 +699,7 @@ public final class GridRenderer {
         func emit(_ text: String, col: Int, cells: Int) {
             let region = atlas.region(text: text, bold: highlight.bold, italic: highlight.italic, cellCount: cells)
             built.glyphs.append(GlyphInstance(
-                origin: [Float(col) * cellWidth, 0], size: [region.width, region.height],
+                origin: [columnX(col), 0], size: [region.width, region.height],
                 atlasOrigin: [region.x, region.y], atlasSize: [region.width, region.height], color: color,
                 colored: region.colored ? 1 : 0
             ))
@@ -517,6 +710,14 @@ public final class GridRenderer {
             let wide = col + 1 < buffer.cols && buffer[row, col + 1].text.isEmpty
             if text.isEmpty {
                 col += 1 // The right half of a double-width cell before this run.
+                continue
+            }
+            if let (id, slice) = DiagramStore.decode(text) {
+                // A row of a diagram: its slice of the picture, from here to the right (the cells after it are blank).
+                flush()
+                emitDiagram(id: id, slice: slice, col: col, to: &built)
+                col += 1
+                segmentStart = col
                 continue
             }
             if wide {
@@ -533,6 +734,51 @@ public final class GridRenderer {
         flush()
     }
 
+    /// Glyphs of a scaled run, each at `scale` times the size and the advance; what would run past the grid's edge is
+    /// not
+    /// drawn.
+    private func appendScaledGlyphs(
+        _ buffer: GridBuffer, row: Int, cols: Range<Int>, highlight: Highlight, color: Int, to built: inout Row
+    ) {
+        let color = Self.color(color)
+        let scale = highlight.scale
+        let limit = Float(buffer.cols) * cellWidth
+        var col = cols.lowerBound
+        while col < cols.upperBound {
+            let text = buffer[row, col].text
+            let wide = col + 1 < buffer.cols && buffer[row, col + 1].text.isEmpty
+            let cells = wide ? 2 : 1
+            defer { col += cells }
+            let x = columnX(col)
+            guard !text.isEmpty, text != " ", x + Float(cells) * scale * cellWidth <= limit else { continue }
+            let region = atlas.region(
+                text: text, bold: highlight.bold, italic: highlight.italic, cellCount: cells, factor: CGFloat(scale)
+            )
+            built.glyphs.append(GlyphInstance(
+                origin: [x, 0], size: [region.width, region.height], atlasOrigin: [region.x, region.y],
+                atlasSize: [region.width, region.height], color: color, colored: region.colored ? 1 : 0
+            ))
+        }
+    }
+
+    /// The slice of diagram `id` that row `slice` of its block shows, at the cell `col`.
+    private func emitDiagram(id: Int, slice: Int, col: Int, to built: inout Row) {
+        guard let entry = DiagramStore.shared.entry(id),
+              let region = atlas.imageRegion(id: id, entry: entry) else { return }
+        // The picture was drawn for some scale; where the screen's is another it is stretched to the same size in
+        // points.
+        let ratio = Float(scale) / Float(entry.image.scale)
+        let sliceHeight = (cellHeight / ratio).rounded()
+        let top = Float(slice) * sliceHeight
+        guard top < region.height else { return }
+        let height = min(sliceHeight, region.height - top)
+        built.diagrams.append(id)
+        built.glyphs.append(GlyphInstance(
+            origin: [columnX(col), 0], size: [region.width * ratio, height * ratio],
+            atlasOrigin: [region.x, region.y + top], atlasSize: [region.width, height], color: [1, 1, 1, 1], colored: 1
+        ))
+    }
+
     private func shape(_ text: String, _ highlight: Highlight) -> [ShapedGlyph] {
         let key = ShapeKey(text: text, bold: highlight.bold, italic: highlight.italic)
         if let shaped = shapes[key] { return shaped }
@@ -543,10 +789,11 @@ public final class GridRenderer {
     }
 
     private func appendDecorations(
-        _ highlight: Highlight, x: Float, width: Float, foreground: Int, to built: inout Row
+        _ highlight: Highlight, x: Float, width: Float, foreground: Int, to built: inout Row, factor: Float = 1
     ) {
         let color = Self.color(highlight.special ?? foreground)
-        let thickness = lineThickness
+        let thickness = lineThickness * factor
+        let cellHeight = cellHeight * factor
         if highlight.undercurl {
             let band = max(thickness * 3, 3 * Float(scale))
             built.decorations.append(RectInstance(

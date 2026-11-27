@@ -21,6 +21,8 @@ cask "trim" do
 
   app "Trim.app"
   app "Shim.app"
+  # The tool agents use to write and check walkthroughs: `trim walk new|check|stamp|open`, `trim skill install`.
+  binary "#{appdir}/Trim.app/Contents/Helpers/trim"
 
   uninstall quit: [
     "io.github.mpdreamz.trim",

@@ -270,6 +270,8 @@ final class TrimView: NSView {
         self.tabList = tabList
         self.persisting = persisting
         sidebarVisible = persisting ? PaneLayout.sidebarVisible : true
+        // A window that does not persist (the self-check's) starts from the default, not from what was last dragged.
+        if !persisting { slotFraction = RunPlacement.fraction }
         statusPlacement = persisting ? PaneLayout.statusPlacement : .editor
         tabsPlacement = persisting ? PaneLayout.tabsPlacement : .statusbar
         sidebarWidth = persisting ? PaneLayout.sidebarWidth : PaneLayout.defaultWidth
@@ -863,6 +865,7 @@ final class TrimWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     autostart()
     vim.api.nvim_create_autocmd('DirChanged', { group = group, callback = autostart })
     -- Each mode on the leader, where the config has bound nothing: <leader>e, E, o, O (and fw, fo).
+    require('trim.walk').setup(tell)
     require('trim.keys').apply()
     -- :TrimTree shows, hides or goes into the sidebar; <Plug> mappings to bind your own keys to.
     local actions = { 'toggle', 'show', 'hide', 'focus', 'filter', 'ignored', 'dotfiles' }
@@ -944,6 +947,20 @@ final class TrimWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         case "trim_font_pick": showFontPicker(nil)
         case "trim_packages": showPackages(nil)
         case "trim_select": showSelect(args)
+        case "trim_walk":
+            if let path = args.first?.stringValue, !path.isEmpty {
+                openWalkthrough(path.hasPrefix("/") ? path : workspace + "/" + path)
+            } else { showWalkthroughs(nil) }
+        case "trim_walk_model": if let payload = args.first?.stringValue { walkModel(payload) }
+        case "trim_walk_run": if let payload = args.first?.stringValue { walkRun(payload) }
+        case "trim_diagram":
+            switch args.first?.stringValue {
+            case "toggle": editor.diagramPlayer.toggle()
+            case "back": editor.diagramPlayer.seek(by: -1)
+            case "forward": editor.diagramPlayer.seek(by: 1)
+            case "restart": editor.diagramPlayer.restart()
+            default: break
+            }
         case "trim_hover": externalUI.hoverText = args.first?.stringValue ?? ""
         case "trim_completion_doc": externalUI.completionDoc = args.first?.stringValue ?? ""
         case "trim_diag":

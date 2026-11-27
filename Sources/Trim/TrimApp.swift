@@ -5,6 +5,7 @@ import SillEditor
 import SillNvim
 import TrimModes
 import TrimTree
+import TrimWalk
 import TrimWorkspaces
 
 /// The application: the windows of the frame (one per workspace), the menu, the settings and quitting.
@@ -120,6 +121,19 @@ final class TrimApp: NSObject, NSApplicationDelegate {
             NSApp.activate(ignoringOtherApps: true)
         }
         switch link {
+        case let .walkthrough(path):
+            let real = RealPath.of(path)
+            func root(_ controller: TrimWindowController) -> String { controller.tree?.rootPath ?? controller.workspace
+            }
+            var known = controllers.filter { real.hasPrefix(root($0) + "/") }.max { root($0).count < root($1).count }
+            // A private walkthrough lives in the repository's main worktree, whichever worktree is open on it.
+            if known == nil, let marker = real.range(of: "/\(TrimFolder.name)/") {
+                let repository = String(real[..<marker.lowerBound])
+                known = controllers.first { TrimFolder.mainRoot(for: root($0)) == repository }
+            }
+            let controller = known ?? open(folder: TrimLink.workspace(for: real))
+            forward(controller)
+            controller.openWalkthrough(real)
         case let .workspace(path):
             forward(open(folder: path))
         case let .file(path, line, column):
@@ -388,6 +402,10 @@ final class TrimApp: NSObject, NSApplicationDelegate {
         }
         maxItem.submenu = maxMenu
         tabsItem.submenu = tabsMenu
+        let walkItem = viewMenu.addItem(
+            withTitle: "Walkthroughs…", action: #selector(Window.showWalkthroughs(_:)), keyEquivalent: "w"
+        )
+        walkItem.keyEquivalentModifierMask = [.control, .command]
         viewMenu.addItem(withTitle: "Packages…", action: #selector(Window.showPackages(_:)), keyEquivalent: "")
         let themeItem = viewMenu.addItem(
             withTitle: "Colour Scheme…", action: #selector(Window.showThemePicker(_:)), keyEquivalent: "t"

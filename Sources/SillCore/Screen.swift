@@ -114,8 +114,35 @@ public struct Highlight: Sendable, Equatable {
     public var underdotted = false
     public var underdashed = false
     public var strikethrough = false
+    /// nvim's "alternative font": here, a double-height row. A line whose text has it is drawn at twice the size, over
+    /// its
+    /// own row and the blank one below (a virtual line the document adds), two cells to each character.
+    public var altfont = false
     /// How far a float's background lets what is under it show through, 0 (opaque) to 100.
     public var blend = 0
+
+    /// How many times the size a run is drawn at: 1, or with `altfont` twice, or as `blend` says (50 is 1.5 times, 25
+    /// is 1.25 times; `blend` is nothing else on text).
+    public var scale: Float { altfont && !boxed && card == nil ? (blend > 0 ? 1 + Float(blend) / 100 : 2) : 1 }
+
+    /// A box round the run's cells (inline code): `altfont` with a `blend` of 100.
+    public var boxed: Bool { altfont && blend == 100 }
+
+    /// A row of a card (a sunken, rounded block drawn over several rows): `altfont` with a `blend` of 98 for its top
+    /// row,
+    /// 97 for one in the middle and 96 for its bottom row. The cells' background is the block's fill, and the bottom
+    /// row's
+    /// special colour is a line along its bottom edge.
+    public enum CardRow: Sendable { case top, middle, bottom }
+    public var card: CardRow? {
+        guard altfont else { return nil }
+        switch blend {
+        case 98: return .top
+        case 97: return .middle
+        case 96: return .bottom
+        default: return nil
+        }
+    }
 
     public init() {}
 }
@@ -604,7 +631,32 @@ public struct Screen: Sendable {
                 col >= placement.col && col < placement.col + placement.width
         }
         guard let (grid, placement) = hit else { return (1, row, col) }
-        return (grid, row - placement.row, col - placement.col)
+        let local = row - placement.row
+        return (grid, local, gridColumn(grid: grid, row: local, screenColumn: col - placement.col))
+    }
+
+    /// The grid column a screen column (in unscaled cells) is over. On a row with scaled cells each takes its scale's
+    /// width, so
+    /// the screen column is found by walking the cells.
+    public func gridColumn(grid: Int, row: Int, screenColumn: Int) -> Int {
+        guard rowScale(grid: grid, row: row) != 1, let buffer = grids[grid] else { return screenColumn }
+        var start: Float = 0
+        for column in 0 ..< buffer.cols {
+            let width = highlights[buffer[row, column].hl]?.scale ?? 1
+            if Float(screenColumn) < start + width { return column }
+            start += width
+        }
+        return buffer.cols - 1
+    }
+
+    /// How many times the size a row of a grid is drawn at (the largest of its text's `scale`), 1 for an ordinary row.
+    public func rowScale(grid: Int, row: Int) -> Float {
+        guard let buffer = grids[grid], row >= 0, row < buffer.rows else { return 1 }
+        var scale: Float = 1
+        for col in 0 ..< buffer.cols where buffer[row, col].hl != 0 {
+            scale = max(scale, highlights[buffer[row, col].hl]?.scale ?? 1)
+        }
+        return scale
     }
 
     /// Grids in drawing order: grid 1, the windows, then floats and the message grid by their compindex.
@@ -718,6 +770,7 @@ public struct Screen: Sendable {
             case "underline": highlight.underline = value.boolValue ?? false
             case "undercurl": highlight.undercurl = value.boolValue ?? false
             case "strikethrough": highlight.strikethrough = value.boolValue ?? false
+            case "altfont": highlight.altfont = value.boolValue ?? false
             case "underdouble": highlight.underdouble = value.boolValue ?? false
             case "underdotted": highlight.underdotted = value.boolValue ?? false
             case "underdashed": highlight.underdashed = value.boolValue ?? false

@@ -12,6 +12,7 @@ M.defaults = {
   { '<leader>t', '<Plug>(trim-tabs-list)', 'Open files (tabs)' },
   { '<leader>c', '<Plug>(trim-theme)', 'Colour scheme' },
   { '<leader>F', '<Plug>(trim-font)', 'Font' },
+  { '<leader>W', '<Plug>(trim-walk)', 'Walkthroughs' },
   { '<leader>P', '<Plug>(trim-packages)', 'Packages' },
   { '<leader>ff', '<Plug>(trim-find)', 'Find file' },
   { '<leader>fg', '<Plug>(trim-grep)', 'Find in files' },

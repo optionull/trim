@@ -9,6 +9,7 @@ description: "Where Trim keeps its settings, config, data and caches."
 |---|---|
 | `~/.config/trim/settings.toml` | [Settings](../configuration/settings.md). |
 | `~/.config/trim/init.lua` | [Your additions](../configuration/your-config.md). |
+| `<repository>/.trim/walkthroughs` | Walkthroughs agents write for you; private, kept out of git through `.git/info/exclude`. |
 | `~/.local/share/trim` | nvim's data for Trim: installed packages (`site/pack/trim/start`). |
 | `~/.local/state/trim` | nvim's state for Trim. |
 | `~/Library/Application Support/trim/run` | Your own run configurations, per project. |

@@ -10,10 +10,19 @@ let hasGhostty = FileManager.default.fileExists(atPath: "\(root)/Vendor/GhosttyK
 let messagePack = Target.Dependency.product(name: "MessagePack", package: "MessagePack.swift")
 
 var targets: [Target] = [
+    // Walkthroughs: the Markdown an agent writes to explain code, its anchors, staleness and where the files live. Foundation
+    // only, so it is tested alone.
+    .target(name: "TrimWalk"),
+    .testTarget(name: "TrimWalkTests", dependencies: ["TrimWalk"]),
+    // Mermaid diagrams: Mermaider's native library and a renderer for the SVG it makes (every diagram type of it).
+    .target(name: "TrimDiagram"),
+    .testTarget(name: "TrimDiagramTests", dependencies: ["TrimDiagram"], resources: [.copy("Fixtures")]),
+    // `trim`: the command line tool agents use to write, check and open walkthroughs (installed as Helpers/trim in Trim.app).
+    .executableTarget(name: "TrimCLI", dependencies: ["TrimWalk"]),
     // nvim over msgpack-RPC: the process, the transport and the redraw events. Lifted from Veil (MIT).
     .target(name: "SillNvim", dependencies: [messagePack]),
     // What the UI draws, built from redraw events: grids, their placement, and which windows are terminal panes.
-    .target(name: "SillCore", dependencies: ["SillNvim", "SillInput", messagePack]),
+    .target(name: "SillCore", dependencies: ["SillNvim", "SillInput", "TrimWalk", messagePack]),
     .testTarget(name: "SillCoreTests", dependencies: ["SillCore", "SillNvim", messagePack], exclude: ["Fixtures"]),
     // AppKit input in nvim's terms: key notation, mouse and IME.
     .target(name: "SillInput"),
@@ -26,7 +35,7 @@ var targets: [Target] = [
     .testTarget(name: "SillAgentTests", dependencies: ["SillAgent"]),
     // The Metal grid: glyph atlas, instanced passes, and the render thread that draws screens.
     .target(
-        name: "SillRender", dependencies: ["SillCore"],
+        name: "SillRender", dependencies: ["SillCore", "TrimDiagram"],
         linkerSettings: [.linkedFramework("Metal"), .linkedFramework("QuartzCore"), .linkedFramework("CoreText")]
     ),
     .testTarget(name: "SillRenderTests", dependencies: ["SillRender", "SillCore", "SillNvim", messagePack]),
@@ -83,6 +92,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .executable(name: "Shim", targets: ["Shim"]),
+        .executable(name: "trim-cli", targets: ["TrimCLI"]),
         .executable(name: "Trim", targets: ["Trim"]),
     ],
     // The msgpack codec Veil's RPC layer is written against (MIT).

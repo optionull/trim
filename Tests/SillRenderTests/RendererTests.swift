@@ -5,6 +5,7 @@ import SillCore
 import SillNvim
 @testable import SillRender
 import Testing
+import TrimDiagram
 
 /// Renders screens offscreen and reads the pixels back.
 @MainActor
@@ -255,6 +256,239 @@ struct RendererTests {
         }
         #expect(band.count(where: { $0 == background }) * 2 > band.count)
         #expect(canvas.pixel(x: 3 * canvas.cellWidth, y: 2 * canvas.cellHeight + 2) == background)
+    }
+
+    @Test(
+        "a double-height row (altfont) draws its text twice the size over its row and the one below, two cells to a letter"
+    )
+    func doubleHeight() throws {
+        let canvas = try Canvas()
+        var builder = ScreenBuilder(cols: 20, rows: 6)
+        builder.highlight(5, ["altfont": .bool(true)])
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
+        builder.text("MM", grid: 2, row: 1, col: 0, hl: 5)
+        builder.text("MM", grid: 2, row: 4, col: 0)
+        try canvas.render(Frame(screen: builder.screen))
+        func ink(
+            row: Int,
+            cols: Range<Int>
+        ) -> Bool { cols.contains { canvas.cell(row: row, col: $0).contains(foreground) } }
+        #expect(
+            ink(row: 1, cols: 0 ..< 4) && ink(row: 2, cols: 0 ..< 4),
+            "the letters fill the row and the one under it"
+        )
+        #expect(!ink(row: 1, cols: 4 ..< 20) && !ink(row: 2, cols: 4 ..< 20), "two letters, two cells each")
+        #expect(!ink(row: 5, cols: 0 ..< 4), "an ordinary row stays in its row")
+        // The same text at the ordinary size is half as wide.
+        #expect(ink(row: 4, cols: 0 ..< 2) && !ink(row: 4, cols: 2 ..< 20))
+    }
+
+    @Test(
+        "a boxed run (altfont, blend 100) is outlined in its special colour with its tint inside, and the text keeps its size"
+    )
+    func boxed() throws {
+        let canvas = try Canvas()
+        var builder = ScreenBuilder(cols: 20, rows: 6)
+        builder.highlight(6, [
+            "altfont": .bool(true), "blend": .int(100), "background": .int(0x202830), "special": .int(0xFF8800),
+        ])
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
+        builder.text("  ab  ", grid: 2, row: 2, col: 3, hl: 6)
+        try canvas.render(Frame(screen: builder.screen))
+        let top = 2 * canvas.cellHeight, bottom = 3 * canvas.cellHeight
+        let left = 3 * canvas.cellWidth, right = 9 * canvas.cellWidth
+        func orange(_ colour: Int) -> Bool { (colour >> 16) & 0xFF > 0xB0 && (colour >> 8) & 0xFF > 0x50 && colour &
+            0xFF < 0x50
+        }
+        let middle = top + canvas.cellHeight / 2
+        #expect((left ..< left + 6).contains { orange(canvas.pixel(x: $0, y: middle)) }, "the outline's left side")
+        #expect((right - 6 ..< right).contains { orange(canvas.pixel(x: $0, y: middle)) }, "the outline's right side")
+        #expect((top ..< top + 6).contains { orange(canvas.pixel(x: left + (right - left) / 2, y: $0)) }, "the top")
+        // Opaque inside (`blend` is not a transparency here), and nothing outside the box.
+        #expect(canvas.pixel(x: left + canvas.cellWidth / 2, y: middle) == 0x202830, "the tint, fully opaque")
+        #expect(Set(canvas.cell(row: 2, col: 12)) == [background], "the cells after it are untouched")
+    }
+
+    @Test("a run with altfont and a blend of 50 is one and a half times the size")
+    func halfwayScale() throws {
+        let canvas = try Canvas()
+        var builder = ScreenBuilder(cols: 20, rows: 6)
+        builder.highlight(5, ["altfont": .bool(true), "blend": .int(50)])
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
+        builder.text("MMMM", grid: 2, row: 1, col: 0, hl: 5)
+        try canvas.render(Frame(screen: builder.screen))
+        func ink(
+            row: Int,
+            cols: Range<Int>
+        ) -> Bool { cols.contains { canvas.cell(row: row, col: $0).contains(foreground) } }
+        // Four letters at 1.5 cells: six cells wide, two rows tall (the second only partly).
+        #expect(ink(row: 1, cols: 0 ..< 6) && ink(row: 2, cols: 0 ..< 6))
+        #expect(!ink(row: 1, cols: 6 ..< 20), "not as wide as at twice the size")
+    }
+
+    @Test(
+        "a card (altfont, blend 98, 97, 96) is a sunken block: rounded at its first and last row, the fill inside, a line in the special colour along the bottom"
+    )
+    func card() throws {
+        let canvas = try Canvas(cols: 24, rows: 8)
+        var builder = ScreenBuilder(cols: 24, rows: 8)
+        let fill = 0x303040
+        for (id, blend) in [(5, 98), (6, 97), (7, 96)] {
+            var attrs: [String: MessagePackValue] = [
+                "altfont": .bool(true),
+                "blend": .int(Int64(blend)),
+                "background": .int(Int64(fill)),
+            ]
+            if blend == 96 { attrs["special"] = .int(Int64(0x33DD88)) }
+            builder.highlight(id, attrs)
+        }
+        builder.window(grid: 2, row: 0, col: 0, cols: 24, rows: 8)
+        builder.text(String(repeating: " ", count: 16), grid: 2, row: 2, col: 4, hl: 5)
+        builder.text(String(repeating: " ", count: 16), grid: 2, row: 3, col: 4, hl: 6)
+        builder.text(String(repeating: " ", count: 16), grid: 2, row: 4, col: 4, hl: 6)
+        builder.text(String(repeating: " ", count: 16), grid: 2, row: 5, col: 4, hl: 7)
+        try canvas.render(Frame(screen: builder.screen))
+        let left = 4 * canvas.cellWidth, right = 20 * canvas.cellWidth
+        let top = 2 * canvas.cellHeight, bottom = 6 * canvas.cellHeight
+        #expect(canvas.pixel(x: left, y: top) == background, "the top corners are rounded away")
+        #expect(canvas.pixel(x: right - 1, y: bottom - 1) == background, "so are the bottom ones")
+        #expect(
+            canvas.pixel(x: left, y: top + 3 * canvas.cellHeight / 2) != background,
+            "the sides of the middle rows are not"
+        )
+        func close(_ a: Int, _ b: Int) -> Bool {
+            abs((a >> 16) - (b >> 16)) < 12 && abs(((a >> 8) & 0xFF) - ((b >> 8) & 0xFF)) < 12 &&
+                abs((a & 0xFF) - (b & 0xFF)) < 12
+        }
+        #expect(
+            close(canvas.pixel(x: (left + right) / 2, y: 4 * canvas.cellHeight + canvas.cellHeight / 2), fill),
+            "the fill, away from the edges"
+        )
+        #expect(
+            !close(canvas.pixel(x: (left + right) / 2, y: top + 3), fill),
+            "the top row is shaded darker near its top edge"
+        )
+        let line = ((bottom - 8) ..< bottom).contains { y in
+            let colour = canvas.pixel(x: (left + right) / 2, y: y)
+            return (colour >> 8) & 0xFF > 0xB0 && (colour >> 16) & 0xFF < 0x60
+        }
+        #expect(line, "the line along the bottom edge")
+        #expect(Set(canvas.cell(row: 1, col: 10)) == [background], "nothing above the card")
+    }
+
+    @Test("a background inside a card (a diff's added line) shows over the card's fill")
+    func cardInnerBackground() throws {
+        let canvas = try Canvas(cols: 24, rows: 8)
+        var builder = ScreenBuilder(cols: 24, rows: 8)
+        builder.highlight(5, ["altfont": .bool(true), "blend": .int(97), "background": .int(0x202030)])
+        builder.highlight(6, ["altfont": .bool(true), "blend": .int(97), "background": .int(0x206020)])
+        builder.window(grid: 2, row: 0, col: 0, cols: 24, rows: 8)
+        builder.text(String(repeating: " ", count: 16), grid: 2, row: 3, col: 4, hl: 5)
+        builder.text(String(repeating: " ", count: 6), grid: 2, row: 3, col: 8, hl: 6)
+        try canvas.render(Frame(screen: builder.screen))
+        let centre = canvas.pixel(x: 10 * canvas.cellWidth, y: 3 * canvas.cellHeight + canvas.cellHeight / 2)
+        #expect(
+            (centre >> 8) & 0xFF > 0x50 && (centre >> 16) & 0xFF < 0x40,
+            "the added line's green, not the card's fill: \(String(centre, radix: 16))"
+        )
+    }
+
+    @Test("a diff row as a walkthrough builds it: padding, gutter, then the added line's cells to the end of the card")
+    func cardDiffRow() throws {
+        let canvas = try Canvas(cols: 24, rows: 8)
+        var builder = ScreenBuilder(cols: 24, rows: 8)
+        builder.highlight(5, ["altfont": .bool(true), "blend": .int(97), "background": .int(0x202030)])
+        builder.highlight(
+            6,
+            ["altfont": .bool(true), "blend": .int(97), "background": .int(0x206020), "foreground": .int(0xF0F0F0)]
+        )
+        builder.window(grid: 2, row: 0, col: 0, cols: 24, rows: 8)
+        builder.text("  ", grid: 2, row: 3, col: 4, hl: 5)
+        builder.text("+ return x      ", grid: 2, row: 3, col: 6, hl: 6)
+        try canvas.render(Frame(screen: builder.screen))
+        let y = 3 * canvas.cellHeight + 2
+        let colour = canvas.pixel(x: 18 * canvas.cellWidth, y: y)
+        #expect((colour >> 8) & 0xFF > 0x50, "green to the end of the row: \(String(colour, radix: 16))")
+    }
+
+    @Test(
+        "a diagram is drawn from its rows: each row's cell names a slice, the last is partial, rows past it show nothing"
+    )
+    func diagramRows() throws {
+        let canvas = try Canvas(cols: 24, rows: 8)
+        let width = 6 * canvas.cellWidth, height = canvas.cellHeight * 5 / 2
+        // Opaque green, premultiplied BGRA, at this canvas's scale.
+        var pixels = Data(count: width * height * 4)
+        pixels.withUnsafeMutableBytes { bytes in
+            for i in 0 ..< width * height {
+                bytes[i * 4] = 0x40
+                bytes[i * 4 + 1] = 0xC8
+                bytes[i * 4 + 2] = 0x20
+                bytes[i * 4 + 3] = 0xFF
+            }
+        }
+        let image = DiagramImage(
+            pixelWidth: width, pixelHeight: height, bytesPerRow: width * 4, pixels: pixels,
+            size: CGSize(width: Double(width) / 2, height: Double(height) / 2), scale: canvas.scale, regions: []
+        )
+        let id = DiagramStore.shared.register(image, key: "renderer-test-\(UUID().uuidString)")
+        var builder = ScreenBuilder(cols: 24, rows: 8)
+        builder.window(grid: 2, row: 0, col: 0, cols: 24, rows: 7)
+        for slice in 0 ..< 4 {
+            let character = try #require(DiagramStore.character(id: id, slice: slice))
+            builder.text(String(character), grid: 2, row: 1 + slice, col: 2)
+        }
+        try canvas.render(Frame(screen: builder.screen))
+        func green(row: Int, col: Int) -> Bool {
+            let colour = canvas.pixel(x: col * canvas.cellWidth + 4, y: row * canvas.cellHeight + canvas.cellHeight / 4)
+            return (colour >> 8) & 0xFF > 0xA0 && (colour >> 16) & 0xFF < 0x60
+        }
+        #expect(green(row: 1, col: 2) && green(row: 1, col: 6), "the first slice, across the picture's width")
+        #expect(green(row: 2, col: 2), "the second")
+        #expect(green(row: 3, col: 2), "the third, half a row")
+        let belowHalf = canvas.pixel(x: 2 * canvas.cellWidth + 4, y: 3 * canvas.cellHeight + canvas.cellHeight * 3 / 4)
+        #expect(belowHalf == background, "the picture ends half way down its last row")
+        #expect(!green(row: 4, col: 2), "a row past the picture's end shows nothing")
+        #expect(!green(row: 1, col: 9), "and nothing beyond the picture's width")
+        // A character that names no diagram is no picture.
+        #expect(DiagramStore.decode("a") == nil && DiagramStore.decode(String(DiagramStore.character(
+            id: id,
+            slice: 1
+        )!))?.slice == 1)
+    }
+
+    @Test("a scaled line of several runs lays them end to end, and what follows it starts after it, not under it")
+    func scaledRunsEndToEnd() throws {
+        let canvas = try Canvas(cols: 30, rows: 6)
+        var builder = ScreenBuilder(cols: 30, rows: 6)
+        // The two runs are the same size but differ in colour, as a heading's parts do (a number, the title, a
+        // highlight).
+        builder.highlight(5, ["altfont": .bool(true), "foreground": .int(0xF0F0F0)])
+        builder.highlight(6, ["altfont": .bool(true), "foreground": .int(0xF0F0F0), "bold": .bool(true)])
+        builder.window(grid: 2, row: 0, col: 0, cols: 30, rows: 5)
+        builder.text("MM", grid: 2, row: 1, col: 0, hl: 5)
+        builder.text("MM", grid: 2, row: 1, col: 2, hl: 6)
+        builder.text("ab", grid: 2, row: 1, col: 4)
+        try canvas.render(Frame(screen: builder.screen))
+        func ink(_ col: Int) -> Bool { canvas.cell(row: 1, col: col).contains(foreground) }
+        // Four scaled letters, two cells each: screen columns 0 to 7. The ordinary "ab" after them: columns 8 and 9.
+        for col in 0 ..< 8 {
+            #expect(ink(col), "the scaled letters fill column \(col)")
+        }
+        #expect(ink(8) && ink(9), "the ordinary text starts after the scaled text")
+        #expect(!ink(10), "and ends where it ends")
+    }
+
+    @Test("a scaled run has its background under it, wherever the cursor line or a selection puts one")
+    func scaledBackground() throws {
+        let canvas = try Canvas(cols: 20, rows: 6)
+        var builder = ScreenBuilder(cols: 20, rows: 6)
+        builder.highlight(5, ["altfont": .bool(true), "background": .int(0x204060)])
+        builder.window(grid: 2, row: 0, col: 0, cols: 20, rows: 5)
+        builder.text("  ", grid: 2, row: 1, col: 0, hl: 5)
+        try canvas.render(Frame(screen: builder.screen))
+        let colour = canvas.pixel(x: 2 * canvas.cellWidth, y: canvas.cellHeight + 3)
+        #expect(colour == 0x204060, "two scaled cells are four columns of background: \(String(colour, radix: 16))")
     }
 
     // MARK: Day 4: cursor and colours

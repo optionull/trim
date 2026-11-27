@@ -35,6 +35,7 @@ function M.setup()
   syntax()
   theme()
   diagnostics()
+  require('trim.mdstyle').setup()
   require('trim.plugins').setup()
   require('trim.lsp').setup()
 end

@@ -55,9 +55,21 @@ sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" -e "s/__COMMIT__/$co
 rm -rf "$frame/Contents/Resources/nvim"
 cp -R "$root/Vendor/nvim" "$frame/Contents/Resources/nvim"
 codesign --force --sign - "$frame/Contents/Resources/nvim/bin/nvim"
+# The `trim` tool agents use to write and check walkthroughs (the cask links it onto the PATH).
+mkdir -p "$frame/Contents/Helpers"
+cp "$products/trim-cli" "$frame/Contents/Helpers/trim"
+codesign --force --sign - "$frame/Contents/Helpers/trim"
+# Mermaider's native library, when it is built (`mise run mermaider`): Trim draws ```mermaid diagrams with it, and without it a
+# diagram stays source.
+rm -rf "$frame/Contents/Frameworks"
+if [ -f "$root/Vendor/Mermaider/mermaider.dylib" ]; then
+  mkdir -p "$frame/Contents/Frameworks"
+  cp "$root/Vendor/Mermaider/mermaider.dylib" "$frame/Contents/Frameworks/mermaider.dylib"
+  codesign --force --sign - "$frame/Contents/Frameworks/mermaider.dylib"
+fi
 codesign --force --sign - "$frame"
 echo "bundle: $frame"
-for wanted in fonts/SymbolsNerdFontMono-Regular.ttf fonts/LICENSE nvim/bin/nvim nvim/LICENSE.txt runtime/plugin/trim.lua runtime/pack/trim/start/tokyonight.nvim/colors/tokyonight-night.lua treesitter/parser/c_sharp.so; do
+for wanted in fonts/SymbolsNerdFontMono-Regular.ttf fonts/LICENSE ../Helpers/trim nvim/bin/nvim nvim/LICENSE.txt runtime/plugin/trim.lua runtime/pack/trim/start/tokyonight.nvim/colors/tokyonight-night.lua treesitter/parser/c_sharp.so; do
   if [ ! -f "$frame/Contents/Resources/$wanted" ]; then
     echo "bundle: $wanted is missing from Trim" >&2
     exit 1
